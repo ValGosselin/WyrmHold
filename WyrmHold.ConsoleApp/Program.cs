@@ -1,5 +1,6 @@
 ﻿using Microsoft.Win32;
 using Wyrmhold.ConsoleApp;
+using System.Diagnostics;
 
 string? steamPath = Registry.GetValue(
     @"HKEY_CURRENT_USER\Software\Valve\Steam",
@@ -69,12 +70,30 @@ foreach (string folder in libraryFolders)
     }
 }
 
-Console.WriteLine($"{games.Count} jeu(x) trouvé(s) :");
+List<Game> sortedGames = games.OrderBy(g => g.Name).ToList();
 
-foreach (Game game in games.OrderBy(g => g.Name))
+Console.WriteLine($"{sortedGames.Count} jeu(x) trouvé(s) :");
+
+for (int i = 0; i < sortedGames.Count; i++)
 {
-    Console.WriteLine($" - {game.Name} ({game.Platform}, id {game.PlatformGameId})");
+    Console.WriteLine($" {i + 1}. {sortedGames[i].Name}");
 }
+
+Console.WriteLine();
+Console.Write("Numéro du jeu à lancer (Entrée pour quitter) : ");
+string? input = Console.ReadLine();
+
+if (!int.TryParse(input, out int choice) || choice < 1 || choice > sortedGames.Count)
+{
+    Console.WriteLine("Aucun jeu lancé.");
+    return;
+}
+
+Game selectedGame = sortedGames[choice - 1];
+string launchUrl = $"steam://rungameid/{selectedGame.PlatformGameId}";
+
+Console.WriteLine($"Lancement de {selectedGame.Name}...");
+Process.Start(new ProcessStartInfo(launchUrl) { UseShellExecute = true });
 
 string? ReadValue(string[] lines, string key)
 {
