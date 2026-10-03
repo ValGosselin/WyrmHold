@@ -1,4 +1,5 @@
 ﻿using Microsoft.Win32;
+using Wyrmhold.ConsoleApp;
 
 string? steamPath = Registry.GetValue(
     @"HKEY_CURRENT_USER\Software\Valve\Steam",
@@ -12,7 +13,6 @@ if (steamPath is null)
 }
 
 steamPath = Path.GetFullPath(steamPath);
-Console.WriteLine($"Dossier de Steam : {steamPath}");
 
 string vdfPath = Path.Combine(steamPath, "steamapps", "libraryfolders.vdf");
 
@@ -30,19 +30,11 @@ foreach (string line in File.ReadAllLines(vdfPath))
 
     if (parts.Length >= 4 && parts[1] == "path")
     {
-        string folder = parts[3].Replace(@"\\", @"\");
-        libraryFolders.Add(folder);
+        libraryFolders.Add(parts[3].Replace(@"\\", @"\"));
     }
 }
 
-Console.WriteLine($"{libraryFolders.Count} dossier(s) de bibliothèque :");
-foreach (string folder in libraryFolders)
-{
-    Console.WriteLine($" - {folder}");
-}
-
-Console.WriteLine();
-Console.WriteLine("Jeux installés :");
+List<Game> games = new List<Game>();
 
 foreach (string folder in libraryFolders)
 {
@@ -66,9 +58,22 @@ foreach (string folder in libraryFolders)
             continue;
         }
 
-        string installPath = Path.Combine(steamappsPath, "common", installDir);
-        Console.WriteLine($" - [{appId}] {name} ({installPath})");
+        games.Add(new Game
+        {
+            Platform = Platform.Steam,
+            PlatformGameId = appId,
+            Name = name,
+            IsInstalled = true,
+            InstallPath = Path.Combine(steamappsPath, "common", installDir)
+        });
     }
+}
+
+Console.WriteLine($"{games.Count} jeu(x) trouvé(s) :");
+
+foreach (Game game in games.OrderBy(g => g.Name))
+{
+    Console.WriteLine($" - {game.Name} ({game.Platform}, id {game.PlatformGameId})");
 }
 
 string? ReadValue(string[] lines, string key)
