@@ -69,7 +69,9 @@ foreach (string folder in libraryFolders)
         });
     }
 }
-
+GameDatabase database = new GameDatabase();
+database.Initialize();
+Console.WriteLine($"Base de données : {database.DatabasePath}");
 List<Game> sortedGames = games.OrderBy(g => g.Name).ToList();
 
 Console.WriteLine($"{sortedGames.Count} jeu(x) trouvé(s) :");
