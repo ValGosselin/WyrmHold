@@ -71,6 +71,8 @@ foreach (string folder in libraryFolders)
 }
 GameDatabase database = new GameDatabase();
 database.Initialize();
+database.SaveGames(Platform.Steam, games);
+Console.WriteLine($"{games.Count} jeu(x) enregistré(s) dans la base.");
 Console.WriteLine($"Base de données : {database.DatabasePath}");
 List<Game> sortedGames = games.OrderBy(g => g.Name).ToList();
 
