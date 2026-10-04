@@ -30,7 +30,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        _library.Launch(game);
+        if (!_library.Launch(game))
+        {
+            MessageBox.Show($"Impossible de lancer {game.Name}. Les détails sont dans le journal.", "Wyrmhold");
+        }
     }
 
     private void PlayButton_Click(object sender, RoutedEventArgs e)

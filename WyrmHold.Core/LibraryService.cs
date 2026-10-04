@@ -7,7 +7,8 @@ public class LibraryService
         new SteamProvider(),
         new EpicProvider(),
         new UbisoftProvider(),
-        new BattleNetProvider()
+        new BattleNetProvider(),
+        new GogProvider()
     };
 
     private readonly GameDatabase _database = new GameDatabase();
@@ -38,16 +39,25 @@ public class LibraryService
         return allGames;
     }
 
-    public void Launch(Game game)
+    public bool Launch(Game game)
     {
         ILibraryProvider? provider = _providers.FirstOrDefault(p => p.Platform == game.Platform);
 
         if (provider is null)
         {
             Logger.Log($"Aucun provider pour {game.Platform}");
-            return;
+            return false;
         }
 
-        provider.Launch(game);
+        try
+        {
+            provider.Launch(game);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Impossible de lancer {game.Name} : {ex}");
+            return false;
+        }
     }
 }

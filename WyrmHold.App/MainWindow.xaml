@@ -23,7 +23,7 @@
                     <GridViewColumn Header="Nom" Width="450"
                                 DisplayMemberBinding="{Binding Name}"/>
                     <GridViewColumn Header="Plateforme" Width="150"
-                                DisplayMemberBinding="{Binding Platform}"/>
+                                DisplayMemberBinding="{Binding PlatformName}"/>
                 </GridView>
             </ListView.View>
         </ListView>

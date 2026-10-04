@@ -8,4 +8,14 @@ public class Game
     public string Name { get; set; } = "";
     public bool IsInstalled { get; set; }
     public string? InstallPath { get; set; }
+    public string PlatformName => Platform switch
+    {
+        Platform.Steam => "Steam",
+        Platform.Epic => "Epic Games",
+        Platform.Ubisoft => "Ubisoft",
+        Platform.Gog => "GOG",
+        Platform.Ea => "EA",
+        Platform.BattleNet => "Battle.net",
+        _ => Platform.ToString()
+    };
 }
