@@ -4,7 +4,9 @@ public class LibraryService
 {
     private readonly List<ILibraryProvider> _providers = new List<ILibraryProvider>
     {
-        new SteamProvider()
+        new SteamProvider(),
+        new EpicProvider(),
+        new UbisoftProvider()
     };
 
     private readonly GameDatabase _database = new GameDatabase();
