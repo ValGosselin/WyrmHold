@@ -6,7 +6,8 @@ public class LibraryService
     {
         new SteamProvider(),
         new EpicProvider(),
-        new UbisoftProvider()
+        new UbisoftProvider(),
+        new BattleNetProvider()
     };
 
     private readonly GameDatabase _database = new GameDatabase();
