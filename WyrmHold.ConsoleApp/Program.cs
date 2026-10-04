@@ -1,29 +1,20 @@
 ﻿using Wyrmhold.Core;
 
-LibraryService library = new LibraryService();
-List<Game> games = library.ScanAll();
+Secrets secrets = Secrets.Load();
+SteamWebApi steamApi = new SteamWebApi(secrets);
 
-List<Game> sortedGames = games.OrderBy(g => g.Name).ToList();
-
-Console.WriteLine($"{sortedGames.Count} jeu(x) trouvé(s) :");
-
-for (int i = 0; i < sortedGames.Count; i++)
+if (!steamApi.IsConfigured)
 {
-    Console.WriteLine($" {i + 1}. {sortedGames[i].Name}");
-}
-
-Console.WriteLine();
-Console.Write("Numéro du jeu à lancer (Entrée pour quitter) : ");
-string? input = Console.ReadLine();
-
-if (!int.TryParse(input, out int choice) || choice < 1 || choice > sortedGames.Count)
-{
-    Console.WriteLine("Aucun jeu lancé.");
+    Console.WriteLine("secrets.json introuvable ou incomplet.");
     return;
 }
 
-Game selectedGame = sortedGames[choice - 1];
+List<SteamOwnedGame> ownedGames = await steamApi.GetOwnedGamesAsync();
 
+Console.WriteLine($"{ownedGames.Count} jeu(x) possédé(s) sur Steam.");
+Console.WriteLine("Tes 10 jeux les plus joués :");
 
-Console.WriteLine($"Lancement de {selectedGame.Name}...");
-library.Launch(selectedGame);
+foreach (SteamOwnedGame game in ownedGames.OrderByDescending(g => g.PlaytimeMinutes).Take(10))
+{
+    Console.WriteLine($" - {game.Name} : {game.PlaytimeMinutes / 60} h");
+}

@@ -10,13 +10,8 @@ public class GameDatabase
 
     public GameDatabase()
     {
-        string folder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Wyrmhold");
+        DatabasePath = Path.Combine(AppPaths.DataFolder, "wyrmhold.db");
 
-        Directory.CreateDirectory(folder);
-
-        DatabasePath = Path.Combine(folder, "wyrmhold.db");
         _connectionString = $"Data Source={DatabasePath}";
     }
 
