@@ -1,11 +1,7 @@
 ﻿using Wyrmhold.Core;
 
-SteamScanner scanner = new SteamScanner();
-List<Game> games = scanner.GetInstalledGames();
-
-GameDatabase database = new GameDatabase();
-database.Initialize();
-database.SaveGames(Platform.Steam, games);
+LibraryService library = new LibraryService();
+List<Game> games = library.ScanAll();
 
 List<Game> sortedGames = games.OrderBy(g => g.Name).ToList();
 
@@ -30,4 +26,4 @@ Game selectedGame = sortedGames[choice - 1];
 
 
 Console.WriteLine($"Lancement de {selectedGame.Name}...");
-GameLauncher.Launch(selectedGame);
+library.Launch(selectedGame);

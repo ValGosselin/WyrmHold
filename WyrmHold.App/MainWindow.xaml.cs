@@ -6,20 +6,17 @@ namespace WyrmHold.App;
 
 public partial class MainWindow : Window
 {
-    private readonly SteamScanner _scanner = new SteamScanner();
-    private readonly GameDatabase _database = new GameDatabase();
+    private readonly LibraryService _library = new LibraryService();
 
     public MainWindow()
     {
         InitializeComponent();
-        _database.Initialize();
         LoadGames();
     }
 
     private void LoadGames()
     {
-        List<Game> games = _scanner.GetInstalledGames();
-        _database.SaveGames(Platform.Steam, games);
+        List<Game> games = _library.ScanAll();
 
         GamesList.ItemsSource = games.OrderBy(g => g.Name).ToList();
         Title = $"Wyrmhold — {games.Count} jeu(x)";
@@ -33,7 +30,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        GameLauncher.Launch(game);
+        _library.Launch(game);
     }
 
     private void PlayButton_Click(object sender, RoutedEventArgs e)

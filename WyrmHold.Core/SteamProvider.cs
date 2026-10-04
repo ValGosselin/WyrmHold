@@ -1,9 +1,11 @@
 ﻿using Microsoft.Win32;
+using System.Diagnostics;
 
 namespace Wyrmhold.Core;
 
-public class SteamScanner
+public class SteamProvider : ILibraryProvider
 {
+    public Platform Platform => Platform.Steam;
     public List<Game> GetInstalledGames()
     {
         List<Game> games = new List<Game>();
@@ -61,7 +63,11 @@ public class SteamScanner
 
         return games;
     }
-
+    public void Launch(Game game)
+    {
+        string launchUrl = $"steam://rungameid/{game.PlatformGameId}";
+        Process.Start(new ProcessStartInfo(launchUrl) { UseShellExecute = true });
+    }
     private static List<string> GetLibraryFolders(string vdfPath)
     {
         List<string> folders = new List<string>();
