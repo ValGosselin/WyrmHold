@@ -8,7 +8,8 @@ public class LibraryService
         new EpicProvider(),
         new UbisoftProvider(),
         new BattleNetProvider(),
-        new GogProvider()
+        new GogProvider(),
+        new EaProvider()
     };
 
     private readonly GameDatabase _database = new GameDatabase();
