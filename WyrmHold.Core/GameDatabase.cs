@@ -1,6 +1,6 @@
 ﻿using Microsoft.Data.Sqlite;
 
-namespace Wyrmhold.ConsoleApp;
+namespace Wyrmhold.Core;
 
 public class GameDatabase
 {

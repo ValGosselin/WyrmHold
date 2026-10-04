@@ -1,4 +1,5 @@
-﻿namespace Wyrmhold.ConsoleApp;
+﻿
+namespace Wyrmhold.Core;
 
 public class Game
 {

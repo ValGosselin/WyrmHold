@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="WyrmHold.ConsoleApp/WyrmHold.ConsoleApp.csproj" Id="4167a6e0-b1f1-4cb0-a05c-e1152ab8b3d7" />
+  <Project Path="WyrmHold.Core/WyrmHold.Core.csproj" Id="b8718bb0-c2fe-4676-a802-15e2815e265d" />
 </Solution>

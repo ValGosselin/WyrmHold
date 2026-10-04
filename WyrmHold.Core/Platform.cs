@@ -1,4 +1,4 @@
-﻿namespace Wyrmhold.ConsoleApp;
+﻿namespace Wyrmhold.Core;
 
 public enum Platform
 {
