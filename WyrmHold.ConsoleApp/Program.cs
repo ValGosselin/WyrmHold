@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using Wyrmhold.Core;
+﻿using Wyrmhold.Core;
 
 SteamScanner scanner = new SteamScanner();
 List<Game> games = scanner.GetInstalledGames();
@@ -28,7 +27,7 @@ if (!int.TryParse(input, out int choice) || choice < 1 || choice > sortedGames.C
 }
 
 Game selectedGame = sortedGames[choice - 1];
-string launchUrl = $"steam://rungameid/{selectedGame.PlatformGameId}";
+
 
 Console.WriteLine($"Lancement de {selectedGame.Name}...");
-Process.Start(new ProcessStartInfo(launchUrl) { UseShellExecute = true });
+GameLauncher.Launch(selectedGame);
