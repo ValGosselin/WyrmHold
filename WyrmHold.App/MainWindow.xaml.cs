@@ -11,15 +11,31 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        LoadGames();
     }
 
-    private void LoadGames()
+    private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        List<Game> games = _library.ScanAll();
+        await LoadGamesAsync();
+    }
+
+    private async Task LoadGamesAsync()
+    {
+        RefreshButton.IsEnabled = false;
+        Title = "Wyrmhold — chargement…";
+
+        List<Game> games = await _library.ScanAllAsync();
 
         GamesList.ItemsSource = games.OrderBy(g => g.Name).ToList();
-        Title = $"Wyrmhold — {games.Count} jeu(x)";
+
+        int installedCount = games.Count(g => g.IsInstalled);
+        Title = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
+
+        RefreshButton.IsEnabled = true;
+    }
+
+    private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadGamesAsync();
     }
 
     private void LaunchSelectedGame()
@@ -41,10 +57,7 @@ public partial class MainWindow : Window
         LaunchSelectedGame();
     }
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e)
-    {
-        LoadGames();
-    }
+
 
     private void GamesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {

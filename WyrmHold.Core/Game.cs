@@ -18,4 +18,15 @@ public class Game
         Platform.BattleNet => "Battle.net",
         _ => Platform.ToString()
     };
+
+    public int PlaytimeMinutes { get; set; }
+
+    public string PlaytimeText => PlaytimeMinutes switch
+    {
+        0 => "",
+        < 60 => $"{PlaytimeMinutes} min",
+        _ => $"{PlaytimeMinutes / 60} h"
+    };
+
+    public string InstalledText => IsInstalled ? "✓" : "";
 }

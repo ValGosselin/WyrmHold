@@ -13,23 +13,27 @@ public class LibraryService
     };
 
     private readonly GameDatabase _database = new GameDatabase();
+    private readonly SteamWebApi _steamApi = new SteamWebApi(Secrets.Load());
 
     public LibraryService()
     {
         _database.Initialize();
     }
 
-    public List<Game> ScanAll()
+    public async Task<List<Game>> ScanAllAsync()
     {
-        List<Game> allGames = new List<Game>();
-
         foreach (ILibraryProvider provider in _providers)
         {
             try
             {
                 List<Game> games = provider.GetInstalledGames();
+
+                if (provider.Platform == Platform.Steam)
+                {
+                    await AddSteamOwnedGamesAsync(games);
+                }
+
                 _database.SaveGames(provider.Platform, games);
-                allGames.AddRange(games);
             }
             catch (Exception ex)
             {
@@ -37,7 +41,41 @@ public class LibraryService
             }
         }
 
-        return allGames;
+        return _database.LoadGames();
+    }
+
+    private async Task AddSteamOwnedGamesAsync(List<Game> steamGames)
+    {
+        try
+        {
+            List<SteamOwnedGame> ownedGames = await _steamApi.GetOwnedGamesAsync();
+
+            foreach (SteamOwnedGame owned in ownedGames)
+            {
+                string appId = owned.AppId.ToString();
+                Game? game = steamGames.FirstOrDefault(g => g.PlatformGameId == appId);
+
+                if (game is null)
+                {
+                    steamGames.Add(new Game
+                    {
+                        Platform = Platform.Steam,
+                        PlatformGameId = appId,
+                        Name = owned.Name,
+                        IsInstalled = false,
+                        PlaytimeMinutes = owned.PlaytimeMinutes
+                    });
+                }
+                else
+                {
+                    game.PlaytimeMinutes = owned.PlaytimeMinutes;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"API Steam indisponible : {ex.Message}");
+        }
     }
 
     public bool Launch(Game game)

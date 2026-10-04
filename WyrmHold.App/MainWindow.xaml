@@ -5,13 +5,14 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WyrmHold.App"
         mc:Ignorable="d"
-        Title="WyrmHold" Height="450" Width="800">
+        Title="WyrmHold" Height="450" Width="800"
+        Loaded="Window_Loaded">
     <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Bottom"
                 Orientation="Horizontal"
                 HorizontalAlignment="Right"
                 Margin="0,10,0,0">
-            <Button Content="Actualiser" Width="100" Margin="0,0,10,0"
+            <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
                 Click="RefreshButton_Click"/>
             <Button Content="Jouer" Width="100"
                 Click="PlayButton_Click"/>
@@ -20,10 +21,10 @@
         <ListView x:Name="GamesList" MouseDoubleClick="GamesList_MouseDoubleClick">
             <ListView.View>
                 <GridView>
-                    <GridViewColumn Header="Nom" Width="450"
-                                DisplayMemberBinding="{Binding Name}"/>
-                    <GridViewColumn Header="Plateforme" Width="150"
-                                DisplayMemberBinding="{Binding PlatformName}"/>
+                    <GridViewColumn Header="Nom" Width="360" DisplayMemberBinding="{Binding Name}"/>
+                    <GridViewColumn Header="Plateforme" Width="110" DisplayMemberBinding="{Binding PlatformName}"/>
+                    <GridViewColumn Header="Installé" Width="70" DisplayMemberBinding="{Binding InstalledText}"/>
+                    <GridViewColumn Header="Temps de jeu" Width="100" DisplayMemberBinding="{Binding PlaytimeText}"/>
                 </GridView>
             </ListView.View>
         </ListView>
