@@ -71,23 +71,25 @@ public class LibraryService
 
         try
         {
-            long startedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            TimeSpan? duration = await _tracker.TrackSessionAsync(game.InstallPath);
+            PlaySessionTimes? session = await _tracker.TrackSessionAsync(game.InstallPath);
 
-            if (duration is null)
+            if (session is null)
             {
                 Logger.Log($"Session de jeu non détectée pour {game.Name}");
                 return;
             }
 
-            int minutes = (int)Math.Round(duration.Value.TotalMinutes);
+            int minutes = (int)Math.Round((session.End - session.Start).TotalMinutes);
 
             if (minutes == 0)
             {
                 return;
             }
 
-            _database.AddPlaySession(game, minutes, startedUnix);
+            long startedUnix = session.Start.ToUnixTimeSeconds();
+            long endedUnix = session.End.ToUnixTimeSeconds();
+
+            _database.AddPlaySession(game, startedUnix, endedUnix, minutes);
             game.PlaytimeMinutes += minutes;
             game.LastPlayedUnix = startedUnix;
         }

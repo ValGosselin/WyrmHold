@@ -44,6 +44,19 @@ public class GameDatabase
         AddColumnIfMissing(connection, "IsEarlyAccess", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "Tags", "TEXT");
         AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
+
+        using SqliteCommand createSessions = connection.CreateCommand();
+        createSessions.CommandText = """
+        CREATE TABLE IF NOT EXISTS PlaySession (
+            Id          INTEGER PRIMARY KEY,
+            GameId      INTEGER NOT NULL REFERENCES Game(Id),
+            StartedUnix INTEGER NOT NULL,
+            EndedUnix   INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS IX_PlaySession_GameId ON PlaySession(GameId);
+        """;
+        createSessions.ExecuteNonQuery();
     }
     public void SaveGames(Platform platform, List<Game> games)
     {
@@ -226,23 +239,34 @@ public class GameDatabase
 
         transaction.Commit();
     }
-    public void AddPlaySession(Game game, int minutes, long startedUnix)
+    public void AddPlaySession(Game game, long startedUnix, long endedUnix, int minutes)
     {
         using SqliteConnection connection = new SqliteConnection(_connectionString);
         connection.Open();
 
-        using SqliteCommand update = connection.CreateCommand();
-        update.CommandText = """
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+        INSERT INTO PlaySession (GameId, StartedUnix, EndedUnix)
+        SELECT Id, $started, $ended
+        FROM Game
+        WHERE Platform = $platform AND PlatformGameId = $gameId;
+
         UPDATE Game SET
             PlaytimeMinutes = PlaytimeMinutes + $minutes,
             LastPlayedUnix  = max(LastPlayedUnix, $started)
         WHERE Platform = $platform AND PlatformGameId = $gameId;
         """;
-        update.Parameters.AddWithValue("$minutes", minutes);
-        update.Parameters.AddWithValue("$started", startedUnix);
-        update.Parameters.AddWithValue("$platform", game.Platform.ToString());
-        update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
-        update.ExecuteNonQuery();
+        command.Parameters.AddWithValue("$started", startedUnix);
+        command.Parameters.AddWithValue("$ended", endedUnix);
+        command.Parameters.AddWithValue("$minutes", minutes);
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.ExecuteNonQuery();
+
+        transaction.Commit();
     }
 }
 

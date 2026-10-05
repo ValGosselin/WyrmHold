@@ -2,20 +2,22 @@
 
 namespace Wyrmhold.Core;
 
+public record PlaySessionTimes(DateTimeOffset Start, DateTimeOffset End);
+
 public class PlaytimeTracker
 {
     private static readonly TimeSpan StartTimeout = TimeSpan.FromMinutes(3);
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
-    public async Task<TimeSpan?> TrackSessionAsync(string installPath)
+    public async Task<PlaySessionTimes?> TrackSessionAsync(string installPath)
     {
         string folder = Path.TrimEndingDirectorySeparator(installPath) + Path.DirectorySeparatorChar;
 
-        DateTime waitUntil = DateTime.Now + StartTimeout;
+        DateTimeOffset waitUntil = DateTimeOffset.Now + StartTimeout;
 
         while (!await Task.Run(() => IsRunning(folder)))
         {
-            if (DateTime.Now > waitUntil)
+            if (DateTimeOffset.Now > waitUntil)
             {
                 return null;
             }
@@ -23,14 +25,14 @@ public class PlaytimeTracker
             await Task.Delay(PollInterval);
         }
 
-        DateTime sessionStart = DateTime.Now;
+        DateTimeOffset sessionStart = DateTimeOffset.Now;
 
         while (await Task.Run(() => IsRunning(folder)))
         {
             await Task.Delay(PollInterval);
         }
 
-        return DateTime.Now - sessionStart;
+        return new PlaySessionTimes(sessionStart, DateTimeOffset.Now);
     }
 
     private static bool IsRunning(string folder)
