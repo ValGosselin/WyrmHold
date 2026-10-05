@@ -12,6 +12,8 @@ public class SteamOwnedGame
 
     [JsonPropertyName("playtime_forever")]
     public int PlaytimeMinutes { get; set; }
+    [JsonPropertyName("rtime_last_played")]
+    public long LastPlayedUnix { get; set; }
 }
 
 internal class SteamOwnedGamesResponse

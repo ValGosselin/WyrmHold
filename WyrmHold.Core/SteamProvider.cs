@@ -49,6 +49,10 @@ public class SteamProvider : ILibraryProvider
                 {
                     continue;
                 }
+                if (appId == "228980")
+                {
+                    continue;
+                }
 
                 games.Add(new Game
                 {

@@ -25,6 +25,8 @@
                     <GridViewColumn Header="Plateforme" Width="110" DisplayMemberBinding="{Binding PlatformName}"/>
                     <GridViewColumn Header="Installé" Width="70" DisplayMemberBinding="{Binding InstalledText}"/>
                     <GridViewColumn Header="Temps de jeu" Width="100" DisplayMemberBinding="{Binding PlaytimeText}"/>
+                    <GridViewColumn Header="Dernière partie" Width="110" DisplayMemberBinding="{Binding LastPlayedText}"/>
+                    <GridViewColumn Header="Origine" Width="80" DisplayMemberBinding="{Binding OriginText}"/>
                 </GridView>
             </ListView.View>
         </ListView>

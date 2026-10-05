@@ -35,6 +35,9 @@ public class GameDatabase
 
         command.ExecuteNonQuery();
         AddColumnIfMissing(connection, "PlaytimeMinutes", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "IsFamilyShared", "INTEGER");
+        AddColumnIfMissing(connection, "OwnerSteamId", "TEXT");
+        AddColumnIfMissing(connection, "LastPlayedUnix", "INTEGER NOT NULL DEFAULT 0");
     }
     public void SaveGames(Platform platform, List<Game> games)
     {
@@ -58,13 +61,18 @@ public class GameDatabase
             using SqliteCommand upsert = connection.CreateCommand();
             upsert.Transaction = transaction;
             upsert.CommandText = """
-            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes)
-            VALUES ($platform, $gameId, $name, $isInstalled, $installPath, $playtime)
+            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, InstallPath,
+                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId)
+            VALUES ($platform, $gameId, $name, $isInstalled, $installPath,
+                    $playtime, $lastPlayed, $isFamilyShared, $ownerSteamId)
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
                 Name            = excluded.Name,
                 IsInstalled     = excluded.IsInstalled,
                 InstallPath     = excluded.InstallPath,
-                PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes);
+                PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes),
+                LastPlayedUnix  = max(Game.LastPlayedUnix, excluded.LastPlayedUnix),
+                IsFamilyShared  = COALESCE(excluded.IsFamilyShared, Game.IsFamilyShared),
+                OwnerSteamId    = COALESCE(excluded.OwnerSteamId, Game.OwnerSteamId);
             """;
             upsert.Parameters.AddWithValue("$platform", game.Platform.ToString());
             upsert.Parameters.AddWithValue("$gameId", game.PlatformGameId);
@@ -72,6 +80,14 @@ public class GameDatabase
             upsert.Parameters.AddWithValue("$isInstalled", game.IsInstalled ? 1 : 0);
             upsert.Parameters.AddWithValue("$installPath", (object?)game.InstallPath ?? DBNull.Value);
             upsert.Parameters.AddWithValue("$playtime", game.PlaytimeMinutes);
+            upsert.Parameters.AddWithValue("$isFamilyShared", game.IsFamilyShared switch
+            {
+                true => 1,
+                false => 0,
+                null => DBNull.Value
+            });
+            upsert.Parameters.AddWithValue("$ownerSteamId", (object?)game.OwnerSteamId ?? DBNull.Value);
+            upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.ExecuteNonQuery();
         }
 
@@ -101,7 +117,7 @@ public class GameDatabase
 
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes
+        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix
         FROM Game
         WHERE IsInstalled = 1 OR Platform = 'Steam';
         """;
@@ -122,11 +138,46 @@ public class GameDatabase
                 Name = reader.GetString(2),
                 IsInstalled = reader.GetInt64(3) == 1,
                 InstallPath = reader.IsDBNull(4) ? null : reader.GetString(4),
-                PlaytimeMinutes = reader.GetInt32(5)
+                PlaytimeMinutes = reader.GetInt32(5),
+                IsFamilyShared = reader.IsDBNull(6) ? null : reader.GetInt64(6) == 1,
+                OwnerSteamId = reader.IsDBNull(7) ? null : reader.GetString(7),
+                LastPlayedUnix = reader.GetInt64(8)
             });
         }
 
         return games;
+    }
+    public void SaveFamilyGames(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand upsert = connection.CreateCommand();
+            upsert.Transaction = transaction;
+            upsert.CommandText = """
+            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled,
+                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId)
+            VALUES ('Steam', $gameId, $name, 0,
+                    $playtime, $lastPlayed, 1, $ownerSteamId)
+            ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
+                PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes),
+                LastPlayedUnix  = max(Game.LastPlayedUnix, excluded.LastPlayedUnix),
+                IsFamilyShared  = 1,
+                OwnerSteamId    = excluded.OwnerSteamId;
+            """;
+            upsert.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            upsert.Parameters.AddWithValue("$name", game.Name);
+            upsert.Parameters.AddWithValue("$playtime", game.PlaytimeMinutes);
+            upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
+            upsert.Parameters.AddWithValue("$ownerSteamId", (object?)game.OwnerSteamId ?? DBNull.Value);
+            upsert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 }
 

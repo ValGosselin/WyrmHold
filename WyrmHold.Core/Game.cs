@@ -3,11 +3,20 @@ namespace Wyrmhold.Core;
 
 public class Game
 {
+    public bool? IsFamilyShared { get; set; }
+    public string? OwnerSteamId { get; set; }
+    public string InstalledText => IsInstalled ? "✓" : "";
+    public string OriginText => IsFamilyShared == true ? "Famille" : "";
     public Platform Platform { get; set; }
     public string PlatformGameId { get; set; } = "";
     public string Name { get; set; } = "";
     public bool IsInstalled { get; set; }
     public string? InstallPath { get; set; }
+    public long LastPlayedUnix { get; set; }
+
+    public string LastPlayedText => LastPlayedUnix == 0
+        ? ""
+        : DateTimeOffset.FromUnixTimeSeconds(LastPlayedUnix).LocalDateTime.ToString("dd/MM/yyyy");
     public string PlatformName => Platform switch
     {
         Platform.Steam => "Steam",
@@ -28,5 +37,5 @@ public class Game
         _ => $"{PlaytimeMinutes / 60} h"
     };
 
-    public string InstalledText => IsInstalled ? "✓" : "";
+    
 }

@@ -13,10 +13,13 @@ public class LibraryService
     };
 
     private readonly GameDatabase _database = new GameDatabase();
-    private readonly SteamWebApi _steamApi = new SteamWebApi(Secrets.Load());
+    private readonly Secrets _secrets;
+    private readonly SteamWebApi _steamApi;
 
     public LibraryService()
     {
+        _secrets = Secrets.Load();
+        _steamApi = new SteamWebApi(_secrets);
         _database.Initialize();
     }
 
@@ -30,7 +33,7 @@ public class LibraryService
 
                 if (provider.Platform == Platform.Steam)
                 {
-                    await AddSteamOwnedGamesAsync(games);
+                    await AddSteamAccountGamesAsync(games);
                 }
 
                 _database.SaveGames(provider.Platform, games);
@@ -44,38 +47,66 @@ public class LibraryService
         return _database.LoadGames();
     }
 
-    private async Task AddSteamOwnedGamesAsync(List<Game> steamGames)
+    private async Task AddSteamAccountGamesAsync(List<Game> steamGames)
     {
         try
         {
             List<SteamOwnedGame> ownedGames = await _steamApi.GetOwnedGamesAsync();
 
+            if (ownedGames.Count == 0)
+            {
+                return;
+            }
+
+            HashSet<string> ownedIds = ownedGames.Select(g => g.AppId.ToString()).ToHashSet();
+
+            foreach (Game game in steamGames)
+            {
+                game.IsFamilyShared = !ownedIds.Contains(game.PlatformGameId);
+            }
+
             foreach (SteamOwnedGame owned in ownedGames)
             {
-                string appId = owned.AppId.ToString();
-                Game? game = steamGames.FirstOrDefault(g => g.PlatformGameId == appId);
+                Game game = FindOrAddSteamGame(steamGames, owned);
+                game.PlaytimeMinutes = owned.PlaytimeMinutes;
+                game.LastPlayedUnix = owned.LastPlayedUnix;
+                game.IsFamilyShared = false;
+            }
 
-                if (game is null)
-                {
-                    steamGames.Add(new Game
-                    {
-                        Platform = Platform.Steam,
-                        PlatformGameId = appId,
-                        Name = owned.Name,
-                        IsInstalled = false,
-                        PlaytimeMinutes = owned.PlaytimeMinutes
-                    });
-                }
-                else
-                {
-                    game.PlaytimeMinutes = owned.PlaytimeMinutes;
-                }
+            List<SteamOwnedGame> recentGames = await _steamApi.GetRecentlyPlayedGamesAsync();
+
+            foreach (SteamOwnedGame recent in recentGames.Where(g => !ownedIds.Contains(g.AppId.ToString())))
+            {
+                Game game = FindOrAddSteamGame(steamGames, recent);
+                game.PlaytimeMinutes = recent.PlaytimeMinutes;
+                game.IsFamilyShared = true;
             }
         }
         catch (Exception ex)
         {
             Logger.Log($"API Steam indisponible : {ex.Message}");
         }
+    }
+
+    private static Game FindOrAddSteamGame(List<Game> steamGames, SteamOwnedGame apiGame)
+    {
+        string appId = apiGame.AppId.ToString();
+        Game? game = steamGames.FirstOrDefault(g => g.PlatformGameId == appId);
+
+        if (game is null)
+        {
+            game = new Game
+            {
+                Platform = Platform.Steam,
+                PlatformGameId = appId,
+                Name = apiGame.Name,
+                IsInstalled = false
+            };
+
+            steamGames.Add(game);
+        }
+
+        return game;
     }
 
     public bool Launch(Game game)
@@ -98,5 +129,28 @@ public class LibraryService
             Logger.Log($"Impossible de lancer {game.Name} : {ex}");
             return false;
         }
+    }
+    public async Task<int> ImportFamilyLibraryAsync(string accessToken)
+    {
+        List<SharedLibraryApp> apps = await _steamApi.GetFamilyLibraryAsync(accessToken);
+
+        List<Game> familyGames = apps
+            .Where(a => a.ExcludeReason == 0
+                        && a.AppType == 1
+                        && !a.OwnerSteamIds.Contains(_secrets.SteamId))
+            .Select(a => new Game
+            {
+                Platform = Platform.Steam,
+                PlatformGameId = a.AppId.ToString(),
+                Name = a.Name,
+                PlaytimeMinutes = a.PlaytimeMinutes,
+                LastPlayedUnix = a.LastPlayedUnix,
+                IsFamilyShared = true,
+                OwnerSteamId = a.OwnerSteamIds.FirstOrDefault()
+            })
+            .ToList();
+
+        _database.SaveFamilyGames(familyGames);
+        return familyGames.Count;
     }
 }
