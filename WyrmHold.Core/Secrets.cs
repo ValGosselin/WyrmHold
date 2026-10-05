@@ -7,6 +7,7 @@ public class Secrets
     public string SteamApiKey { get; set; } = "";
     public string SteamId { get; set; } = "";
 
+    public string SteamGridDbApiKey { get; set; } = "";
     public static Secrets Load()
     {
         string path = Path.Combine(AppPaths.DataFolder, "secrets.json");

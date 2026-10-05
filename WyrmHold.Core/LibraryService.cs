@@ -17,11 +17,13 @@ public class LibraryService
     private readonly SteamWebApi _steamApi;
     public string SteamId => _secrets.SteamId;
     private readonly CoverCache _covers = new CoverCache();
+    private readonly SteamGridDbApi _steamGridDb;
 
     public LibraryService()
     {
         _secrets = Secrets.Load();
         _steamApi = new SteamWebApi(_secrets);
+        _steamGridDb = new SteamGridDbApi(_secrets.SteamGridDbApiKey);
         _database.Initialize();
     }
 
@@ -160,6 +162,7 @@ public class LibraryService
     public async Task DownloadCoversAsync(List<Game> games)
     {
         await _covers.DownloadMissingSteamCoversAsync(games);
+        await _covers.DownloadMissingCoversFromSteamGridDbAsync(games, _steamGridDb);
         _covers.AttachCovers(games);
     }
 }
