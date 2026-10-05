@@ -9,17 +9,96 @@ namespace WyrmHold.App;
 public partial class MainWindow : Window
 {
     private readonly LibraryService _library = new LibraryService();
+    private readonly System.Windows.Forms.NotifyIcon _trayIcon = new System.Windows.Forms.NotifyIcon();
+    private bool _isExiting;
+    private bool _trayTipShown;
 
     public MainWindow()
     {
         InitializeComponent();
+        SetUpTrayIcon();
+
+        Application.Current.SessionEnding += (sender, e) =>
+        {
+            _isExiting = true;
+            _trayIcon.Dispose();
+        };
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         await LoadGamesAsync();
     }
+    private void SetUpTrayIcon()
+    {
+        string? exePath = Environment.ProcessPath;
 
+        _trayIcon.Icon = (exePath is null ? null : System.Drawing.Icon.ExtractAssociatedIcon(exePath))
+            ?? System.Drawing.SystemIcons.Application;
+        _trayIcon.Text = "Wyrmhold";
+        _trayIcon.Visible = true;
+        _trayIcon.DoubleClick += (sender, e) => ShowFromTray();
+
+        System.Windows.Forms.ContextMenuStrip menu = new System.Windows.Forms.ContextMenuStrip();
+        menu.Items.Add("Ouvrir Wyrmhold", null, (sender, e) => ShowFromTray());
+        menu.Items.Add("Quitter", null, (sender, e) => ExitApplication());
+        _trayIcon.ContextMenuStrip = menu;
+    }
+
+    private void ShowFromTray()
+    {
+        Show();
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        Activate();
+    }
+
+    private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_isExiting)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        Hide();
+
+        if (!_trayTipShown)
+        {
+            _trayIcon.ShowBalloonTip(
+                3000,
+                "Wyrmhold",
+                "Wyrmhold continue en arrière-plan pour compter ton temps de jeu.",
+                System.Windows.Forms.ToolTipIcon.Info);
+
+            _trayTipShown = true;
+        }
+    }
+
+    private void ExitApplication()
+    {
+        if (_library.HasActiveSessions)
+        {
+            MessageBoxResult answer = MessageBox.Show(
+                "Une partie est en cours de suivi. Si tu quittes maintenant, elle ne sera pas comptée. Quitter quand même ?",
+                "Wyrmhold",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+        }
+
+        _isExiting = true;
+        _trayIcon.Dispose();
+        Application.Current.Shutdown();
+    }
     private async Task LoadGamesAsync()
     {
         RefreshButton.IsEnabled = false;

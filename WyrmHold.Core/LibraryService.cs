@@ -21,6 +21,7 @@ public class LibraryService
     private readonly MetadataFetcher _metadata = new MetadataFetcher();
     private readonly PlaytimeTracker _tracker = new PlaytimeTracker();
     private readonly HashSet<string> _activeSessions = new HashSet<string>();
+    public bool HasActiveSessions => _activeSessions.Count > 0;
 
     public LibraryService()
     {
