@@ -13,4 +13,8 @@ public static class AppPaths
         Directory.CreateDirectory(folder);
         return folder;
     }
+    public static string GetWebViewFolder(Platform platform)
+    {
+        return Path.Combine(DataFolder, "WebView2", platform.ToString());
+    }
 }

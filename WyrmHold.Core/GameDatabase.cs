@@ -44,6 +44,7 @@ public class GameDatabase
         AddColumnIfMissing(connection, "IsEarlyAccess", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "Tags", "TEXT");
         AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "IsOwned", "INTEGER NOT NULL DEFAULT 0");
 
         using SqliteCommand createSessions = connection.CreateCommand();
         createSessions.CommandText = """
@@ -138,7 +139,7 @@ public class GameDatabase
         command.CommandText = """
         SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix
         FROM Game
-        WHERE IsInstalled = 1 OR Platform = 'Steam';
+        WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
         """;
 
         using SqliteDataReader reader = command.ExecuteReader();
@@ -172,6 +173,49 @@ public class GameDatabase
         }
 
         return games;
+    }
+    public void SaveOwnedGames(Platform platform, List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        using SqliteCommand reset = connection.CreateCommand();
+        reset.Transaction = transaction;
+        reset.CommandText = "UPDATE Game SET IsOwned = 0 WHERE Platform = $platform;";
+        reset.Parameters.AddWithValue("$platform", platform.ToString());
+        reset.ExecuteNonQuery();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand upsert = connection.CreateCommand();
+            upsert.Transaction = transaction;
+            upsert.CommandText = """
+            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, IsOwned)
+            VALUES ($platform, $gameId, $name, 0, 1)
+            ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET IsOwned = 1;
+            """;
+            upsert.Parameters.AddWithValue("$platform", platform.ToString());
+            upsert.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            upsert.Parameters.AddWithValue("$name", game.Name);
+            upsert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public void RemoveFamilyGames()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand delete = connection.CreateCommand();
+        delete.CommandText = """
+        DELETE FROM Game
+        WHERE Platform = 'Steam' AND IsFamilyShared = 1 AND IsInstalled = 0;
+        """;
+        delete.ExecuteNonQuery();
     }
     public void SaveFamilyGames(List<Game> games)
     {

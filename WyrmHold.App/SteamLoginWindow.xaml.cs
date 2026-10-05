@@ -25,7 +25,7 @@ public partial class SteamLoginWindow : Window
         try
         {
             CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
-                null, Path.Combine(AppPaths.DataFolder, "WebView2"));
+            null, AppPaths.GetWebViewFolder(Platform.Steam));
 
             await Browser.EnsureCoreWebView2Async(environment);
             Browser.CoreWebView2.NavigationCompleted += Browser_NavigationCompleted;
