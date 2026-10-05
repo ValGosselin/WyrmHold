@@ -6,7 +6,7 @@
         xmlns:local="clr-namespace:WyrmHold.App"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         mc:Ignorable="d"
-        Title="WyrmHold" Height="450" Width="800"
+        Title="WyrmHold" Height="750" Width="1200"
         Loaded="Window_Loaded">
     <DockPanel Margin="10">
         <StackPanel DockPanel.Dock="Bottom"
@@ -22,7 +22,108 @@
             <Button Content="Jouer" Width="100"
                 Click="PlayButton_Click"/>
         </StackPanel>
+        <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
+        BorderBrush="#DDDDDD" BorderThickness="1"
+        DataContext="{Binding SelectedItem, ElementName=GamesList}">
+            <Grid>
+                <TextBlock Text="Sélectionne un jeu pour voir sa fiche."
+                   Foreground="Gray" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ScrollViewer.Style>
+                        <Style TargetType="ScrollViewer">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding}" Value="{x:Null}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ScrollViewer.Style>
+
+                    <StackPanel>
+                        <Image local:CoverLoader.Path="{Binding CoverPath}"
+                       Width="200" Height="300" Stretch="UniformToFill"
+                       HorizontalAlignment="Center"/>
+
+                        <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold"
+                           TextWrapping="Wrap" Margin="0,12,0,0"/>
+                        <TextBlock Text="{Binding Subtitle}" Foreground="Gray"/>
+
+                        <Border Background="#FFB300" CornerRadius="4" Padding="6,2"
+                        HorizontalAlignment="Left" Margin="0,8,0,0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsEarlyAccess}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock Text="Accès anticipé" FontWeight="SemiBold"/>
+                        </Border>
+
+                        <Grid Margin="0,12,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Statut" Foreground="Gray" Margin="0,0,12,4"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallStatusText}"/>
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Temps de jeu" Foreground="Gray" Margin="0,0,12,4"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PlaytimeText}"/>
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Dernière partie" Foreground="Gray" Margin="0,0,12,4"/>
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastPlayedText}"/>
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Sortie" Foreground="Gray" Margin="0,0,12,4"/>
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReleaseDateText}"/>
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="Gray" Margin="0,0,12,4"/>
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Developers}" TextWrapping="Wrap"/>
+                        </Grid>
+
+                        <ItemsControl ItemsSource="{Binding TagList}" Margin="0,12,0,0">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#EEEEEE" CornerRadius="10" Padding="8,2" Margin="0,0,6,6">
+                                        <TextBlock Text="{Binding}" FontSize="11"/>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+        </Border>
         <ListBox x:Name="GamesList"
          MouseDoubleClick="GamesList_MouseDoubleClick"
          ScrollViewer.HorizontalScrollBarVisibility="Disabled"

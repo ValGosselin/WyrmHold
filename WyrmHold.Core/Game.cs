@@ -19,6 +19,15 @@ public class Game
     public bool IsEarlyAccess { get; set; }
     public string? Tags { get; set; }
     public long MetadataUpdatedUnix { get; set; }
+    public string ReleaseDateText => ReleaseDateUnix == 0
+    ? ""
+    : DateTimeOffset.FromUnixTimeSeconds(ReleaseDateUnix).LocalDateTime.ToString("dd/MM/yyyy");
+
+    public string InstallStatusText => IsInstalled ? "Installé" : "Non installé";
+
+    public string[] TagList => string.IsNullOrEmpty(Tags)
+        ? Array.Empty<string>()
+        : Tags.Split(", ");
 
     public string LastPlayedText => LastPlayedUnix == 0
         ? ""
