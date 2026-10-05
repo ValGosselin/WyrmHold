@@ -63,4 +63,31 @@ public partial class MainWindow : Window
     {
         LaunchSelectedGame();
     }
+    private async void FamilyButton_Click(object sender, RoutedEventArgs e)
+    {
+        SteamLoginWindow loginWindow = new SteamLoginWindow { Owner = this };
+
+        if (loginWindow.ShowDialog() != true || loginWindow.AccessToken is null)
+        {
+            return;
+        }
+
+        FamilyButton.IsEnabled = false;
+
+        try
+        {
+            int count = await _library.ImportFamilyLibraryAsync(loginWindow.AccessToken);
+            MessageBox.Show($"{count} jeu(x) de la famille importé(s).", "Wyrmhold");
+            await LoadGamesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Import de la famille impossible : {ex.Message}");
+            MessageBox.Show("L'import de la bibliothèque familiale a échoué. Les détails sont dans le journal.", "Wyrmhold");
+        }
+        finally
+        {
+            FamilyButton.IsEnabled = true;
+        }
+    }
 }

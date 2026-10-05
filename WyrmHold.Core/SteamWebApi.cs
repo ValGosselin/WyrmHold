@@ -5,6 +5,18 @@ namespace Wyrmhold.Core;
 public class SteamWebApi
 {
     private static readonly HttpClient Http = new HttpClient();
+    public static string? ExtractAccessToken(string? steamLoginSecure)
+    {
+        if (string.IsNullOrEmpty(steamLoginSecure))
+        {
+            return null;
+        }
+
+        string decoded = Uri.UnescapeDataString(steamLoginSecure);
+        string[] parts = decoded.Split("||");
+
+        return parts.Length == 2 && parts[1].Length > 0 ? parts[1] : null;
+    }
 
     private readonly Secrets _secrets;
 
@@ -63,4 +75,5 @@ public class SteamWebApi
         return JsonSerializer.Deserialize<SharedLibraryResponse>(libraryJson)?.Response?.Apps
             ?? new List<SharedLibraryApp>();
     }
+    
 }
