@@ -38,6 +38,12 @@ public class GameDatabase
         AddColumnIfMissing(connection, "IsFamilyShared", "INTEGER");
         AddColumnIfMissing(connection, "OwnerSteamId", "TEXT");
         AddColumnIfMissing(connection, "LastPlayedUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "Description", "TEXT");
+        AddColumnIfMissing(connection, "Developers", "TEXT");
+        AddColumnIfMissing(connection, "ReleaseDateUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "IsEarlyAccess", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "Tags", "TEXT");
+        AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
     }
     public void SaveGames(Platform platform, List<Game> games)
     {
@@ -117,7 +123,7 @@ public class GameDatabase
 
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix
+        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix
         FROM Game
         WHERE IsInstalled = 1 OR Platform = 'Steam';
         """;
@@ -141,7 +147,14 @@ public class GameDatabase
                 PlaytimeMinutes = reader.GetInt32(5),
                 IsFamilyShared = reader.IsDBNull(6) ? null : reader.GetInt64(6) == 1,
                 OwnerSteamId = reader.IsDBNull(7) ? null : reader.GetString(7),
-                LastPlayedUnix = reader.GetInt64(8)
+                LastPlayedUnix = reader.GetInt64(8),
+                Description = reader.IsDBNull(9) ? null : reader.GetString(9),
+                Developers = reader.IsDBNull(10) ? null : reader.GetString(10),
+                ReleaseDateUnix = reader.GetInt64(11),
+                IsEarlyAccess = reader.GetInt64(12) == 1,
+                Tags = reader.IsDBNull(13) ? null : reader.GetString(13),
+                MetadataUpdatedUnix = reader.GetInt64(14)
+
             });
         }
 
@@ -175,6 +188,40 @@ public class GameDatabase
             upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.Parameters.AddWithValue("$ownerSteamId", (object?)game.OwnerSteamId ?? DBNull.Value);
             upsert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+    public void SaveMetadata(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE Game SET
+                Description         = $description,
+                Developers          = $developers,
+                ReleaseDateUnix     = $releaseDate,
+                IsEarlyAccess       = $isEarlyAccess,
+                Tags                = $tags,
+                MetadataUpdatedUnix = $updated
+            WHERE Platform = $platform AND PlatformGameId = $gameId;
+            """;
+            update.Parameters.AddWithValue("$description", (object?)game.Description ?? DBNull.Value);
+            update.Parameters.AddWithValue("$developers", (object?)game.Developers ?? DBNull.Value);
+            update.Parameters.AddWithValue("$releaseDate", game.ReleaseDateUnix);
+            update.Parameters.AddWithValue("$isEarlyAccess", game.IsEarlyAccess ? 1 : 0);
+            update.Parameters.AddWithValue("$tags", (object?)game.Tags ?? DBNull.Value);
+            update.Parameters.AddWithValue("$updated", game.MetadataUpdatedUnix);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.ExecuteNonQuery();
         }
 
         transaction.Commit();

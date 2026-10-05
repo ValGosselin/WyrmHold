@@ -18,6 +18,7 @@ public class LibraryService
     public string SteamId => _secrets.SteamId;
     private readonly CoverCache _covers = new CoverCache();
     private readonly SteamGridDbApi _steamGridDb;
+    private readonly MetadataFetcher _metadata = new MetadataFetcher();
 
     public LibraryService()
     {
@@ -91,6 +92,15 @@ public class LibraryService
         catch (Exception ex)
         {
             Logger.Log($"API Steam indisponible : {ex.Message}");
+        }
+    }
+    public async Task UpdateMetadataAsync(List<Game> games)
+    {
+        List<Game> updatedGames = await _metadata.FetchMissingAsync(games);
+
+        if (updatedGames.Count > 0)
+        {
+            _database.SaveMetadata(updatedGames);
         }
     }
 

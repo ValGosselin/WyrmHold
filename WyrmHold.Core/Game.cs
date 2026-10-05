@@ -13,6 +13,12 @@ public class Game
     public bool IsInstalled { get; set; }
     public string? InstallPath { get; set; }
     public long LastPlayedUnix { get; set; }
+    public string? Description { get; set; }
+    public string? Developers { get; set; }
+    public long ReleaseDateUnix { get; set; }
+    public bool IsEarlyAccess { get; set; }
+    public string? Tags { get; set; }
+    public long MetadataUpdatedUnix { get; set; }
 
     public string LastPlayedText => LastPlayedUnix == 0
         ? ""

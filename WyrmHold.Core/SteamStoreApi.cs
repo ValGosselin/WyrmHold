@@ -79,4 +79,33 @@ public static class SteamStoreApi
 
         return null;
     }
+    internal static async Task<List<StoreItem>> GetItemsAsync(IEnumerable<int> appIds)
+    {
+        var request = new
+        {
+            ids = appIds.Select(id => new { appid = id }).ToArray(),
+            context = new { language = "french", country_code = "FR" },
+            data_request = new { include_basic_info = true, include_release = true, include_tag_count = 10 }
+        };
+
+        string url = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json="
+            + Uri.EscapeDataString(JsonSerializer.Serialize(request));
+
+        string json = await Http.GetStringAsync(url);
+        List<StoreItem> items = JsonSerializer.Deserialize<StoreItemsResponse>(json)?.Response?.StoreItems
+            ?? new List<StoreItem>();
+
+        return items.Where(item => item.Success == 1).ToList();
+    }
+
+    internal static async Task<Dictionary<int, string>> GetTagNamesAsync()
+    {
+        string json = await Http.GetStringAsync(
+            "https://api.steampowered.com/IStoreService/GetTagList/v1/?language=french");
+
+        List<TagName> tags = JsonSerializer.Deserialize<TagListResponse>(json)?.Response?.Tags
+            ?? new List<TagName>();
+
+        return tags.ToDictionary(tag => tag.TagId, tag => tag.Name);
+    }
 }

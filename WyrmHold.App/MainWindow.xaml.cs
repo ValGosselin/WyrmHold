@@ -41,7 +41,16 @@ public partial class MainWindow : Window
         {
             Logger.Log($"Téléchargement des jaquettes impossible : {ex.Message}");
         }
+        Title = $"{summary} — récupération des infos…";
 
+        try
+        {
+            await _library.UpdateMetadataAsync(games);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Récupération des infos impossible : {ex.Message}");
+        }
         Title = summary;
         RefreshButton.IsEnabled = true;
     }
