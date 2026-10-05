@@ -16,6 +16,7 @@ public class LibraryService
     private readonly Secrets _secrets;
     private readonly SteamWebApi _steamApi;
     public string SteamId => _secrets.SteamId;
+    private readonly CoverCache _covers = new CoverCache();
 
     public LibraryService()
     {
@@ -45,7 +46,9 @@ public class LibraryService
             }
         }
 
-        return _database.LoadGames();
+        List<Game> allGames = _database.LoadGames();
+        _covers.AttachCovers(allGames);
+        return allGames;
     }
 
     private async Task AddSteamAccountGamesAsync(List<Game> steamGames)
@@ -153,5 +156,10 @@ public class LibraryService
 
         _database.SaveFamilyGames(familyGames);
         return familyGames.Count;
+    }
+    public async Task DownloadCoversAsync(List<Game> games)
+    {
+        await _covers.DownloadMissingSteamCoversAsync(games);
+        _covers.AttachCovers(games);
     }
 }

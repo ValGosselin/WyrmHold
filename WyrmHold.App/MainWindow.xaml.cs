@@ -26,12 +26,23 @@ public partial class MainWindow : Window
         Title = "Wyrmhold — chargement…";
 
         List<Game> games = await _library.ScanAllAsync();
-
         GamesList.ItemsSource = games.OrderBy(g => g.Name).ToList();
 
         int installedCount = games.Count(g => g.IsInstalled);
-        Title = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
+        string summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
+        Title = $"{summary} — téléchargement des jaquettes…";
 
+        try
+        {
+            await _library.DownloadCoversAsync(games);
+            GamesList.Items.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Téléchargement des jaquettes impossible : {ex.Message}");
+        }
+
+        Title = summary;
         RefreshButton.IsEnabled = true;
     }
 
@@ -64,7 +75,7 @@ public partial class MainWindow : Window
     private void GamesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (e.OriginalSource is not DependencyObject clickedElement
-            || ItemsControl.ContainerFromElement(GamesList, clickedElement) is not ListViewItem)
+            || ItemsControl.ContainerFromElement(GamesList, clickedElement) is not ListBoxItem)
         {
             return;
         }

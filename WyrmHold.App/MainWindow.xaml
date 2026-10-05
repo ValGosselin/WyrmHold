@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WyrmHold.App"
+        xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         mc:Ignorable="d"
         Title="WyrmHold" Height="450" Width="800"
         Loaded="Window_Loaded">
@@ -22,17 +23,46 @@
                 Click="PlayButton_Click"/>
         </StackPanel>
 
-        <ListView x:Name="GamesList" MouseDoubleClick="GamesList_MouseDoubleClick">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="Nom" Width="360" DisplayMemberBinding="{Binding Name}"/>
-                    <GridViewColumn Header="Plateforme" Width="110" DisplayMemberBinding="{Binding PlatformName}"/>
-                    <GridViewColumn Header="Installé" Width="70" DisplayMemberBinding="{Binding InstalledText}"/>
-                    <GridViewColumn Header="Temps de jeu" Width="100" DisplayMemberBinding="{Binding PlaytimeText}"/>
-                    <GridViewColumn Header="Dernière partie" Width="110" DisplayMemberBinding="{Binding LastPlayedText}"/>
-                    <GridViewColumn Header="Origine" Width="80" DisplayMemberBinding="{Binding OriginText}"/>
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <ListBox x:Name="GamesList"
+         MouseDoubleClick="GamesList_MouseDoubleClick"
+         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+         VirtualizingPanel.ScrollUnit="Pixel"
+         VirtualizingPanel.VirtualizationMode="Recycling"
+         VirtualizingPanel.CacheLengthUnit="Page"
+         VirtualizingPanel.CacheLength="1,1">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <vwp:VirtualizingWrapPanel/>
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Width="150" Margin="6">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                        <Setter Property="Opacity" Value="0.5"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <Grid Height="225" Background="#2A2A2A">
+                            <TextBlock Text="{Binding Name}" Foreground="White"
+                               TextWrapping="Wrap" TextAlignment="Center"
+                               VerticalAlignment="Center" Margin="8"/>
+                            <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
+                        </Grid>
+
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="Gray"
+                           TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
     </DockPanel>
 </Window>

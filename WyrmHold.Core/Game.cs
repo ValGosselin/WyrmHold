@@ -17,6 +17,11 @@ public class Game
     public string LastPlayedText => LastPlayedUnix == 0
         ? ""
         : DateTimeOffset.FromUnixTimeSeconds(LastPlayedUnix).LocalDateTime.ToString("dd/MM/yyyy");
+
+    public string? CoverPath { get; set; }
+
+    public string Subtitle => string.Join(" · ",
+        new[] { PlatformName, PlaytimeText, OriginText }.Where(text => text.Length > 0));
     public string PlatformName => Platform switch
     {
         Platform.Steam => "Steam",
