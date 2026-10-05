@@ -71,12 +71,27 @@ public partial class MainWindow : Window
         if (!_library.Launch(game))
         {
             MessageBox.Show($"Impossible de lancer {game.Name}. Les détails sont dans le journal.", "Wyrmhold");
+            return;
         }
+
+        _ = TrackPlaytimeAsync(game);
     }
 
     private void PlayButton_Click(object sender, RoutedEventArgs e)
     {
         LaunchSelectedGame();
+    }
+    private async Task TrackPlaytimeAsync(Game game)
+    {
+        try
+        {
+            await _library.TrackPlaytimeAsync(game);
+            GamesList.Items.Refresh();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Suivi du temps de jeu impossible pour {game.Name} : {ex.Message}");
+        }
     }
 
 

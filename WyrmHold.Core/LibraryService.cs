@@ -19,6 +19,8 @@ public class LibraryService
     private readonly CoverCache _covers = new CoverCache();
     private readonly SteamGridDbApi _steamGridDb;
     private readonly MetadataFetcher _metadata = new MetadataFetcher();
+    private readonly PlaytimeTracker _tracker = new PlaytimeTracker();
+    private readonly HashSet<string> _activeSessions = new HashSet<string>();
 
     public LibraryService()
     {
@@ -52,6 +54,47 @@ public class LibraryService
         List<Game> allGames = _database.LoadGames();
         _covers.AttachCovers(allGames);
         return allGames;
+    }
+    public async Task TrackPlaytimeAsync(Game game)
+    {
+        if (game.Platform == Platform.Steam || !game.IsInstalled || string.IsNullOrEmpty(game.InstallPath))
+        {
+            return;
+        }
+
+        string sessionKey = $"{game.Platform}_{game.PlatformGameId}";
+
+        if (!_activeSessions.Add(sessionKey))
+        {
+            return;
+        }
+
+        try
+        {
+            long startedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            TimeSpan? duration = await _tracker.TrackSessionAsync(game.InstallPath);
+
+            if (duration is null)
+            {
+                Logger.Log($"Session de jeu non détectée pour {game.Name}");
+                return;
+            }
+
+            int minutes = (int)Math.Round(duration.Value.TotalMinutes);
+
+            if (minutes == 0)
+            {
+                return;
+            }
+
+            _database.AddPlaySession(game, minutes, startedUnix);
+            game.PlaytimeMinutes += minutes;
+            game.LastPlayedUnix = startedUnix;
+        }
+        finally
+        {
+            _activeSessions.Remove(sessionKey);
+        }
     }
 
     private async Task AddSteamAccountGamesAsync(List<Game> steamGames)

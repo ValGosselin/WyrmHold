@@ -226,5 +226,23 @@ public class GameDatabase
 
         transaction.Commit();
     }
+    public void AddPlaySession(Game game, int minutes, long startedUnix)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand update = connection.CreateCommand();
+        update.CommandText = """
+        UPDATE Game SET
+            PlaytimeMinutes = PlaytimeMinutes + $minutes,
+            LastPlayedUnix  = max(LastPlayedUnix, $started)
+        WHERE Platform = $platform AND PlatformGameId = $gameId;
+        """;
+        update.Parameters.AddWithValue("$minutes", minutes);
+        update.Parameters.AddWithValue("$started", startedUnix);
+        update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        update.ExecuteNonQuery();
+    }
 }
 
