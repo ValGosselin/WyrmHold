@@ -15,6 +15,7 @@ public class LibraryService
     private readonly GameDatabase _database = new GameDatabase();
     private readonly Secrets _secrets;
     private readonly SteamWebApi _steamApi;
+    public string SteamId => _secrets.SteamId;
 
     public LibraryService()
     {

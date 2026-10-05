@@ -13,6 +13,7 @@ public partial class SteamLoginWindow : Window
     private bool _loginShown;
 
     public string? AccessToken { get; private set; }
+    public string? SessionSteamId { get; private set; }
 
     public SteamLoginWindow()
     {
@@ -74,13 +75,12 @@ public partial class SteamLoginWindow : Window
             await Browser.CoreWebView2.CookieManager.GetCookiesAsync(StoreUrl);
 
         CoreWebView2Cookie? loginCookie = cookies.FirstOrDefault(c => c.Name == "steamLoginSecure");
-        string? token = SteamWebApi.ExtractAccessToken(loginCookie?.Value);
-
-        if (token is null)
+        if (!SteamWebApi.TryParseLoginCookie(loginCookie?.Value, out string steamId, out string token))
         {
             return false;
         }
 
+        SessionSteamId = steamId;
         AccessToken = token;
         DialogResult = true;
         return true;

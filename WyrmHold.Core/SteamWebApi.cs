@@ -5,17 +5,26 @@ namespace Wyrmhold.Core;
 public class SteamWebApi
 {
     private static readonly HttpClient Http = new HttpClient();
-    public static string? ExtractAccessToken(string? steamLoginSecure)
+    public static bool TryParseLoginCookie(string? cookieValue, out string steamId, out string accessToken)
     {
-        if (string.IsNullOrEmpty(steamLoginSecure))
+        steamId = "";
+        accessToken = "";
+
+        if (string.IsNullOrEmpty(cookieValue))
         {
-            return null;
+            return false;
         }
 
-        string decoded = Uri.UnescapeDataString(steamLoginSecure);
-        string[] parts = decoded.Split("||");
+        string[] parts = Uri.UnescapeDataString(cookieValue).Split("||");
 
-        return parts.Length == 2 && parts[1].Length > 0 ? parts[1] : null;
+        if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0)
+        {
+            return false;
+        }
+
+        steamId = parts[0];
+        accessToken = parts[1];
+        return true;
     }
 
     private readonly Secrets _secrets;

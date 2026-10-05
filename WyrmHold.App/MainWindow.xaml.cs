@@ -1,4 +1,6 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using Wyrmhold.Core;
 
@@ -61,6 +63,12 @@ public partial class MainWindow : Window
 
     private void GamesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
+        if (e.OriginalSource is not DependencyObject clickedElement
+            || ItemsControl.ContainerFromElement(GamesList, clickedElement) is not ListViewItem)
+        {
+            return;
+        }
+
         LaunchSelectedGame();
     }
     private async void FamilyButton_Click(object sender, RoutedEventArgs e)
@@ -69,6 +77,14 @@ public partial class MainWindow : Window
 
         if (loginWindow.ShowDialog() != true || loginWindow.AccessToken is null)
         {
+            return;
+        }
+        if (loginWindow.SessionSteamId != _library.SteamId)
+        {
+            MessageBox.Show(
+                "Tu es connecté à Steam avec un autre compte que celui configuré dans Wyrmhold. "
+                + "Déconnecte-toi de Steam dans Wyrmhold, puis reconnecte-toi avec ton compte.",
+                "Wyrmhold");
             return;
         }
 
@@ -88,6 +104,38 @@ public partial class MainWindow : Window
         finally
         {
             FamilyButton.IsEnabled = true;
+        }
+    }
+    private void LogoutButton_Click(object sender, RoutedEventArgs e)
+    {
+        string webViewFolder = Path.Combine(AppPaths.DataFolder, "WebView2");
+
+        if (!Directory.Exists(webViewFolder))
+        {
+            MessageBox.Show("Aucune session Steam n'est enregistrée dans Wyrmhold.", "Wyrmhold");
+            return;
+        }
+
+        MessageBoxResult answer = MessageBox.Show(
+            "Effacer la session Steam enregistrée dans Wyrmhold ? Il faudra te reconnecter au prochain import.",
+            "Wyrmhold",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(webViewFolder, recursive: true);
+            MessageBox.Show("Session Steam effacée.", "Wyrmhold");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Déconnexion Steam impossible : {ex.Message}");
+            MessageBox.Show("Impossible d'effacer la session pour l'instant. Réessaie dans quelques secondes.", "Wyrmhold");
         }
     }
 }
