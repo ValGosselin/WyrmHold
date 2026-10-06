@@ -404,6 +404,28 @@ public partial class MainWindow : Window
         _favoritesOnly = FavoritesFilter.IsChecked == true;
         RefreshFilters();
     }
+    private void RandomGameButton_Click(object sender, RoutedEventArgs e)
+    {
+        List<Game> shownGames = _gamesView?.Cast<Game>().ToList() ?? new List<Game>();
+
+        if (shownGames.Count == 0)
+        {
+            MessageBox.Show("Aucun jeu ne correspond aux filtres actuels.", "Wyrmhold");
+            return;
+        }
+
+        // Pour que relancer le tirage donne toujours un autre jeu.
+        if (shownGames.Count > 1 && GamesList.SelectedItem is Game currentGame)
+        {
+            shownGames.Remove(currentGame);
+        }
+
+        Game pickedGame = shownGames[Random.Shared.Next(shownGames.Count)];
+
+        GamesList.SelectedItem = pickedGame;
+        GamesList.ScrollIntoView(pickedGame);
+        GamesList.Focus();
+    }
 
     private void FavoriteButton_Click(object sender, RoutedEventArgs e)
     {
