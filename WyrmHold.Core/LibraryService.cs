@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace Wyrmhold.Core;
 
@@ -123,8 +124,30 @@ public class LibraryService
     public List<Game> LoadGames()
     {
         List<Game> games = _database.LoadGames();
+        AttachCollections(games);
         _covers.AttachCovers(games);
         return games;
+    }
+
+    /// <summary>
+    /// Indique à chaque jeu les collections dont il fait partie.
+    /// </summary>
+    private void AttachCollections(List<Game> games)
+    {
+        Dictionary<string, Game> gamesByKey = new Dictionary<string, Game>();
+
+        foreach (Game game in games)
+        {
+            gamesByKey.TryAdd($"{game.Platform}|{game.PlatformGameId}", game);
+        }
+
+        foreach ((long collectionId, string platform, string gameId) in _database.LoadCollectionMemberships())
+        {
+            if (gamesByKey.TryGetValue($"{platform}|{gameId}", out Game? game))
+            {
+                game.CollectionIds.Add(collectionId);
+            }
+        }
     }
 
     public async Task DownloadCoversAsync(List<Game> games)
@@ -424,11 +447,6 @@ public class LibraryService
             Logger.Log($"Temps de jeu Epic indisponible : {ex.Message}");
             return new Dictionary<string, long>();
         }
-    }
-    public void SetFavorite(Game game, bool isFavorite)
-    {
-        _database.SetFavorite(game, isFavorite);
-        game.IsFavorite = isFavorite;
     }
 
     private static string? FindEpicCoverUrl(EpicCatalogItem item)
@@ -814,6 +832,84 @@ public class LibraryService
         {
             Directory.Delete(webViewFolder, recursive: true);
         }
+    }
+
+    // ----- Favoris -----
+
+    public void SetFavorite(Game game, bool isFavorite)
+    {
+        _database.SetFavorite(game, isFavorite);
+        game.IsFavorite = isFavorite;
+    }
+
+    // ----- Collections -----
+
+    public List<GameCollection> LoadCollections()
+    {
+        return _database.LoadCollections();
+    }
+
+    public GameCollection CreateCollection(string name)
+    {
+        string cleanName = CleanCollectionName(name);
+
+        try
+        {
+            long id = _database.CreateCollection(cleanName);
+            return new GameCollection(id, cleanName);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteConstraintError)
+        {
+            throw new InvalidOperationException($"Une collection s'appelle déjà « {cleanName} ».");
+        }
+    }
+
+    public void RenameCollection(GameCollection collection, string newName)
+    {
+        string cleanName = CleanCollectionName(newName);
+
+        try
+        {
+            _database.RenameCollection(collection.Id, cleanName);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == SqliteConstraintError)
+        {
+            throw new InvalidOperationException($"Une collection s'appelle déjà « {cleanName} ».");
+        }
+    }
+
+    public void DeleteCollection(GameCollection collection)
+    {
+        _database.DeleteCollection(collection.Id);
+    }
+
+    public void SetGameInCollection(Game game, GameCollection collection, bool isMember)
+    {
+        _database.SetGameInCollection(collection.Id, game, isMember);
+
+        if (isMember)
+        {
+            game.CollectionIds.Add(collection.Id);
+        }
+        else
+        {
+            game.CollectionIds.Remove(collection.Id);
+        }
+    }
+
+    // Code d'erreur SQLite quand une contrainte n'est pas respectée (ici : deux collections du même nom).
+    private const int SqliteConstraintError = 19;
+
+    private static string CleanCollectionName(string name)
+    {
+        string cleanName = name.Trim();
+
+        if (cleanName.Length == 0)
+        {
+            throw new InvalidOperationException("Donne un nom à la collection.");
+        }
+
+        return cleanName;
     }
 
     // ----- Lancement et temps de jeu -----

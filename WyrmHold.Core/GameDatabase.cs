@@ -46,6 +46,23 @@ public class GameDatabase
         AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "IsOwned", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "IsFavorite", "INTEGER NOT NULL DEFAULT 0");
+        using (SqliteCommand createCollections = connection.CreateCommand())
+        {
+            createCollections.CommandText = """
+                CREATE TABLE IF NOT EXISTS Collection (
+                    Id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                );
+ 
+                CREATE TABLE IF NOT EXISTS CollectionGame (
+                    CollectionId   INTEGER NOT NULL,
+                    Platform       TEXT NOT NULL,
+                    PlatformGameId TEXT NOT NULL,
+                    PRIMARY KEY (CollectionId, Platform, PlatformGameId)
+                );
+                """;
+            createCollections.ExecuteNonQuery();
+        }
 
         using SqliteCommand createSessions = connection.CreateCommand();
         createSessions.CommandText = """
@@ -59,6 +76,109 @@ public class GameDatabase
         CREATE INDEX IF NOT EXISTS IX_PlaySession_GameId ON PlaySession(GameId);
         """;
         createSessions.ExecuteNonQuery();
+    }
+    // ----- Collections -----
+
+    public List<GameCollection> LoadCollections()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name FROM Collection ORDER BY Name COLLATE NOCASE;";
+
+        List<GameCollection> collections = new List<GameCollection>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            collections.Add(new GameCollection(reader.GetInt64(0), reader.GetString(1)));
+        }
+
+        return collections;
+    }
+
+    public long CreateCollection(string name)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO Collection (Name) VALUES ($name) RETURNING Id;";
+        command.Parameters.AddWithValue("$name", name);
+
+        return (long)command.ExecuteScalar()!;
+    }
+
+    public void RenameCollection(long collectionId, string newName)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "UPDATE Collection SET Name = $name WHERE Id = $id;";
+        command.Parameters.AddWithValue("$name", newName);
+        command.Parameters.AddWithValue("$id", collectionId);
+        command.ExecuteNonQuery();
+    }
+
+    public void DeleteCollection(long collectionId)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            DELETE FROM CollectionGame WHERE CollectionId = $id;
+            DELETE FROM Collection WHERE Id = $id;
+            """;
+        command.Parameters.AddWithValue("$id", collectionId);
+        command.ExecuteNonQuery();
+
+        transaction.Commit();
+    }
+
+    public List<(long CollectionId, string Platform, string PlatformGameId)> LoadCollectionMemberships()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT CollectionId, Platform, PlatformGameId FROM CollectionGame;";
+
+        List<(long, string, string)> memberships = new List<(long, string, string)>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            memberships.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+        }
+
+        return memberships;
+    }
+
+    public void SetGameInCollection(long collectionId, Game game, bool isMember)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = isMember
+            ? """
+              INSERT OR IGNORE INTO CollectionGame (CollectionId, Platform, PlatformGameId)
+              VALUES ($collectionId, $platform, $gameId);
+              """
+            : """
+              DELETE FROM CollectionGame
+              WHERE CollectionId = $collectionId AND Platform = $platform AND PlatformGameId = $gameId;
+              """;
+        command.Parameters.AddWithValue("$collectionId", collectionId);
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.ExecuteNonQuery();
     }
     public void SaveGames(Platform platform, List<Game> games)
     {

@@ -8,6 +8,7 @@ using Wyrmhold.Core;
 using System.ComponentModel;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Media;
 
 namespace WyrmHold.App;
 
@@ -32,6 +33,10 @@ public partial class MainWindow : Window
     private string _tagFilter = "all";
     private bool _isBuildingTagFilter;
     private bool _favoritesOnly;
+    private List<GameCollection> _collections = new List<GameCollection>();
+    private long _collectionFilter;   // 0 = toutes les collections
+    private bool _isBuildingCollectionFilter;
+
 
     public MainWindow()
     {
@@ -162,9 +167,17 @@ public partial class MainWindow : Window
     private void ShowGames(List<Game> games)
     {
         _allGames = games;
-        RebuildGamesView();
+
+        // 1. D'abord les filtres : ils peuvent remettre à zéro un choix devenu impossible
+        //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
         BuildPlatformFilters(games);
         BuildTagFilter(games);
+        _collections = _library.LoadCollections();
+        BuildCollectionFilter();
+
+        // 2. Ensuite la vue, qui filtre avec des choix à jour.
+        RebuildGamesView();
+        BuildGameCollectionsPanel();
 
         int installedCount = games.Count(g => g.IsInstalled);
         _summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
@@ -242,6 +255,10 @@ public partial class MainWindow : Window
             return false;
         }
         if (_favoritesOnly && !game.IsFavorite)
+        {
+            return false;
+        }
+        if (_collectionFilter != 0 && !game.CollectionIds.Contains(_collectionFilter))
         {
             return false;
         }
@@ -397,12 +414,144 @@ public partial class MainWindow : Window
         ActivityFilter.SelectedIndex = 0;
         TagFilter.SelectedIndex = 0;
         FavoritesFilter.IsChecked = false;
+        CollectionFilter.SelectedIndex = 0;
         SearchBox.Clear();
     }
     private void FavoritesFilter_Changed(object sender, RoutedEventArgs e)
     {
         _favoritesOnly = FavoritesFilter.IsChecked == true;
         RefreshFilters();
+    }
+    // ===================== Collections =====================
+
+    private void BuildCollectionFilter()
+    {
+        _isBuildingCollectionFilter = true;
+
+        CollectionFilter.Items.Clear();
+        CollectionFilter.Items.Add(new ComboBoxItem { Content = "Toutes les collections", Tag = 0L });
+
+        ComboBoxItem? selectedItem = null;
+
+        foreach (GameCollection collection in _collections)
+        {
+            int count = _allGames.Count(g => g.CollectionIds.Contains(collection.Id));
+
+            ComboBoxItem item = new ComboBoxItem
+            {
+                Content = $"{collection.Name} ({count})",
+                Tag = collection.Id
+            };
+
+            CollectionFilter.Items.Add(item);
+
+            if (collection.Id == _collectionFilter)
+            {
+                selectedItem = item;
+            }
+        }
+
+        // La collection choisie a peut-être été supprimée entre-temps.
+        if (selectedItem is null)
+        {
+            _collectionFilter = 0;
+        }
+
+        CollectionFilter.SelectedItem = selectedItem ?? CollectionFilter.Items[0];
+        _isBuildingCollectionFilter = false;
+    }
+
+    private void CollectionFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _isBuildingCollectionFilter)
+        {
+            return;
+        }
+
+        _collectionFilter = (CollectionFilter.SelectedItem as ComboBoxItem)?.Tag is long id ? id : 0;
+        RefreshFilters();
+    }
+
+    private void GamesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        BuildGameCollectionsPanel();
+    }
+
+    /// <summary>
+    /// Dans la fiche du jeu : une case à cocher par collection.
+    /// </summary>
+    private void BuildGameCollectionsPanel()
+    {
+        GameCollectionsPanel.Children.Clear();
+
+        if (GamesList.SelectedItem is not Game game)
+        {
+            return;
+        }
+
+        if (_collections.Count == 0)
+        {
+            GameCollectionsPanel.Children.Add(new TextBlock
+            {
+                Text = "Aucune collection pour l'instant : crée-en une avec le bouton « Gérer… ».",
+                Foreground = Brushes.Gray,
+                TextWrapping = TextWrapping.Wrap
+            });
+            return;
+        }
+
+        foreach (GameCollection collection in _collections)
+        {
+            CheckBox checkBox = new CheckBox
+            {
+                Content = collection.Name,
+                Tag = collection,
+                IsChecked = game.CollectionIds.Contains(collection.Id),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+
+            checkBox.Checked += GameCollectionCheckBox_Changed;
+            checkBox.Unchecked += GameCollectionCheckBox_Changed;
+            GameCollectionsPanel.Children.Add(checkBox);
+        }
+    }
+
+    private void GameCollectionCheckBox_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: GameCollection collection } checkBox
+            || GamesList.SelectedItem is not Game game)
+        {
+            return;
+        }
+
+        try
+        {
+            _library.SetGameInCollection(game, collection, checkBox.IsChecked == true);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Collection impossible à modifier pour {game.Name} : {ex.Message}");
+            MessageBox.Show("La collection n'a pas pu être modifiée. Les détails sont dans le journal.", "Wyrmhold");
+            return;
+        }
+
+        // Met à jour le nombre de jeux affiché à côté de chaque collection.
+        BuildCollectionFilter();
+
+        // Si on filtre sur cette collection, un jeu qu'on en retire doit disparaître.
+        if (_collectionFilter == collection.Id)
+        {
+            RefreshFilters();
+        }
+    }
+
+    private void ManageCollectionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        CollectionsWindow window = new CollectionsWindow(_library) { Owner = this };
+        window.ShowDialog();
+
+        // Une collection a pu être créée, renommée ou supprimée : on recharge tout.
+        ShowGames(_library.LoadGames());
     }
     private void RandomGameButton_Click(object sender, RoutedEventArgs e)
     {

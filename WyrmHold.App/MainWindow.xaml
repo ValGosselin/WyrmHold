@@ -95,7 +95,12 @@
                             <ComboBoxItem Content="Temps de jeu" Tag="playtime"/>
                             <ComboBoxItem Content="Date de sortie" Tag="release"/>
                         </ComboBox>
-
+                        <Button x:Name="ManageCollectionsButton" DockPanel.Dock="Right" Content="Gérer…"
+             Width="70" Height="30" VerticalAlignment="Top" Margin="6,0,0,0"
+             Click="ManageCollectionsButton_Click"/>
+                        <ComboBox x:Name="CollectionFilter" DockPanel.Dock="Right" Width="190" Height="30"
+               VerticalAlignment="Top" Margin="10,0,0,0" VerticalContentAlignment="Center"
+               MaxDropDownHeight="400" SelectionChanged="CollectionFilter_SelectionChanged"/>
                         <WrapPanel x:Name="PlatformFilters"/>
                     </DockPanel>
                 </StackPanel>
@@ -208,7 +213,8 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-
+                                <TextBlock Text="Collections" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                                <StackPanel x:Name="GameCollectionsPanel"/>
                                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,12,0,0"/>
                             </StackPanel>
                         </ScrollViewer>
@@ -217,6 +223,7 @@
 
                 <!-- Grille de jaquettes -->
                 <ListBox x:Name="GamesList"
+                         SelectionChanged="GamesList_SelectionChanged"
                          MouseDoubleClick="GamesList_MouseDoubleClick"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          VirtualizingPanel.ScrollUnit="Pixel"

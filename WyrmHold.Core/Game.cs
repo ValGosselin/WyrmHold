@@ -20,6 +20,7 @@ public class Game : INotifyPropertyChanged
     public long ReleaseDateUnix { get; set; }
     public bool IsEarlyAccess { get; set; }
     public string? Tags { get; set; }
+    public HashSet<long> CollectionIds { get; } = new HashSet<long>();
     public long MetadataUpdatedUnix { get; set; }
     private bool _isFavorite;
 
