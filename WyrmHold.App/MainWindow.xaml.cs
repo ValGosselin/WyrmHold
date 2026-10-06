@@ -90,9 +90,59 @@ public partial class MainWindow : Window
                 ShowGames(games);
             }
         }
+        if (_library.IsBattleNetConnected)
+        {
+            Title = $"{_summary} — synchronisation de Battle.net…";
+
+            if (await SyncBattleNetSilentlyAsync())
+            {
+                games = _library.LoadGames();
+                ShowGames(games);
+            }
+        }
 
         await CompleteGamesAsync(games);
         RefreshButton.IsEnabled = true;
+    }
+    private async Task<bool> SyncBattleNetSilentlyAsync()
+    {
+        CoreWebView2Controller? controller = null;
+
+        try
+        {
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
+                null, AppPaths.GetWebViewFolder(Platform.BattleNet));
+
+            controller = await environment.CreateCoreWebView2ControllerAsync(new WindowInteropHelper(this).Handle);
+            controller.IsVisible = false;
+
+            BattleNetFetchResult result = await BattleNetSession.FetchGamesAsync(
+                controller.CoreWebView2, TimeSpan.FromSeconds(30));
+
+            switch (result.Status)
+            {
+                case BattleNetFetchStatus.NotLoggedIn:
+                    Logger.Log($"Session Battle.net expirée (page atteinte : {ReadPagePath(controller.CoreWebView2.Source)}) : reconnecte-toi dans l'onglet Comptes.");
+                    _library.ForgetBattleNetSession();
+                    return false;
+
+                case BattleNetFetchStatus.NoResponse:
+                    Logger.Log("Synchronisation de Battle.net : liste des jeux non reçue.");
+                    return false;
+            }
+
+            _library.ImportBattleNetLibrary(result.Json!);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Synchronisation de Battle.net impossible : {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            controller?.Close();
+        }
     }
 
     private void ShowGames(List<Game> games)
@@ -442,7 +492,43 @@ public partial class MainWindow : Window
         SetAccountRow(EpicStatusText, EpicAccountButton, _library.IsEpicConnected);
         SetAccountRow(UbisoftStatusText, UbisoftAccountButton, _library.IsUbisoftConnected);
         SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected);
+        SetAccountRow(BattleNetStatusText, BattleNetAccountButton, _library.IsBattleNetConnected);
 
+    }
+    private async void BattleNetAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_library.IsBattleNetConnected)
+        {
+            if (!ConfirmDisconnect("Battle.net"))
+            {
+                return;
+            }
+
+            TryDisconnect(_library.DisconnectBattleNet);
+        }
+        else
+        {
+            BattleNetLoginWindow loginWindow = new BattleNetLoginWindow { Owner = this };
+
+            if (loginWindow.ShowDialog() != true || loginWindow.GamesJson is null)
+            {
+                return;
+            }
+
+            try
+            {
+                int count = _library.ImportBattleNetLibrary(loginWindow.GamesJson);
+                MessageBox.Show($"Battle.net connecté : {count} jeu(x) importé(s).", "Wyrmhold");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Connexion Battle.net impossible : {ex}");
+                MessageBox.Show("La connexion à Battle.net a échoué. Les détails sont dans le journal.", "Wyrmhold");
+            }
+        }
+
+        RefreshAccountsTab();
+        await ReloadAfterAccountChangeAsync();
     }
     private async void EaAccountButton_Click(object sender, RoutedEventArgs e)
     {

@@ -11,6 +11,7 @@ public class LibraryService
     private const string UbisoftMarkerName = "ubisoft";
     private const string EaMarkerName = "ea";
     private const string EaOrderIdPrefix = "order:";
+    private const string BattleNetMarkerName = "battlenet";
 
     private readonly List<ILibraryProvider> _providers = new List<ILibraryProvider>
     {
@@ -59,6 +60,8 @@ public class LibraryService
     public bool IsUbisoftConnected => SecureStore.Exists(UbisoftMarkerName);
 
     public bool IsEaConnected => SecureStore.Exists(EaMarkerName);
+
+    public bool IsBattleNetConnected => SecureStore.Exists(BattleNetMarkerName);
 
     // ----- Scan et chargement -----
 
@@ -697,6 +700,73 @@ public class LibraryService
         _database.SaveOwnedGames(Platform.Ea, new List<Game>());
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.Ea);
+
+        if (Directory.Exists(webViewFolder))
+        {
+            Directory.Delete(webViewFolder, recursive: true);
+        }
+    }
+
+    // ----- Battle.net -----
+
+    /// <summary>
+    /// Importe les jeux du compte Battle.net à partir de la réponse de account.battle.net.
+    /// </summary>
+    public int ImportBattleNetLibrary(string gamesJson)
+    {
+        List<BattleNetOwnedGame> ownedGames = BattleNetAccount.ReadOwnedGames(gamesJson);
+
+        // Les jeux installés sont identifiés par leur uid du registre (ex. « hs_beta ») :
+        // on les retrouve par leur nom pour ne pas créer de doublon.
+        Dictionary<string, string> knownIds = new Dictionary<string, string>();
+
+        foreach (Game knownGame in _database.LoadGames())
+        {
+            if (knownGame.Platform == Platform.BattleNet && knownGame.IsInstalled)
+            {
+                knownIds.TryAdd(NameTools.Normalize(knownGame.Name), knownGame.PlatformGameId);
+            }
+        }
+
+        List<Game> games = new List<Game>();
+
+        foreach (BattleNetOwnedGame owned in ownedGames)
+        {
+            string gameId = knownIds.TryGetValue(NameTools.Normalize(owned.Name), out string? installedId)
+                ? installedId
+                : owned.LaunchCode;
+
+            if (games.Any(g => g.PlatformGameId == gameId))
+            {
+                continue;
+            }
+
+            games.Add(new Game
+            {
+                Platform = Platform.BattleNet,
+                PlatformGameId = gameId,
+                Name = owned.Name,
+                LastPlayedUnix = owned.LastPlayedUnix
+            });
+        }
+
+        _database.SaveOwnedGames(Platform.BattleNet, games);
+        SecureStore.Save(BattleNetMarkerName, "connected");
+
+        return games.Count;
+    }
+
+    public void ForgetBattleNetSession()
+    {
+        SecureStore.Delete(BattleNetMarkerName);
+    }
+
+    public void DisconnectBattleNet()
+    {
+        SecureStore.Delete(BattleNetMarkerName);
+        _database.SaveOwnedGames(Platform.BattleNet, new List<Game>());
+
+        string webViewFolder = AppPaths.GetWebViewFolder(Platform.BattleNet);
 
         if (Directory.Exists(webViewFolder))
         {
