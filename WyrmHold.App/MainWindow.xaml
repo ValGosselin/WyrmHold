@@ -229,8 +229,8 @@
                         <Button Grid.Row="4" Grid.Column="2" x:Name="UbisoftAccountButton" Click="UbisoftAccountButton_Click"/>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="EA app" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="Bientôt disponible" Foreground="Gray"/>
-                        <Button Grid.Row="5" Grid.Column="2" Content="Se connecter" IsEnabled="False"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="EaStatusText" Foreground="Gray"/>
+                        <Button Grid.Row="5" Grid.Column="2" x:Name="EaAccountButton" Click="EaAccountButton_Click"/>
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Battle.net" FontWeight="SemiBold"/>
                         <TextBlock Grid.Row="6" Grid.Column="1" Text="Bientôt disponible" Foreground="Gray"/>

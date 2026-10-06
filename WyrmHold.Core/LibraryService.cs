@@ -9,6 +9,8 @@ public class LibraryService
     private const string SteamFamilyMarkerName = "steam-family";
     private const string EpicMarkerName = "epic";
     private const string UbisoftMarkerName = "ubisoft";
+    private const string EaMarkerName = "ea";
+    private const string EaOrderIdPrefix = "order:";
 
     private readonly List<ILibraryProvider> _providers = new List<ILibraryProvider>
     {
@@ -55,6 +57,8 @@ public class LibraryService
     public bool IsEpicConnected => SecureStore.Exists(EpicMarkerName);
 
     public bool IsUbisoftConnected => SecureStore.Exists(UbisoftMarkerName);
+
+    public bool IsEaConnected => SecureStore.Exists(EaMarkerName);
 
     // ----- Scan et chargement -----
 
@@ -624,6 +628,75 @@ public class LibraryService
         ImportUbisoftLibrary(null);
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.Ubisoft);
+
+        if (Directory.Exists(webViewFolder))
+        {
+            Directory.Delete(webViewFolder, recursive: true);
+        }
+    }
+
+    // ----- EA app -----
+
+    /// <summary>
+    /// Importe les jeux EA possédés à partir de l'historique des commandes du compte.
+    /// </summary>
+    public int ImportEaLibrary(string orderHistoryJson)
+    {
+        List<string> ownedNames = EaOrderHistory.ReadOwnedGameNames(orderHistoryJson);
+
+        // Les jeux EA déjà connus grâce au registre, avec leur vrai identifiant (contentID).
+        Dictionary<string, string> knownContentIds = new Dictionary<string, string>();
+
+        foreach (Game knownGame in _database.LoadGames())
+        {
+            if (knownGame.Platform == Platform.Ea && !knownGame.PlatformGameId.StartsWith(EaOrderIdPrefix))
+            {
+                knownContentIds.TryAdd(NameTools.Normalize(knownGame.Name), knownGame.PlatformGameId);
+            }
+        }
+
+        List<Game> games = new List<Game>();
+
+        foreach (string name in ownedNames)
+        {
+            string normalizedName = NameTools.Normalize(name);
+
+            // L'historique ne donne pas d'identifiant de jeu : si on connaît déjà ce jeu
+            // par son nom, on reprend son contentID, sinon on en fabrique un à partir du nom.
+            string gameId = knownContentIds.TryGetValue(normalizedName, out string? contentId)
+                ? contentId
+                : EaOrderIdPrefix + normalizedName;
+
+            if (games.Any(g => g.PlatformGameId == gameId))
+            {
+                continue;
+            }
+
+            games.Add(new Game
+            {
+                Platform = Platform.Ea,
+                PlatformGameId = gameId,
+                Name = name
+            });
+        }
+
+        _database.SaveOwnedGames(Platform.Ea, games);
+        SecureStore.Save(EaMarkerName, "connected");
+
+        return games.Count;
+    }
+
+    public void ForgetEaSession()
+    {
+        SecureStore.Delete(EaMarkerName);
+    }
+
+    public void DisconnectEa()
+    {
+        SecureStore.Delete(EaMarkerName);
+        _database.SaveOwnedGames(Platform.Ea, new List<Game>());
+
+        string webViewFolder = AppPaths.GetWebViewFolder(Platform.Ea);
 
         if (Directory.Exists(webViewFolder))
         {

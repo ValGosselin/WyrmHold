@@ -80,6 +80,16 @@ public partial class MainWindow : Window
                 ShowGames(games);
             }
         }
+        if (_library.IsEaConnected)
+        {
+            Title = $"{_summary} — synchronisation d'EA…";
+
+            if (await SyncEaSilentlyAsync())
+            {
+                games = _library.LoadGames();
+                ShowGames(games);
+            }
+        }
 
         await CompleteGamesAsync(games);
         RefreshButton.IsEnabled = true;
@@ -92,6 +102,80 @@ public partial class MainWindow : Window
         int installedCount = games.Count(g => g.IsInstalled);
         _summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
         Title = _summary;
+    }
+    private async Task<bool> SyncEaSilentlyAsync()
+    {
+        CoreWebView2Controller? controller = null;
+
+        try
+        {
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
+                null, AppPaths.GetWebViewFolder(Platform.Ea));
+
+            controller = await environment.CreateCoreWebView2ControllerAsync(new WindowInteropHelper(this).Handle);
+            controller.IsVisible = false;
+
+            CoreWebView2 webView = controller.CoreWebView2;
+
+            // Étape 1 : ouvrir la page du site, comme le ferait un navigateur.
+            // Si la session du site a expiré, EA passe par sa page de connexion, qui te reconnecte
+            // toute seule grâce au cookie « Se souvenir de moi », puis revient sur la page.
+            TaskCompletionSource<bool> accountPageLoaded = new TaskCompletionSource<bool>();
+
+            webView.NavigationCompleted += (sender, e) =>
+            {
+                if (e.IsSuccess && webView.Source.StartsWith(EaOrderHistory.PageUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    accountPageLoaded.TrySetResult(true);
+                }
+            };
+
+            webView.Navigate(EaOrderHistory.PageUrl);
+
+            Task finished = await Task.WhenAny(accountPageLoaded.Task, Task.Delay(TimeSpan.FromSeconds(30)));
+
+            if (finished != accountPageLoaded.Task)
+            {
+                Logger.Log($"Session EA expirée (page atteinte : {ReadPagePath(webView.Source)}) : reconnecte-toi dans l'onglet Comptes.");
+                _library.ForgetEaSession();
+                return false;
+            }
+
+            // Étape 2 : la session est ouverte, on demande l'historique complet.
+            EaOrderHistoryCapture capture = new EaOrderHistoryCapture(webView);
+            webView.Navigate(EaOrderHistory.Url);
+
+            string? json = await capture.WaitForJsonAsync(TimeSpan.FromSeconds(20));
+
+            if (json is null)
+            {
+                Logger.Log($"Synchronisation d'EA : historique non reçu (page atteinte : {ReadPagePath(webView.Source)}).");
+                return false;
+            }
+
+            _library.ImportEaLibrary(json);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Synchronisation d'EA impossible : {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            controller?.Close();
+        }
+    }
+
+    /// <summary>
+    /// Garde seulement le site et le chemin d'une adresse, sans les paramètres :
+    /// ceux des pages de connexion peuvent contenir des codes qu'on ne veut pas dans le journal.
+    /// </summary>
+    private static string ReadPagePath(string url)
+    {
+        return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            ? uri.GetLeftPart(UriPartial.Path)
+            : "inconnue";
     }
 
     private async Task CompleteGamesAsync(List<Game> games)
@@ -357,6 +441,43 @@ public partial class MainWindow : Window
         SetAccountRow(GogStatusText, GogAccountButton, _library.IsGogConnected);
         SetAccountRow(EpicStatusText, EpicAccountButton, _library.IsEpicConnected);
         SetAccountRow(UbisoftStatusText, UbisoftAccountButton, _library.IsUbisoftConnected);
+        SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected);
+
+    }
+    private async void EaAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_library.IsEaConnected)
+        {
+            if (!ConfirmDisconnect("EA"))
+            {
+                return;
+            }
+
+            TryDisconnect(_library.DisconnectEa);
+        }
+        else
+        {
+            EaLoginWindow loginWindow = new EaLoginWindow { Owner = this };
+
+            if (loginWindow.ShowDialog() != true || loginWindow.OrderHistoryJson is null)
+            {
+                return;
+            }
+
+            try
+            {
+                int count = _library.ImportEaLibrary(loginWindow.OrderHistoryJson);
+                MessageBox.Show($"EA connecté : {count} jeu(x) importé(s).", "Wyrmhold");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Connexion EA impossible : {ex}");
+                MessageBox.Show("La connexion à EA a échoué. Les détails sont dans le journal.", "Wyrmhold");
+            }
+        }
+
+        RefreshAccountsTab();
+        await ReloadAfterAccountChangeAsync();
     }
 
     private static void SetAccountRow(TextBlock statusText, Button button, bool isConnected)
