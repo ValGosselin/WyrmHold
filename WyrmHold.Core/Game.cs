@@ -1,7 +1,9 @@
 ﻿
+using System.ComponentModel;
+
 namespace Wyrmhold.Core;
 
-public class Game
+public class Game : INotifyPropertyChanged
 {
     public bool? IsFamilyShared { get; set; }
     public string? OwnerSteamId { get; set; }
@@ -19,6 +21,24 @@ public class Game
     public bool IsEarlyAccess { get; set; }
     public string? Tags { get; set; }
     public long MetadataUpdatedUnix { get; set; }
+    private bool _isFavorite;
+
+    public bool IsFavorite
+    {
+        get => _isFavorite;
+        set
+        {
+            if (_isFavorite == value)
+            {
+                return;
+            }
+
+            _isFavorite = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(IsFavorite)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
     public string ReleaseDateText => ReleaseDateUnix == 0
     ? ""
     : DateTimeOffset.FromUnixTimeSeconds(ReleaseDateUnix).LocalDateTime.ToString("dd/MM/yyyy");

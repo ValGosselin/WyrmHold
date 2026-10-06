@@ -45,6 +45,7 @@ public class GameDatabase
         AddColumnIfMissing(connection, "Tags", "TEXT");
         AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "IsOwned", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "IsFavorite", "INTEGER NOT NULL DEFAULT 0");
 
         using SqliteCommand createSessions = connection.CreateCommand();
         createSessions.CommandText = """
@@ -137,7 +138,7 @@ public class GameDatabase
 
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix
+        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite
         FROM Game
         WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
         """;
@@ -167,12 +168,28 @@ public class GameDatabase
                 ReleaseDateUnix = reader.GetInt64(11),
                 IsEarlyAccess = reader.GetInt64(12) == 1,
                 Tags = reader.IsDBNull(13) ? null : reader.GetString(13),
-                MetadataUpdatedUnix = reader.GetInt64(14)
+                MetadataUpdatedUnix = reader.GetInt64(14),
+                IsFavorite = reader.GetInt64(reader.GetOrdinal("IsFavorite")) == 1
 
             });
         }
 
         return games;
+    }
+    public void SetFavorite(Game game, bool isFavorite)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+        UPDATE Game SET IsFavorite = $isFavorite
+        WHERE Platform = $platform AND PlatformGameId = $gameId;
+        """;
+        command.Parameters.AddWithValue("$isFavorite", isFavorite ? 1 : 0);
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.ExecuteNonQuery();
     }
     public void SaveOwnedGames(Platform platform, List<Game> games)
     {

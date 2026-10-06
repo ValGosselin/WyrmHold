@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private string _activityFilter = "all";
     private string _tagFilter = "all";
     private bool _isBuildingTagFilter;
+    private bool _favoritesOnly;
 
     public MainWindow()
     {
@@ -240,6 +241,10 @@ public partial class MainWindow : Window
         {
             return false;
         }
+        if (_favoritesOnly && !game.IsFavorite)
+        {
+            return false;
+        }
 
         return _searchKey.Length == 0 || NameTools.Normalize(game.Name).Contains(_searchKey);
     }
@@ -391,7 +396,38 @@ public partial class MainWindow : Window
         OriginFilter.SelectedIndex = 0;
         ActivityFilter.SelectedIndex = 0;
         TagFilter.SelectedIndex = 0;
+        FavoritesFilter.IsChecked = false;
         SearchBox.Clear();
+    }
+    private void FavoritesFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        _favoritesOnly = FavoritesFilter.IsChecked == true;
+        RefreshFilters();
+    }
+
+    private void FavoriteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GamesList.SelectedItem is not Game game)
+        {
+            return;
+        }
+
+        try
+        {
+            _library.SetFavorite(game, !game.IsFavorite);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Favori impossible à enregistrer pour {game.Name} : {ex.Message}");
+            MessageBox.Show("Le favori n'a pas pu être enregistré. Les détails sont dans le journal.", "Wyrmhold");
+            return;
+        }
+
+        // Si on n'affiche que les favoris, un jeu retiré des favoris doit disparaître de la liste.
+        if (_favoritesOnly)
+        {
+            RefreshFilters();
+        }
     }
 
     private void RefreshFilters()

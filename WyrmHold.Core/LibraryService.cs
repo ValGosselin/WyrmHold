@@ -425,6 +425,11 @@ public class LibraryService
             return new Dictionary<string, long>();
         }
     }
+    public void SetFavorite(Game game, bool isFavorite)
+    {
+        _database.SetFavorite(game, isFavorite);
+        game.IsFavorite = isFavorite;
+    }
 
     private static string? FindEpicCoverUrl(EpicCatalogItem item)
     {

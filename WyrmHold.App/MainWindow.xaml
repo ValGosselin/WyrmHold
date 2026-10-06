@@ -76,6 +76,8 @@
 
                         <ComboBox x:Name="TagFilter" Width="190" MaxDropDownHeight="400"
                   VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged"/>
+                        <ToggleButton x:Name="FavoritesFilter" Content="★ Favoris" Margin="10,0,0,0" Padding="10,0"
+              Checked="FavoritesFilter_Changed" Unchecked="FavoritesFilter_Changed"/>
                     </StackPanel>
 
                     <!-- Ligne 2 : plateformes à gauche, tri et compteur à droite -->
@@ -133,6 +135,18 @@
                                 <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold"
                                            TextWrapping="Wrap" Margin="0,12,0,0"/>
                                 <TextBlock Text="{Binding Subtitle}" Foreground="Gray"/>
+                                <Button HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,4" Click="FavoriteButton_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Content" Value="☆ Ajouter aux favoris"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                    <Setter Property="Content" Value="★ Favori"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
 
                                 <Border Background="#FFB300" CornerRadius="4" Padding="6,2"
                                         HorizontalAlignment="Left" Margin="0,8,0,0">
@@ -231,6 +245,20 @@
                                                TextWrapping="Wrap" TextAlignment="Center"
                                                VerticalAlignment="Center" Margin="8"/>
                                     <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
+                                    <Border Background="#AA000000" CornerRadius="12" Padding="6,1"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="★" Foreground="Gold" FontSize="16"/>
+                                    </Border>
                                 </Grid>
 
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
