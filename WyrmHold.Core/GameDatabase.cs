@@ -192,13 +192,18 @@ public class GameDatabase
             using SqliteCommand upsert = connection.CreateCommand();
             upsert.Transaction = transaction;
             upsert.CommandText = """
-            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, IsOwned)
-            VALUES ($platform, $gameId, $name, 0, 1)
-            ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET IsOwned = 1;
+            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, IsOwned, PlaytimeMinutes, LastPlayedUnix)
+            VALUES ($platform, $gameId, $name, 0, 1, $playtime, $lastPlayed)
+            ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
+                IsOwned         = 1,
+                PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes),
+                LastPlayedUnix  = max(Game.LastPlayedUnix, excluded.LastPlayedUnix);
             """;
             upsert.Parameters.AddWithValue("$platform", platform.ToString());
             upsert.Parameters.AddWithValue("$gameId", game.PlatformGameId);
             upsert.Parameters.AddWithValue("$name", game.Name);
+            upsert.Parameters.AddWithValue("$playtime", game.PlaytimeMinutes);
+            upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.ExecuteNonQuery();
         }
 

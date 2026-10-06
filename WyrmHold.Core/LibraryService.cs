@@ -1,4 +1,5 @@
 ﻿using System.Net;
+using System.Text.Json;
 
 namespace Wyrmhold.Core;
 
@@ -6,6 +7,8 @@ public class LibraryService
 {
     private const string GogTokenName = "gog";
     private const string SteamFamilyMarkerName = "steam-family";
+    private const string EpicMarkerName = "epic";
+    private const string UbisoftMarkerName = "ubisoft";
 
     private readonly List<ILibraryProvider> _providers = new List<ILibraryProvider>
     {
@@ -22,6 +25,8 @@ public class LibraryService
     private readonly MetadataFetcher _metadata = new MetadataFetcher();
     private readonly PlaytimeTracker _tracker = new PlaytimeTracker();
     private readonly HashSet<string> _activeSessions = new HashSet<string>();
+    private readonly EpicCatalogCache _epicCatalog = new EpicCatalogCache();
+    private readonly Dictionary<string, string> _ubisoftCoverUrls = new Dictionary<string, string>();
 
     private readonly Secrets _secrets;
     private readonly SteamWebApi _steamApi;
@@ -46,6 +51,10 @@ public class LibraryService
     public bool IsSteamApiConfigured => _steamApi.IsConfigured;
 
     public bool IsSteamFamilyConnected => SecureStore.Exists(SteamFamilyMarkerName);
+
+    public bool IsEpicConnected => SecureStore.Exists(EpicMarkerName);
+
+    public bool IsUbisoftConnected => SecureStore.Exists(UbisoftMarkerName);
 
     // ----- Scan et chargement -----
 
@@ -79,6 +88,20 @@ public class LibraryService
             Logger.Log($"Synchronisation GOG impossible : {ex.Message}");
         }
 
+        // Si le compte Ubisoft est connecté, la synchronisation silencieuse
+        // fait l'import complet (cache local + site) juste après.
+        if (!IsUbisoftConnected)
+        {
+            try
+            {
+                ImportUbisoftLibrary(null);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Import local d'Ubisoft Connect impossible : {ex.Message}");
+            }
+        }
+
         return LoadGames();
     }
 
@@ -91,6 +114,14 @@ public class LibraryService
 
     public async Task DownloadCoversAsync(List<Game> games)
     {
+        await _covers.DownloadCoversFromUrlsAsync(
+            games.Where(g => g.Platform == Platform.Epic),
+            game => _epicCatalog.Find(game.PlatformGameId)?.CoverUrl);
+
+        await _covers.DownloadCoversFromUrlsAsync(
+            games.Where(g => g.Platform == Platform.Ubisoft),
+            game => _ubisoftCoverUrls.GetValueOrDefault(game.PlatformGameId));
+
         await _covers.DownloadMissingSteamCoversAsync(games);
         await _covers.DownloadMissingCoversFromSteamGridDbAsync(games, _steamGridDb);
         _covers.AttachCovers(games);
@@ -289,6 +320,315 @@ public class LibraryService
 
         _database.SaveOwnedGames(Platform.Gog, games);
         return games.Count;
+    }
+
+    // ----- Epic Games -----
+
+    public async Task<int> ImportEpicLibraryAsync(string authorizationCode)
+    {
+        string? accessToken = await EpicApi.ExchangeCodeAsync(authorizationCode);
+
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            throw new InvalidOperationException("Epic n'a pas fourni de jeton d'accès.");
+        }
+
+        List<EpicLibraryRecord> records = await EpicApi.GetLibraryRecordsAsync(accessToken);
+        List<Game> games = new List<Game>();
+
+        foreach (EpicLibraryRecord record in records)
+        {
+            if (string.IsNullOrEmpty(record.AppName)
+                || record.Namespace == "ue"
+                || games.Any(g => g.PlatformGameId == record.AppName))
+            {
+                continue;
+            }
+
+            EpicCatalogEntry? entry = _epicCatalog.Find(record.AppName);
+
+            if (entry is null)
+            {
+                EpicCatalogItem? item = await EpicApi.GetCatalogItemAsync(
+                    record.Namespace, record.CatalogItemId, accessToken);
+
+                if (item is null)
+                {
+                    Logger.Log($"Jeu Epic introuvable dans le catalogue : {record.AppName}");
+                    continue;
+                }
+
+                entry = new EpicCatalogEntry
+                {
+                    Title = item.Title,
+                    IsGame = item.MainGameItem is null && item.Categories.Any(c => c.Path == "games"),
+                    CoverUrl = FindEpicCoverUrl(item)
+                };
+
+                _epicCatalog.Set(record.AppName, entry);
+            }
+
+            if (entry.IsGame)
+            {
+                games.Add(new Game
+                {
+                    Platform = Platform.Epic,
+                    PlatformGameId = record.AppName,
+                    Name = entry.Title
+                });
+            }
+        }
+
+        _epicCatalog.Save();
+        _database.SaveOwnedGames(Platform.Epic, games);
+        SecureStore.Save(EpicMarkerName, "connected");
+
+        return games.Count;
+    }
+
+    private static string? FindEpicCoverUrl(EpicCatalogItem item)
+    {
+        EpicKeyImage? image = item.KeyImages.FirstOrDefault(i => i.Type == "DieselGameBoxTall")
+            ?? item.KeyImages.FirstOrDefault(i => i.Type == "OfferImageTall")
+            ?? item.KeyImages.FirstOrDefault(i => i.Height > i.Width);
+
+        return image?.Url;
+    }
+
+    public void ForgetEpicSession()
+    {
+        SecureStore.Delete(EpicMarkerName);
+    }
+
+    public void DisconnectEpic()
+    {
+        SecureStore.Delete(EpicMarkerName);
+        _database.SaveOwnedGames(Platform.Epic, new List<Game>());
+
+        string webViewFolder = AppPaths.GetWebViewFolder(Platform.Epic);
+
+        if (Directory.Exists(webViewFolder))
+        {
+            Directory.Delete(webViewFolder, recursive: true);
+        }
+    }
+
+    // ----- Ubisoft Connect -----
+
+    /// <summary>
+    /// Importe la bibliothèque Ubisoft en combinant deux sources :
+    /// 1. le cache local d'Ubisoft Connect (les jeux possédés, toujours lu) ;
+    /// 2. le site d'Ubisoft (les jeux joués, seulement si capture n'est pas null).
+    /// </summary>
+    public int ImportUbisoftLibrary(UbisoftCapture? capture)
+    {
+        List<UbisoftLocalGame> localGames;
+
+        try
+        {
+            localGames = UbisoftLocalLibrary.ReadOwnedGames();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Cache local d'Ubisoft Connect illisible : {ex.Message}");
+
+            if (capture is null)
+            {
+                // Rien de neuf à importer : on garde la bibliothèque déjà enregistrée.
+                return 0;
+            }
+
+            localGames = new List<UbisoftLocalGame>();
+        }
+
+        List<UbisoftPlayedGame> playedGames = new List<UbisoftPlayedGame>();
+        Dictionary<string, UbisoftPlayedGame> playedBySpaceId = new Dictionary<string, UbisoftPlayedGame>();
+        Dictionary<string, UbisoftCatalogGame> catalog = new Dictionary<string, UbisoftCatalogGame>();
+
+        if (capture is not null)
+        {
+            playedGames = ReadUbisoftPlayedGames(capture);
+            catalog = ReadUbisoftCatalog(capture);
+            _ubisoftCoverUrls.Clear();
+
+            foreach (UbisoftPlayedGame playedGame in playedGames)
+            {
+                playedBySpaceId.TryAdd(playedGame.SpaceId, playedGame);
+            }
+        }
+
+        HashSet<string> knownNames = _database.LoadGames()
+            .Where(g => g.Platform != Platform.Ubisoft || g.IsInstalled)
+            .Select(g => NameTools.Normalize(g.Name))
+            .ToHashSet();
+
+        HashSet<string> knownSpaceIds = new HashSet<string>();
+        List<Game> games = new List<Game>();
+
+        // 1. Les jeux possédés, lus dans le cache local.
+        foreach (UbisoftLocalGame localGame in localGames)
+        {
+            string gameId = localGame.ProductId.ToString();
+
+            if (games.Any(g => g.PlatformGameId == gameId))
+            {
+                continue;
+            }
+
+            Game game = new Game
+            {
+                Platform = Platform.Ubisoft,
+                PlatformGameId = gameId,
+                Name = NameTools.CleanForSearch(localGame.Name)
+            };
+
+            knownNames.Add(NameTools.Normalize(localGame.Name));
+
+            if (localGame.SpaceId is not null)
+            {
+                knownSpaceIds.Add(localGame.SpaceId);
+
+                if (capture is not null)
+                {
+                    game.PlaytimeMinutes = ReadUbisoftPlaytimeMinutes(capture, localGame.SpaceId);
+                }
+
+                if (playedBySpaceId.TryGetValue(localGame.SpaceId, out UbisoftPlayedGame? playedGame))
+                {
+                    game.LastPlayedUnix = playedGame.LastPlayed?.UpdatedAt.ToUnixTimeSeconds() ?? 0;
+                }
+
+                if (catalog.TryGetValue(localGame.SpaceId, out UbisoftCatalogGame? info))
+                {
+                    AddUbisoftCoverUrl(gameId, info);
+                }
+            }
+
+            games.Add(game);
+        }
+
+        // 2. Les jeux joués, lus sur le site (ceux qui ne sont pas déjà dans la liste).
+        foreach (UbisoftPlayedGame playedGame in playedGames)
+        {
+            if (knownSpaceIds.Contains(playedGame.SpaceId)
+                || !playedGame.Applications.Any(a => a.ApplicationPlatformType == "PC")
+                || !catalog.TryGetValue(playedGame.SpaceId, out UbisoftCatalogGame? info)
+                || !knownNames.Add(NameTools.Normalize(info.DisplayName)))
+            {
+                continue;
+            }
+
+            games.Add(new Game
+            {
+                Platform = Platform.Ubisoft,
+                PlatformGameId = playedGame.SpaceId,
+                Name = NameTools.CleanForSearch(info.DisplayName),
+                PlaytimeMinutes = ReadUbisoftPlaytimeMinutes(capture!, playedGame.SpaceId),
+                LastPlayedUnix = playedGame.LastPlayed?.UpdatedAt.ToUnixTimeSeconds() ?? 0
+            });
+
+            AddUbisoftCoverUrl(playedGame.SpaceId, info);
+        }
+
+        _database.SaveOwnedGames(Platform.Ubisoft, games);
+
+        if (capture is not null)
+        {
+            SecureStore.Save(UbisoftMarkerName, "connected");
+        }
+
+        return games.Count;
+    }
+
+    private static List<UbisoftPlayedGame> ReadUbisoftPlayedGames(UbisoftCapture capture)
+    {
+        if (capture.GamesPlayedJson is null)
+        {
+            throw new InvalidOperationException("La liste des jeux Ubisoft n'a pas été reçue.");
+        }
+
+        UbisoftGamesPlayedResponse? played = JsonSerializer.Deserialize<UbisoftGamesPlayedResponse>(capture.GamesPlayedJson);
+
+        if (played is null)
+        {
+            throw new InvalidOperationException("La liste des jeux Ubisoft est illisible.");
+        }
+
+        return played.GamesPlayed;
+    }
+
+    private static Dictionary<string, UbisoftCatalogGame> ReadUbisoftCatalog(UbisoftCapture capture)
+    {
+        Dictionary<string, UbisoftCatalogGame> catalog = new Dictionary<string, UbisoftCatalogGame>();
+
+        foreach (string catalogJson in capture.CatalogJsons)
+        {
+            UbisoftCatalogResponse? response = JsonSerializer.Deserialize<UbisoftCatalogResponse>(catalogJson);
+
+            foreach (UbisoftCatalogGame catalogGame in response?.Games ?? new List<UbisoftCatalogGame>())
+            {
+                catalog[catalogGame.SpaceId] = catalogGame;
+            }
+        }
+
+        return catalog;
+    }
+
+    private void AddUbisoftCoverUrl(string gameId, UbisoftCatalogGame info)
+    {
+        string? coverUrl = info.ImageUrls?.HighBoxArt ?? info.ImageUrls?.LowBoxArt;
+
+        if (coverUrl is not null)
+        {
+            _ubisoftCoverUrls[gameId] = coverUrl;
+        }
+    }
+
+    private static int ReadUbisoftPlaytimeMinutes(UbisoftCapture capture, string spaceId)
+    {
+        if (!capture.StatsJsonBySpaceId.TryGetValue(spaceId, out string? json))
+        {
+            return 0;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
+
+            if (document.RootElement.TryGetProperty("stats", out JsonElement stats)
+                && stats.TryGetProperty("Playtime", out JsonElement playtime)
+                && playtime.TryGetProperty("value", out JsonElement value)
+                && long.TryParse(value.GetString(), out long seconds))
+            {
+                return (int)(seconds / 60);
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return 0;
+    }
+
+    public void ForgetUbisoftSession()
+    {
+        SecureStore.Delete(UbisoftMarkerName);
+    }
+
+    public void DisconnectUbisoft()
+    {
+        SecureStore.Delete(UbisoftMarkerName);
+        _database.SaveOwnedGames(Platform.Ubisoft, new List<Game>());
+
+        // On retire les jeux venus du site, mais on garde ceux du cache local.
+        ImportUbisoftLibrary(null);
+
+        string webViewFolder = AppPaths.GetWebViewFolder(Platform.Ubisoft);
+
+        if (Directory.Exists(webViewFolder))
+        {
+            Directory.Delete(webViewFolder, recursive: true);
+        }
     }
 
     // ----- Lancement et temps de jeu -----

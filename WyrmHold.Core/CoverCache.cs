@@ -22,7 +22,32 @@ public class CoverCache
             game.CoverPath = File.Exists(path) ? path : null;
         }
     }
+    public async Task DownloadCoversFromUrlsAsync(IEnumerable<Game> games, Func<Game, string?> findCoverUrl)
+    {
+        foreach (Game game in games.Where(g => !File.Exists(GetCoverPath(g))))
+        {
+            string? url = findCoverUrl(game);
 
+            if (url is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                byte[]? imageBytes = await TryDownloadAsync(url, CancellationToken.None);
+
+                if (imageBytes is not null)
+                {
+                    await File.WriteAllBytesAsync(GetCoverPath(game), imageBytes);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Jaquette introuvable pour {game.Name} : {ex.Message}");
+            }
+        }
+    }
     public async Task DownloadMissingSteamCoversAsync(IEnumerable<Game> games)
     {
         List<Game> toDownload = games

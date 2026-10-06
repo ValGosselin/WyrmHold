@@ -1,4 +1,5 @@
-﻿using System.Windows;
+﻿using System.IO;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -58,13 +59,35 @@ public partial class MainWindow : Window
             }
         }
 
+        if (_library.IsEpicConnected)
+        {
+            Title = $"{_summary} — synchronisation d'Epic Games…";
+
+            if (await SyncEpicSilentlyAsync())
+            {
+                games = _library.LoadGames();
+                ShowGames(games);
+            }
+        }
+
+        if (_library.IsUbisoftConnected)
+        {
+            Title = $"{_summary} — synchronisation d'Ubisoft Connect…";
+
+            if (await SyncUbisoftSilentlyAsync())
+            {
+                games = _library.LoadGames();
+                ShowGames(games);
+            }
+        }
+
         await CompleteGamesAsync(games);
         RefreshButton.IsEnabled = true;
     }
 
     private void ShowGames(List<Game> games)
     {
-        GamesList.ItemsSource = games.OrderBy(g => g.Name).ToList();
+        GamesList.ItemsSource = games.OrderBy(g => NameTools.Normalize(g.Name)).ToList();
 
         int installedCount = games.Count(g => g.IsInstalled);
         _summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
@@ -150,6 +173,116 @@ public partial class MainWindow : Window
         }
     }
 
+    private async Task<bool> SyncEpicSilentlyAsync()
+    {
+        CoreWebView2Controller? controller = null;
+
+        try
+        {
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
+                null, AppPaths.GetWebViewFolder(Platform.Epic));
+
+            controller = await environment.CreateCoreWebView2ControllerAsync(new WindowInteropHelper(this).Handle);
+            controller.IsVisible = false;
+
+            TaskCompletionSource<string?> codeReceived = new TaskCompletionSource<string?>();
+
+            controller.CoreWebView2.WebResourceResponseReceived += async (sender, e) =>
+            {
+                if (e.Response.StatusCode != 200
+                    || !e.Request.Uri.StartsWith(EpicApi.AuthorizationCodeUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                codeReceived.TrySetResult(await ReadAuthorizationCodeAsync(e.Response));
+            };
+
+            controller.CoreWebView2.Navigate(EpicApi.AuthorizationCodeUrl);
+
+            Task finished = await Task.WhenAny(codeReceived.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+
+            if (finished != codeReceived.Task)
+            {
+                Logger.Log("Synchronisation d'Epic Games : Epic ne répond pas.");
+                return false;
+            }
+
+            string? authorizationCode = await codeReceived.Task;
+
+            if (authorizationCode is null)
+            {
+                Logger.Log("Session Epic Games expirée : reconnecte-toi dans l'onglet Comptes.");
+                _library.ForgetEpicSession();
+                return false;
+            }
+
+            await _library.ImportEpicLibraryAsync(authorizationCode);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Synchronisation d'Epic Games impossible : {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            controller?.Close();
+        }
+    }
+
+    public static async Task<string?> ReadAuthorizationCodeAsync(CoreWebView2WebResourceResponseView response)
+    {
+        string? json = await WebViewHelpers.ReadContentAsync(response);
+        return json is null ? null : EpicApi.ReadAuthorizationCode(json);
+    }
+
+    private async Task<bool> SyncUbisoftSilentlyAsync()
+    {
+        CoreWebView2Controller? controller = null;
+
+        try
+        {
+            CoreWebView2Environment environment = await CoreWebView2Environment.CreateAsync(
+                null, AppPaths.GetWebViewFolder(Platform.Ubisoft));
+
+            controller = await environment.CreateCoreWebView2ControllerAsync(new WindowInteropHelper(this).Handle);
+            controller.IsVisible = false;
+
+            UbisoftPageCapture pageCapture = new UbisoftPageCapture(controller.CoreWebView2);
+            controller.CoreWebView2.Navigate(UbisoftPageCapture.GamesActivityUrl);
+
+            UbisoftCapture? capture = await pageCapture.WaitForDataAsync(TimeSpan.FromSeconds(30));
+
+            if (capture is null)
+            {
+                if (!controller.CoreWebView2.Source.StartsWith(UbisoftPageCapture.GamesActivityUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Log("Session Ubisoft expirée : reconnecte-toi dans l'onglet Comptes.");
+                    _library.ForgetUbisoftSession();
+                }
+                else
+                {
+                    Logger.Log("Synchronisation d'Ubisoft Connect : Ubisoft ne répond pas.");
+                }
+
+                return false;
+            }
+
+            _library.ImportUbisoftLibrary(capture);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Synchronisation d'Ubisoft Connect impossible : {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            controller?.Close();
+        }
+    }
+
     // ===================== Lancement =====================
 
     private void LaunchSelectedGame()
@@ -222,6 +355,8 @@ public partial class MainWindow : Window
 
         SetAccountRow(SteamFamilyStatusText, SteamFamilyButton, _library.IsSteamFamilyConnected);
         SetAccountRow(GogStatusText, GogAccountButton, _library.IsGogConnected);
+        SetAccountRow(EpicStatusText, EpicAccountButton, _library.IsEpicConnected);
+        SetAccountRow(UbisoftStatusText, UbisoftAccountButton, _library.IsUbisoftConnected);
     }
 
     private static void SetAccountRow(TextBlock statusText, Button button, bool isConnected)
@@ -330,6 +465,86 @@ public partial class MainWindow : Window
             finally
             {
                 GogAccountButton.IsEnabled = true;
+            }
+        }
+
+        RefreshAccountsTab();
+        await ReloadAfterAccountChangeAsync();
+    }
+
+    private async void EpicAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_library.IsEpicConnected)
+        {
+            if (!ConfirmDisconnect("Epic Games"))
+            {
+                return;
+            }
+
+            TryDisconnect(_library.DisconnectEpic);
+        }
+        else
+        {
+            EpicLoginWindow loginWindow = new EpicLoginWindow { Owner = this };
+
+            if (loginWindow.ShowDialog() != true || loginWindow.AuthorizationCode is null)
+            {
+                return;
+            }
+
+            EpicAccountButton.IsEnabled = false;
+            Title = $"{_summary} — import de la bibliothèque Epic Games…";
+
+            try
+            {
+                int count = await _library.ImportEpicLibraryAsync(loginWindow.AuthorizationCode);
+                MessageBox.Show($"Epic Games connecté : {count} jeu(x) importé(s).", "Wyrmhold");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Connexion Epic Games impossible : {ex}");
+                MessageBox.Show("La connexion à Epic Games a échoué. Les détails sont dans le journal.", "Wyrmhold");
+            }
+            finally
+            {
+                EpicAccountButton.IsEnabled = true;
+                Title = _summary;
+            }
+        }
+
+        RefreshAccountsTab();
+        await ReloadAfterAccountChangeAsync();
+    }
+
+    private async void UbisoftAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_library.IsUbisoftConnected)
+        {
+            if (!ConfirmDisconnect("Ubisoft Connect"))
+            {
+                return;
+            }
+
+            TryDisconnect(_library.DisconnectUbisoft);
+        }
+        else
+        {
+            UbisoftLoginWindow loginWindow = new UbisoftLoginWindow { Owner = this };
+
+            if (loginWindow.ShowDialog() != true || loginWindow.Capture is null)
+            {
+                return;
+            }
+
+            try
+            {
+                int count = _library.ImportUbisoftLibrary(loginWindow.Capture);
+                MessageBox.Show($"Ubisoft Connect connecté : {count} jeu(x) importé(s).", "Wyrmhold");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Connexion Ubisoft impossible : {ex}");
+                MessageBox.Show("La connexion à Ubisoft Connect a échoué. Les détails sont dans le journal.", "Wyrmhold");
             }
         }
 

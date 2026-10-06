@@ -1,6 +1,6 @@
 ﻿namespace Wyrmhold.Core;
 
-internal static class NameTools
+public static class NameTools
 {
     public static string CleanForSearch(string name)
     {

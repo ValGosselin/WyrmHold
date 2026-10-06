@@ -1,20 +1,18 @@
-﻿using Wyrmhold.Core;
+﻿string file = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "Ubisoft Game Launcher", "cache", "configuration", "configurations");
 
-Secrets secrets = Secrets.Load();
-SteamWebApi steamApi = new SteamWebApi(secrets);
+string outputPath = Path.Combine(Path.GetTempPath(), "configurations.txt");
 
-if (!steamApi.IsConfigured)
+try
 {
-    Console.WriteLine("secrets.json introuvable ou incomplet.");
-    return;
+    var configuration = UbiParser.Parsers.ParseConfigurationCacheFile(file);
+
+    Console.WriteLine($"Type du résultat : {configuration?.GetType().FullName}");
+    File.WriteAllText(outputPath, configuration?.ToString() ?? "(rien)");
+    Console.WriteLine($"Contenu écrit dans : {outputPath}");
 }
-
-List<SteamOwnedGame> ownedGames = await steamApi.GetOwnedGamesAsync();
-
-Console.WriteLine($"{ownedGames.Count} jeu(x) possédé(s) sur Steam.");
-Console.WriteLine("Tes 10 jeux les plus joués :");
-
-foreach (SteamOwnedGame game in ownedGames.OrderByDescending(g => g.PlaytimeMinutes).Take(10))
+catch (Exception ex)
 {
-    Console.WriteLine($" - {game.Name} : {game.PlaytimeMinutes / 60} h");
+    Console.WriteLine($"Erreur : {ex.Message}");
 }
