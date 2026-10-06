@@ -454,5 +454,27 @@ public class GameDatabase
 
         transaction.Commit();
     }
+    public List<(long StartedUnix, long EndedUnix)> LoadPlaySessions(long sinceUnix)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT StartedUnix, EndedUnix FROM PlaySession
+            WHERE StartedUnix >= $since;
+            """;
+        command.Parameters.AddWithValue("$since", sinceUnix);
+
+        List<(long, long)> sessions = new List<(long, long)>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            sessions.Add((reader.GetInt64(0), reader.GetInt64(1)));
+        }
+
+        return sessions;
+    }
 }
 

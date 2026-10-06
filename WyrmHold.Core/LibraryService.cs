@@ -834,6 +834,14 @@ public class LibraryService
         }
     }
 
+    // ----- Statistiques -----
+
+    public LibraryStatistics ComputeStatistics(List<Game> games)
+    {
+        long sinceUnix = DateTimeOffset.Now.AddDays(-7 * (LibraryStatistics.WeekCount + 1)).ToUnixTimeSeconds();
+        return LibraryStatistics.Compute(games, _database.LoadPlaySessions(sinceUnix));
+    }
+
     // ----- Favoris -----
 
     public void SetFavorite(Game game, bool isFavorite)

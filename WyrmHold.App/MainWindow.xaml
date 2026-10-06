@@ -12,7 +12,7 @@
         Loaded="Window_Loaded"
         Closing="Window_Closing">
 
-    <TabControl Margin="10">
+    <TabControl x:Name="MainTabs" Margin="10" SelectionChanged="MainTabs_SelectionChanged">
 
         <!-- ===================== Onglet Bibliothèque ===================== -->
         <TabItem Header="Bibliothèque">
@@ -280,7 +280,93 @@
                 </ListBox>
             </DockPanel>
         </TabItem>
+        <!-- ===================== Onglet Statistiques ===================== -->
+        <TabItem x:Name="StatsTab" Header="Statistiques">
+            <TabItem.Resources>
+                <!-- Le modèle d'une ligne de graphique : libellé, barre, valeur -->
+                <DataTemplate x:Key="StatBarTemplate">
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="240"/>
+                            <ColumnDefinition Width="320"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <ProgressBar Grid.Column="1" Value="{Binding Ratio, Mode=OneWay}" Maximum="1" Height="14"
+                                     Foreground="#4A90D9" Background="#EEEEEE" BorderThickness="0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding ValueText}" Foreground="Gray"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </Grid>
+                </DataTemplate>
 
+                <!-- Le style des titres de section -->
+                <Style x:Key="StatTitle" TargetType="TextBlock">
+                    <Setter Property="FontSize" Value="16"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Margin" Value="0,20,0,8"/>
+                </Style>
+            </TabItem.Resources>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="16">
+
+                    <!-- Les chiffres clés -->
+                    <WrapPanel>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding TotalPlaytimeText}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="de jeu au total" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding GameCount}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="jeux dans la bibliothèque" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding InstalledCount}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="installés" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding PlayedCount}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="déjà joués" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding NeverPlayedCount}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="jamais lancés" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                            <StackPanel>
+                                <TextBlock Text="{Binding FavoriteCount}" FontSize="24" FontWeight="Bold"/>
+                                <TextBlock Text="favoris" Foreground="Gray"/>
+                            </StackPanel>
+                        </Border>
+                    </WrapPanel>
+
+                    <TextBlock Text="Top 10 des jeux les plus joués" Style="{StaticResource StatTitle}"/>
+                    <ItemsControl ItemsSource="{Binding TopGames}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+
+                    <TextBlock Text="Temps de jeu par plateforme" Style="{StaticResource StatTitle}"/>
+                    <ItemsControl ItemsSource="{Binding PlaytimeByPlatform}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+
+                    <TextBlock Text="Jeux par plateforme" Style="{StaticResource StatTitle}"/>
+                    <ItemsControl ItemsSource="{Binding GamesByPlatform}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+
+                    <TextBlock Text="Temps de jeu par semaine" Style="{StaticResource StatTitle}"/>
+                    <TextBlock Text="D'après les sessions lancées depuis Wyrmhold (hors Steam, qui compte le temps lui-même)."
+                               Foreground="Gray" Margin="0,-4,0,8" TextWrapping="Wrap"/>
+                    <ItemsControl ItemsSource="{Binding PlaytimeByWeek}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
         <!-- ===================== Onglet Comptes ===================== -->
         <TabItem Header="Comptes">
             <ScrollViewer VerticalScrollBarVisibility="Auto">

@@ -185,6 +185,17 @@ public partial class MainWindow : Window
 
         UpdateResultCount();
     }
+    private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // SelectionChanged « remonte » depuis les listes et ComboBox contenues dans les onglets :
+        // on ne réagit que si c'est bien le TabControl lui-même qui a changé d'onglet.
+        if (e.Source != MainTabs || !StatsTab.IsSelected)
+        {
+            return;
+        }
+
+        StatsTab.DataContext = _library.ComputeStatistics(_allGames);
+    }
 
     private void RebuildGamesView()
     {
