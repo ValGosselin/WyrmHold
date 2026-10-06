@@ -5,6 +5,9 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
 using Wyrmhold.Core;
+using System.ComponentModel;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 
 namespace WyrmHold.App;
 
@@ -18,6 +21,9 @@ public partial class MainWindow : Window
     private bool _isExiting;
     private bool _trayTipShown;
     private string _summary = "Wyrmhold";
+    private ICollectionView? _gamesView;
+    private readonly HashSet<Platform> _selectedPlatforms = new HashSet<Platform>();
+    private string _searchKey = "";
 
     public MainWindow()
     {
@@ -147,11 +153,118 @@ public partial class MainWindow : Window
 
     private void ShowGames(List<Game> games)
     {
-        GamesList.ItemsSource = games.OrderBy(g => NameTools.Normalize(g.Name)).ToList();
+        List<Game> sortedGames = games.OrderBy(g => NameTools.Normalize(g.Name)).ToList();
+
+        // Une « vue » se place entre la liste et l'affichage : elle peut cacher des jeux
+        // (Filter) sans toucher à la liste elle-même.
+        _gamesView = CollectionViewSource.GetDefaultView(sortedGames);
+        _gamesView.Filter = item => item is Game game && MatchesFilters(game);
+        GamesList.ItemsSource = _gamesView;
+
+        BuildPlatformFilters(games);
 
         int installedCount = games.Count(g => g.IsInstalled);
         _summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
         Title = _summary;
+
+        UpdateResultCount();
+    }
+    // ===================== Recherche et filtres =====================
+
+    private bool MatchesFilters(Game game)
+    {
+        if (_selectedPlatforms.Count > 0 && !_selectedPlatforms.Contains(game.Platform))
+        {
+            return false;
+        }
+
+        return _searchKey.Length == 0 || NameTools.Normalize(game.Name).Contains(_searchKey);
+    }
+
+    private void BuildPlatformFilters(List<Game> games)
+    {
+        List<IGrouping<Platform, Game>> platforms = games
+            .GroupBy(g => g.Platform)
+            .OrderBy(group => group.First().PlatformName)
+            .ToList();
+
+        // Une plateforme qui n'a plus aucun jeu ne doit pas rester cochée en cachant tout.
+        _selectedPlatforms.IntersectWith(platforms.Select(group => group.Key));
+
+        PlatformFilters.Children.Clear();
+
+        foreach (IGrouping<Platform, Game> group in platforms)
+        {
+            ToggleButton button = new ToggleButton
+            {
+                Content = $"{group.First().PlatformName} ({group.Count()})",
+                Tag = group.Key,
+                IsChecked = _selectedPlatforms.Contains(group.Key),
+                Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+
+            button.Checked += PlatformFilter_Changed;
+            button.Unchecked += PlatformFilter_Changed;
+            PlatformFilters.Children.Add(button);
+        }
+    }
+
+    private void PlatformFilter_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleButton { Tag: Platform platform } button)
+        {
+            return;
+        }
+
+        if (button.IsChecked == true)
+        {
+            _selectedPlatforms.Add(platform);
+        }
+        else
+        {
+            _selectedPlatforms.Remove(platform);
+        }
+
+        RefreshFilters();
+    }
+
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _searchKey = NameTools.Normalize(SearchBox.Text);
+        RefreshFilters();
+    }
+
+    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            ClearFilters();
+        }
+    }
+
+    private void ClearFilters()
+    {
+        _selectedPlatforms.Clear();
+
+        foreach (ToggleButton button in PlatformFilters.Children.OfType<ToggleButton>())
+        {
+            button.IsChecked = false;
+        }
+
+        SearchBox.Clear();
+    }
+
+    private void RefreshFilters()
+    {
+        _gamesView?.Refresh();
+        UpdateResultCount();
+    }
+
+    private void UpdateResultCount()
+    {
+        int shownCount = _gamesView?.Cast<object>().Count() ?? 0;
+        ResultCountText.Text = $"{shownCount} jeu(x) affiché(s)";
     }
     private async Task<bool> SyncEaSilentlyAsync()
     {
@@ -491,8 +604,8 @@ public partial class MainWindow : Window
         SetAccountRow(GogStatusText, GogAccountButton, _library.IsGogConnected);
         SetAccountRow(EpicStatusText, EpicAccountButton, _library.IsEpicConnected);
         SetAccountRow(UbisoftStatusText, UbisoftAccountButton, _library.IsUbisoftConnected);
-        SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected);
-        SetAccountRow(BattleNetStatusText, BattleNetAccountButton, _library.IsBattleNetConnected);
+        SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected, _library.HasImportedEaGames);
+        SetAccountRow(BattleNetStatusText, BattleNetAccountButton, _library.IsBattleNetConnected, _library.HasImportedBattleNetGames);
 
     }
     private async void BattleNetAccountButton_Click(object sender, RoutedEventArgs e)
@@ -566,10 +679,23 @@ public partial class MainWindow : Window
         await ReloadAfterAccountChangeAsync();
     }
 
-    private static void SetAccountRow(TextBlock statusText, Button button, bool isConnected)
+    private static void SetAccountRow(TextBlock statusText, Button button, bool isConnected, bool hasImportedGames = false)
     {
-        statusText.Text = isConnected ? "Connecté" : "Non connecté";
-        button.Content = isConnected ? "Se déconnecter" : "Se connecter";
+        if (isConnected)
+        {
+            statusText.Text = "Connecté";
+            button.Content = "Se déconnecter";
+        }
+        else if (hasImportedGames)
+        {
+            statusText.Text = "Session expirée, tes jeux restent affichés";
+            button.Content = "Se reconnecter";
+        }
+        else
+        {
+            statusText.Text = "Non connecté";
+            button.Content = "Se connecter";
+        }
     }
 
     private static bool ConfirmDisconnect(string accountName)

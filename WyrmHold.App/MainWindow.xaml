@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WyrmHold.App"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+        PreviewKeyDown="Window_PreviewKeyDown"
         mc:Ignorable="d"
         Title="Wyrmhold" Height="750" Width="1200"
         Loaded="Window_Loaded"
@@ -25,7 +26,31 @@
                     <Button Content="Jouer" Width="100"
                             Click="PlayButton_Click"/>
                 </StackPanel>
+                <!-- Barre de recherche et filtres -->
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
+               VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
 
+                    <Grid Width="260" Margin="0,0,10,0">
+                        <TextBox x:Name="SearchBox" Padding="6,4" VerticalContentAlignment="Center"
+                 TextChanged="SearchBox_TextChanged"/>
+                        <TextBlock Text="Rechercher un jeu…" Foreground="Gray" Margin="10,0,0,0"
+                   VerticalAlignment="Center" IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+
+                    <WrapPanel x:Name="PlatformFilters" VerticalAlignment="Center"/>
+                </DockPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
                         BorderBrush="#DDDDDD" BorderThickness="1"

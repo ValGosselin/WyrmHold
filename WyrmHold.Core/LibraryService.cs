@@ -12,6 +12,8 @@ public class LibraryService
     private const string EaMarkerName = "ea";
     private const string EaOrderIdPrefix = "order:";
     private const string BattleNetMarkerName = "battlenet";
+    private const string EaImportedMarkerName = "ea-imported";
+    private const string BattleNetImportedMarkerName = "battlenet-imported";
 
     private readonly List<ILibraryProvider> _providers = new List<ILibraryProvider>
     {
@@ -62,6 +64,12 @@ public class LibraryService
     public bool IsEaConnected => SecureStore.Exists(EaMarkerName);
 
     public bool IsBattleNetConnected => SecureStore.Exists(BattleNetMarkerName);
+
+    // EA et Battle.net ne gardent pas la session de leur site très longtemps :
+    // ces deux propriétés disent si des jeux ont déjà été importés, même si la session a expiré depuis.
+    public bool HasImportedEaGames => SecureStore.Exists(EaImportedMarkerName);
+
+    public bool HasImportedBattleNetGames => SecureStore.Exists(BattleNetImportedMarkerName);
 
     // ----- Scan et chargement -----
 
@@ -685,6 +693,7 @@ public class LibraryService
 
         _database.SaveOwnedGames(Platform.Ea, games);
         SecureStore.Save(EaMarkerName, "connected");
+        SecureStore.Save(EaImportedMarkerName, "imported");
 
         return games.Count;
     }
@@ -697,6 +706,7 @@ public class LibraryService
     public void DisconnectEa()
     {
         SecureStore.Delete(EaMarkerName);
+        SecureStore.Delete(EaImportedMarkerName);
         _database.SaveOwnedGames(Platform.Ea, new List<Game>());
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.Ea);
@@ -752,6 +762,7 @@ public class LibraryService
 
         _database.SaveOwnedGames(Platform.BattleNet, games);
         SecureStore.Save(BattleNetMarkerName, "connected");
+        SecureStore.Save(BattleNetImportedMarkerName, "imported");
 
         return games.Count;
     }
@@ -764,6 +775,7 @@ public class LibraryService
     public void DisconnectBattleNet()
     {
         SecureStore.Delete(BattleNetMarkerName);
+        SecureStore.Delete(BattleNetImportedMarkerName);
         _database.SaveOwnedGames(Platform.BattleNet, new List<Game>());
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.BattleNet);
