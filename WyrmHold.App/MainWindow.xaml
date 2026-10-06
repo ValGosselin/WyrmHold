@@ -68,11 +68,20 @@
                             <ComboBoxItem Content="Non installés" Tag="notInstalled"/>
                         </ComboBox>
 
-                        <ComboBox x:Name="OriginFilter" Width="150" HorizontalAlignment="Left" SelectedIndex="0"
+                        <ComboBox x:Name="OriginFilter" Width="150" Margin="0,0,10,0" SelectedIndex="0"
                   VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
                             <ComboBoxItem Content="Toutes origines" Tag="all"/>
                             <ComboBoxItem Content="À moi" Tag="mine"/>
                             <ComboBoxItem Content="Famille Steam" Tag="family"/>
+                        </ComboBox>
+                        <ComboBox x:Name="ActivityFilter" Width="170" HorizontalAlignment="Left" SelectedIndex="0"
+          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                            <ComboBoxItem Content="Toute activité" Tag="all"/>
+                            <ComboBoxItem Content="Jamais lancés" Tag="neverPlayed"/>
+                            <ComboBoxItem Content="Moins d'1 h de jeu" Tag="underOneHour"/>
+                            <ComboBoxItem Content="Plus de 10 h de jeu" Tag="overTenHours"/>
+                            <ComboBoxItem Content="Joués ces 7 jours" Tag="last7Days"/>
+                            <ComboBoxItem Content="Joués ces 30 jours" Tag="last30Days"/>
                         </ComboBox>
                     </DockPanel>
 

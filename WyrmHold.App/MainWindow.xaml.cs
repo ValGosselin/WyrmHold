@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private string _originFilter = "all";
     private List<Game> _allGames = new List<Game>();
     private string _sortMode = "name";
+    private string _activityFilter = "all";
 
     public MainWindow()
     {
@@ -228,8 +229,27 @@ public partial class MainWindow : Window
         {
             return false;
         }
+        if (!MatchesActivity(game))
+        {
+            return false;
+        }
 
         return _searchKey.Length == 0 || NameTools.Normalize(game.Name).Contains(_searchKey);
+    }
+    private bool MatchesActivity(Game game)
+    {
+        const long OneDay = 24 * 60 * 60;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        return _activityFilter switch
+        {
+            "neverPlayed" => game.PlaytimeMinutes == 0 && game.LastPlayedUnix == 0,
+            "underOneHour" => game.PlaytimeMinutes > 0 && game.PlaytimeMinutes < 60,
+            "overTenHours" => game.PlaytimeMinutes >= 10 * 60,
+            "last7Days" => game.LastPlayedUnix >= now - 7 * OneDay,
+            "last30Days" => game.LastPlayedUnix >= now - 30 * OneDay,
+            _ => true
+        };
     }
 
     private void BuildPlatformFilters(List<Game> games)
@@ -295,6 +315,7 @@ public partial class MainWindow : Window
 
         _installFilter = ReadSelectedTag(InstallFilter);
         _originFilter = ReadSelectedTag(OriginFilter);
+        _activityFilter = ReadSelectedTag(ActivityFilter);
         RefreshFilters();
     }
 
@@ -321,6 +342,7 @@ public partial class MainWindow : Window
         }
         InstallFilter.SelectedIndex = 0;
         OriginFilter.SelectedIndex = 0;
+        ActivityFilter.SelectedIndex = 0;
         SearchBox.Clear();
     }
 
