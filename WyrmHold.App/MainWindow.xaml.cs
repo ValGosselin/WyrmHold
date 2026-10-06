@@ -29,6 +29,8 @@ public partial class MainWindow : Window
     private List<Game> _allGames = new List<Game>();
     private string _sortMode = "name";
     private string _activityFilter = "all";
+    private string _tagFilter = "all";
+    private bool _isBuildingTagFilter;
 
     public MainWindow()
     {
@@ -161,6 +163,7 @@ public partial class MainWindow : Window
         _allGames = games;
         RebuildGamesView();
         BuildPlatformFilters(games);
+        BuildTagFilter(games);
 
         int installedCount = games.Count(g => g.IsInstalled);
         _summary = $"Wyrmhold — {games.Count} jeu(x), dont {installedCount} installé(s)";
@@ -233,6 +236,10 @@ public partial class MainWindow : Window
         {
             return false;
         }
+        if (_tagFilter != "all" && !game.TagList.Contains(_tagFilter))
+        {
+            return false;
+        }
 
         return _searchKey.Length == 0 || NameTools.Normalize(game.Name).Contains(_searchKey);
     }
@@ -280,6 +287,45 @@ public partial class MainWindow : Window
             PlatformFilters.Children.Add(button);
         }
     }
+    private void BuildTagFilter(List<Game> games)
+    {
+        _isBuildingTagFilter = true;
+
+        TagFilter.Items.Clear();
+        TagFilter.Items.Add(new ComboBoxItem { Content = "Tous les genres", Tag = "all" });
+
+        ComboBoxItem? selectedItem = null;
+
+        IEnumerable<IGrouping<string, string>> tags = games
+            .SelectMany(g => g.TagList)
+            .GroupBy(tag => tag)
+            .OrderBy(group => group.Key, StringComparer.CurrentCulture);
+
+        foreach (IGrouping<string, string> group in tags)
+        {
+            ComboBoxItem item = new ComboBoxItem
+            {
+                Content = $"{group.Key} ({group.Count()})",
+                Tag = group.Key
+            };
+
+            TagFilter.Items.Add(item);
+
+            if (group.Key == _tagFilter)
+            {
+                selectedItem = item;
+            }
+        }
+
+        // Si le genre choisi n'existe plus dans la bibliothèque, on revient à « Tous les genres ».
+        if (selectedItem is null)
+        {
+            _tagFilter = "all";
+        }
+
+        TagFilter.SelectedItem = selectedItem ?? TagFilter.Items[0];
+        _isBuildingTagFilter = false;
+    }
 
     private void PlatformFilter_Changed(object sender, RoutedEventArgs e)
     {
@@ -308,7 +354,7 @@ public partial class MainWindow : Window
     private void Filter_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // Pendant la création de la fenêtre, cet événement arrive avant que tous les contrôles existent.
-        if (!IsLoaded)
+        if (!IsLoaded || _isBuildingTagFilter)
         {
             return;
         }
@@ -316,6 +362,7 @@ public partial class MainWindow : Window
         _installFilter = ReadSelectedTag(InstallFilter);
         _originFilter = ReadSelectedTag(OriginFilter);
         _activityFilter = ReadSelectedTag(ActivityFilter);
+        _tagFilter = ReadSelectedTag(TagFilter);
         RefreshFilters();
     }
 
@@ -343,6 +390,7 @@ public partial class MainWindow : Window
         InstallFilter.SelectedIndex = 0;
         OriginFilter.SelectedIndex = 0;
         ActivityFilter.SelectedIndex = 0;
+        TagFilter.SelectedIndex = 0;
         SearchBox.Clear();
     }
 

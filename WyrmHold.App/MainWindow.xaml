@@ -6,6 +6,7 @@
         xmlns:local="clr-namespace:WyrmHold.App"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
         PreviewKeyDown="Window_PreviewKeyDown"
+        MinWidth="1150" MinHeight="650"
         mc:Ignorable="d"
         Title="Wyrmhold" Height="750" Width="1200"
         Loaded="Window_Loaded"
@@ -29,21 +30,9 @@
                 <!-- Barre de recherche et filtres -->
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
 
-                    <!-- Ligne 1 : recherche, listes déroulantes, tri, compteur -->
-                    <DockPanel Height="30">
-                        <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
-                   VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
-
-                        <ComboBox x:Name="SortMode" DockPanel.Dock="Right" Width="170" Margin="10,0,0,0"
-                  SelectedIndex="0" VerticalContentAlignment="Center"
-                  SelectionChanged="SortMode_SelectionChanged">
-                            <ComboBoxItem Content="Trier par nom" Tag="name"/>
-                            <ComboBoxItem Content="Dernière partie" Tag="lastPlayed"/>
-                            <ComboBoxItem Content="Temps de jeu" Tag="playtime"/>
-                            <ComboBoxItem Content="Date de sortie" Tag="release"/>
-                        </ComboBox>
-
-                        <Grid Width="260" Margin="0,0,10,0">
+                    <!-- Ligne 1 : recherche et filtres -->
+                    <StackPanel Orientation="Horizontal" Height="30">
+                        <Grid Width="220" Margin="0,0,10,0">
                             <TextBox x:Name="SearchBox" Padding="6,0" VerticalContentAlignment="Center"
                      TextChanged="SearchBox_TextChanged"/>
                             <TextBlock Text="Rechercher un jeu…" Foreground="Gray" Margin="10,0,0,0"
@@ -74,8 +63,9 @@
                             <ComboBoxItem Content="À moi" Tag="mine"/>
                             <ComboBoxItem Content="Famille Steam" Tag="family"/>
                         </ComboBox>
-                        <ComboBox x:Name="ActivityFilter" Width="170" HorizontalAlignment="Left" SelectedIndex="0"
-          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+
+                        <ComboBox x:Name="ActivityFilter" Width="170" Margin="0,0,10,0" SelectedIndex="0"
+                  VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
                             <ComboBoxItem Content="Toute activité" Tag="all"/>
                             <ComboBoxItem Content="Jamais lancés" Tag="neverPlayed"/>
                             <ComboBoxItem Content="Moins d'1 h de jeu" Tag="underOneHour"/>
@@ -83,10 +73,27 @@
                             <ComboBoxItem Content="Joués ces 7 jours" Tag="last7Days"/>
                             <ComboBoxItem Content="Joués ces 30 jours" Tag="last30Days"/>
                         </ComboBox>
-                    </DockPanel>
 
-                    <!-- Ligne 2 : un bouton par plateforme -->
-                    <WrapPanel x:Name="PlatformFilters" Margin="0,8,0,0"/>
+                        <ComboBox x:Name="TagFilter" Width="190" MaxDropDownHeight="400"
+                  VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged"/>
+                    </StackPanel>
+
+                    <!-- Ligne 2 : plateformes à gauche, tri et compteur à droite -->
+                    <DockPanel Margin="0,8,0,0">
+                        <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
+                   VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
+
+                        <ComboBox x:Name="SortMode" DockPanel.Dock="Right" Width="170" Height="30"
+                  VerticalAlignment="Top" Margin="10,0,0,0" SelectedIndex="0"
+                  VerticalContentAlignment="Center" SelectionChanged="SortMode_SelectionChanged">
+                            <ComboBoxItem Content="Trier par nom" Tag="name"/>
+                            <ComboBoxItem Content="Dernière partie" Tag="lastPlayed"/>
+                            <ComboBoxItem Content="Temps de jeu" Tag="playtime"/>
+                            <ComboBoxItem Content="Date de sortie" Tag="release"/>
+                        </ComboBox>
+
+                        <WrapPanel x:Name="PlatformFilters"/>
+                    </DockPanel>
                 </StackPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
