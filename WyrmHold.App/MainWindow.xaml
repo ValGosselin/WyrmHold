@@ -27,42 +27,58 @@
                             Click="PlayButton_Click"/>
                 </StackPanel>
                 <!-- Barre de recherche et filtres -->
-                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
-               VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
+                <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
 
-                    <Grid Width="260" Margin="0,0,10,0">
-                        <TextBox x:Name="SearchBox" Padding="6,4" VerticalContentAlignment="Center"
-                 TextChanged="SearchBox_TextChanged"/>
-                        <TextBlock Text="Rechercher un jeu…" Foreground="Gray" Margin="10,0,0,0"
-                   VerticalAlignment="Center" IsHitTestVisible="False">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
-                                            <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </TextBlock.Style>
-                        </TextBlock>
-                    </Grid>
-                    <ComboBox x:Name="InstallFilter" Width="130" Margin="0,0,10,0" SelectedIndex="0"
-          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
-                        <ComboBoxItem Content="Tous les jeux" Tag="all"/>
-                        <ComboBoxItem Content="Installés" Tag="installed"/>
-                        <ComboBoxItem Content="Non installés" Tag="notInstalled"/>
-                    </ComboBox>
+                    <!-- Ligne 1 : recherche, listes déroulantes, tri, compteur -->
+                    <DockPanel Height="30">
+                        <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
+                   VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
 
-                    <ComboBox x:Name="OriginFilter" Width="150" Margin="0,0,10,0" SelectedIndex="0"
-          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
-                        <ComboBoxItem Content="Toutes origines" Tag="all"/>
-                        <ComboBoxItem Content="À moi" Tag="mine"/>
-                        <ComboBoxItem Content="Famille Steam" Tag="family"/>
-                    </ComboBox>
-                    <WrapPanel x:Name="PlatformFilters" VerticalAlignment="Center"/>
-                </DockPanel>
+                        <ComboBox x:Name="SortMode" DockPanel.Dock="Right" Width="170" Margin="10,0,0,0"
+                  SelectedIndex="0" VerticalContentAlignment="Center"
+                  SelectionChanged="SortMode_SelectionChanged">
+                            <ComboBoxItem Content="Trier par nom" Tag="name"/>
+                            <ComboBoxItem Content="Dernière partie" Tag="lastPlayed"/>
+                            <ComboBoxItem Content="Temps de jeu" Tag="playtime"/>
+                            <ComboBoxItem Content="Date de sortie" Tag="release"/>
+                        </ComboBox>
+
+                        <Grid Width="260" Margin="0,0,10,0">
+                            <TextBox x:Name="SearchBox" Padding="6,0" VerticalContentAlignment="Center"
+                     TextChanged="SearchBox_TextChanged"/>
+                            <TextBlock Text="Rechercher un jeu…" Foreground="Gray" Margin="10,0,0,0"
+                       VerticalAlignment="Center" IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <ComboBox x:Name="InstallFilter" Width="130" Margin="0,0,10,0" SelectedIndex="0"
+                  VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                            <ComboBoxItem Content="Tous les jeux" Tag="all"/>
+                            <ComboBoxItem Content="Installés" Tag="installed"/>
+                            <ComboBoxItem Content="Non installés" Tag="notInstalled"/>
+                        </ComboBox>
+
+                        <ComboBox x:Name="OriginFilter" Width="150" HorizontalAlignment="Left" SelectedIndex="0"
+                  VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                            <ComboBoxItem Content="Toutes origines" Tag="all"/>
+                            <ComboBoxItem Content="À moi" Tag="mine"/>
+                            <ComboBoxItem Content="Famille Steam" Tag="family"/>
+                        </ComboBox>
+                    </DockPanel>
+
+                    <!-- Ligne 2 : un bouton par plateforme -->
+                    <WrapPanel x:Name="PlatformFilters" Margin="0,8,0,0"/>
+                </StackPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
                         BorderBrush="#DDDDDD" BorderThickness="1"

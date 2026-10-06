@@ -341,12 +341,15 @@ public class LibraryService
 
     public async Task<int> ImportEpicLibraryAsync(string authorizationCode)
     {
-        string? accessToken = await EpicApi.ExchangeCodeAsync(authorizationCode);
+        EpicTokenResponse? tokens = await EpicApi.ExchangeCodeAsync(authorizationCode);
+        string? accessToken = tokens?.AccessToken;
 
         if (string.IsNullOrEmpty(accessToken))
         {
             throw new InvalidOperationException("Epic n'a pas fourni de jeton d'accès.");
         }
+
+        Dictionary<string, long> playtimes = await ReadEpicPlaytimesAsync(accessToken, tokens?.AccountId);
 
         List<EpicLibraryRecord> records = await EpicApi.GetLibraryRecordsAsync(accessToken);
         List<Game> games = new List<Game>();
@@ -389,7 +392,8 @@ public class LibraryService
                 {
                     Platform = Platform.Epic,
                     PlatformGameId = record.AppName,
-                    Name = entry.Title
+                    Name = entry.Title,
+                    PlaytimeMinutes = (int)(playtimes.GetValueOrDefault(record.AppName) / 60)
                 });
             }
         }
@@ -399,6 +403,27 @@ public class LibraryService
         SecureStore.Save(EpicMarkerName, "connected");
 
         return games.Count;
+    }
+
+    /// <summary>
+    /// Le temps de jeu est un « bonus » : si Epic ne le donne pas, l'import continue sans lui.
+    /// </summary>
+    private static async Task<Dictionary<string, long>> ReadEpicPlaytimesAsync(string accessToken, string? accountId)
+    {
+        if (string.IsNullOrEmpty(accountId))
+        {
+            return new Dictionary<string, long>();
+        }
+
+        try
+        {
+            return await EpicApi.GetPlaytimesAsync(accessToken, accountId);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Temps de jeu Epic indisponible : {ex.Message}");
+            return new Dictionary<string, long>();
+        }
     }
 
     private static string? FindEpicCoverUrl(EpicCatalogItem item)

@@ -39,7 +39,7 @@ public static class EpicApi
         return null;
     }
 
-    public static async Task<string?> ExchangeCodeAsync(string authorizationCode)
+    public static async Task<EpicTokenResponse?> ExchangeCodeAsync(string authorizationCode)
     {
         using HttpRequestMessage request = new HttpRequestMessage(
             HttpMethod.Post,
@@ -59,7 +59,38 @@ public static class EpicApi
         response.EnsureSuccessStatusCode();
 
         string json = await response.Content.ReadAsStringAsync();
-        return JsonSerializer.Deserialize<EpicTokenResponse>(json)?.AccessToken;
+        return JsonSerializer.Deserialize<EpicTokenResponse>(json);
+    }
+
+    /// <summary>
+    /// Temps de jeu de chaque jeu du compte, en secondes, rangé par appName
+    /// (même adresse que celle utilisée par Playnite).
+    /// </summary>
+    internal static async Task<Dictionary<string, long>> GetPlaytimesAsync(string accessToken, string accountId)
+    {
+        string url = "https://library-service.live.use1a.on.epicgames.com/library/api/public/playtime/account/"
+            + Uri.EscapeDataString(accountId) + "/all";
+
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+
+        string json = await response.Content.ReadAsStringAsync();
+        List<EpicPlaytimeItem> items = JsonSerializer.Deserialize<List<EpicPlaytimeItem>>(json) ?? new List<EpicPlaytimeItem>();
+
+        Dictionary<string, long> playtimes = new Dictionary<string, long>();
+
+        foreach (EpicPlaytimeItem item in items)
+        {
+            if (!string.IsNullOrEmpty(item.ArtifactId))
+            {
+                playtimes[item.ArtifactId] = item.TotalTimeSeconds;
+            }
+        }
+
+        return playtimes;
     }
 
     internal static async Task<List<EpicLibraryRecord>> GetLibraryRecordsAsync(string accessToken)
@@ -124,10 +155,22 @@ public static class EpicApi
     }
 }
 
-internal class EpicTokenResponse
+public class EpicTokenResponse
 {
     [JsonPropertyName("access_token")]
     public string? AccessToken { get; set; }
+
+    [JsonPropertyName("account_id")]
+    public string? AccountId { get; set; }
+}
+
+internal class EpicPlaytimeItem
+{
+    [JsonPropertyName("artifactId")]
+    public string ArtifactId { get; set; } = "";
+
+    [JsonPropertyName("totalTime")]
+    public long TotalTimeSeconds { get; set; }
 }
 
 internal class EpicLibraryPage

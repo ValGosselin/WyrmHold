@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private string _searchKey = "";
     private string _installFilter = "all";
     private string _originFilter = "all";
+    private List<Game> _allGames = new List<Game>();
+    private string _sortMode = "name";
 
     public MainWindow()
     {
@@ -155,14 +157,8 @@ public partial class MainWindow : Window
 
     private void ShowGames(List<Game> games)
     {
-        List<Game> sortedGames = games.OrderBy(g => NameTools.Normalize(g.Name)).ToList();
-
-        // Une « vue » se place entre la liste et l'affichage : elle peut cacher des jeux
-        // (Filter) sans toucher à la liste elle-même.
-        _gamesView = CollectionViewSource.GetDefaultView(sortedGames);
-        _gamesView.Filter = item => item is Game game && MatchesFilters(game);
-        GamesList.ItemsSource = _gamesView;
-
+        _allGames = games;
+        RebuildGamesView();
         BuildPlatformFilters(games);
 
         int installedCount = games.Count(g => g.IsInstalled);
@@ -170,6 +166,48 @@ public partial class MainWindow : Window
         Title = _summary;
 
         UpdateResultCount();
+    }
+
+    private void RebuildGamesView()
+    {
+        List<Game> sortedGames = SortGames(_allGames);
+
+        _gamesView = CollectionViewSource.GetDefaultView(sortedGames);
+        _gamesView.Filter = item => item is Game game && MatchesFilters(game);
+        GamesList.ItemsSource = _gamesView;
+    }
+    private List<Game> SortGames(List<Game> games)
+    {
+        IOrderedEnumerable<Game> sorted = _sortMode switch
+        {
+            "lastPlayed" => games.OrderByDescending(g => g.LastPlayedUnix),
+            "playtime" => games.OrderByDescending(g => g.PlaytimeMinutes),
+            "release" => games.OrderByDescending(g => g.ReleaseDateUnix),
+            _ => games.OrderBy(g => NameTools.Normalize(g.Name))
+        };
+
+        // À égalité (deux jeux jamais lancés, par exemple), on range par nom.
+        return sorted.ThenBy(g => NameTools.Normalize(g.Name)).ToList();
+    }
+
+    private void SortMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        object? selectedGame = GamesList.SelectedItem;
+
+        _sortMode = ReadSelectedTag(SortMode);
+        RebuildGamesView();
+
+        // On garde le jeu sélectionné, et on le fait défiler jusqu'à l'écran.
+        if (selectedGame is not null)
+        {
+            GamesList.SelectedItem = selectedGame;
+            GamesList.ScrollIntoView(selectedGame);
+        }
     }
     // ===================== Recherche et filtres =====================
 
