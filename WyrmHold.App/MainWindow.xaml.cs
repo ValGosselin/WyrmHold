@@ -24,6 +24,8 @@ public partial class MainWindow : Window
     private ICollectionView? _gamesView;
     private readonly HashSet<Platform> _selectedPlatforms = new HashSet<Platform>();
     private string _searchKey = "";
+    private string _installFilter = "all";
+    private string _originFilter = "all";
 
     public MainWindow()
     {
@@ -177,6 +179,17 @@ public partial class MainWindow : Window
         {
             return false;
         }
+        if (_installFilter == "installed" && !game.IsInstalled
+            || _installFilter == "notInstalled" && game.IsInstalled)
+        {
+            return false;
+        }
+
+        if (_originFilter == "mine" && game.IsFamilyShared == true
+            || _originFilter == "family" && game.IsFamilyShared != true)
+        {
+            return false;
+        }
 
         return _searchKey.Length == 0 || NameTools.Normalize(game.Name).Contains(_searchKey);
     }
@@ -234,6 +247,23 @@ public partial class MainWindow : Window
         _searchKey = NameTools.Normalize(SearchBox.Text);
         RefreshFilters();
     }
+    private void Filter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Pendant la création de la fenêtre, cet événement arrive avant que tous les contrôles existent.
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        _installFilter = ReadSelectedTag(InstallFilter);
+        _originFilter = ReadSelectedTag(OriginFilter);
+        RefreshFilters();
+    }
+
+    private static string ReadSelectedTag(ComboBox comboBox)
+    {
+        return (comboBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "all";
+    }
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -251,7 +281,8 @@ public partial class MainWindow : Window
         {
             button.IsChecked = false;
         }
-
+        InstallFilter.SelectedIndex = 0;
+        OriginFilter.SelectedIndex = 0;
         SearchBox.Clear();
     }
 

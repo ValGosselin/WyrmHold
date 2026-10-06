@@ -48,7 +48,19 @@
                             </TextBlock.Style>
                         </TextBlock>
                     </Grid>
+                    <ComboBox x:Name="InstallFilter" Width="130" Margin="0,0,10,0" SelectedIndex="0"
+          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                        <ComboBoxItem Content="Tous les jeux" Tag="all"/>
+                        <ComboBoxItem Content="Installés" Tag="installed"/>
+                        <ComboBoxItem Content="Non installés" Tag="notInstalled"/>
+                    </ComboBox>
 
+                    <ComboBox x:Name="OriginFilter" Width="150" Margin="0,0,10,0" SelectedIndex="0"
+          VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                        <ComboBoxItem Content="Toutes origines" Tag="all"/>
+                        <ComboBoxItem Content="À moi" Tag="mine"/>
+                        <ComboBoxItem Content="Famille Steam" Tag="family"/>
+                    </ComboBox>
                     <WrapPanel x:Name="PlatformFilters" VerticalAlignment="Center"/>
                 </DockPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
