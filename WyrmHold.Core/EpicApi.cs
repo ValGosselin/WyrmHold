@@ -39,7 +39,30 @@ public static class EpicApi
         return null;
     }
 
-    public static async Task<EpicTokenResponse?> ExchangeCodeAsync(string authorizationCode)
+    public static Task<EpicTokenResponse?> ExchangeCodeAsync(string authorizationCode)
+    {
+        return RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = "authorization_code",
+            ["code"] = authorizationCode,
+            ["token_type"] = "eg1"
+        });
+    }
+
+    /// <summary>
+    /// Demande un nouveau jeton avec le jeton de renouvellement, sans repasser par la page de connexion.
+    /// </summary>
+    public static Task<EpicTokenResponse?> RefreshAsync(string refreshToken)
+    {
+        return RequestTokenAsync(new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = refreshToken,
+            ["token_type"] = "eg1"
+        });
+    }
+
+    private static async Task<EpicTokenResponse?> RequestTokenAsync(Dictionary<string, string> parameters)
     {
         using HttpRequestMessage request = new HttpRequestMessage(
             HttpMethod.Post,
@@ -47,13 +70,7 @@ public static class EpicApi
 
         string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ClientId}:{ClientSecret}"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
-
-        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
-        {
-            ["grant_type"] = "authorization_code",
-            ["code"] = authorizationCode,
-            ["token_type"] = "eg1"
-        });
+        request.Content = new FormUrlEncodedContent(parameters);
 
         using HttpResponseMessage response = await Http.SendAsync(request);
         response.EnsureSuccessStatusCode();
@@ -153,6 +170,190 @@ public static class EpicApi
 
         return items is not null && items.TryGetValue(catalogItemId, out EpicCatalogItem? item) ? item : null;
     }
+
+    // ----- Succès (API GraphQL de la boutique, non documentée : elle peut changer) -----
+
+    private const string GraphQlUrl = "https://launcher.store.epicgames.com/graphql";
+    private const string GraphQlUserAgent =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) EpicGamesLauncher";
+    private const string Locale = "fr-FR";
+
+    // Au moins 200 ms entre deux requêtes GraphQL, même quand plusieurs jeux sont lus en parallèle :
+    // trop de requêtes d'un coup peuvent faire bloquer Wyrmhold par Epic.
+    private static readonly TimeSpan GraphQlMinInterval = TimeSpan.FromMilliseconds(200);
+    private static readonly SemaphoreSlim GraphQlGate = new SemaphoreSlim(1, 1);
+    private static DateTime _lastGraphQlCall = DateTime.MinValue;
+
+    private const string AchievementSchemaQuery = """
+        query Achievement($SandboxId: String!, $Locale: String!) {
+          Achievement {
+            productAchievementsRecordBySandbox(sandboxId: $SandboxId, locale: $Locale) {
+              productId
+              totalAchievements
+              achievements {
+                achievement {
+                  name
+                  hidden
+                  unlockedDisplayName
+                  unlockedDescription
+                  unlockedIconLink
+                  lockedIconLink
+                  rarity { percent }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    private const string PlayerAchievementsQuery = """
+        query playerProfileAchievementsByProductId($EpicAccountId: String!, $ProductId: String!) {
+          PlayerProfile {
+            playerProfile(epicAccountId: $EpicAccountId) {
+              productAchievements(productId: $ProductId) {
+                ... on PlayerProductAchievementsResponseSuccess {
+                  data {
+                    playerAchievements {
+                      playerAchievement {
+                        achievementName
+                        unlocked
+                        unlockDate
+                        progress
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    /// <summary>
+    /// La liste des succès d'un jeu (publique), à partir de son « namespace » Epic.
+    /// null si le jeu n'a pas de succès.
+    /// </summary>
+    internal static async Task<EpicProductAchievements?> GetAchievementSchemaAsync(
+        string sandboxId, CancellationToken cancellationToken)
+    {
+        EpicSchemaResponse? response = await QueryGraphQlAsync<EpicSchemaResponse>(
+            AchievementSchemaQuery,
+            new { SandboxId = sandboxId, Locale },
+            null,
+            cancellationToken);
+
+        // « Achievement » présent mais sans fiche = le jeu n'a pas de succès.
+        // « Achievement » absent = Epic a répondu par une erreur : on ne conclut rien.
+        if (response?.Data?.Achievement is null)
+        {
+            string details = string.Join(" ; ", response?.Errors?.Select(e => e.Message) ?? Enumerable.Empty<string?>());
+            throw new HttpRequestException($"Réponse Epic inattendue pour la liste des succès. {details}".Trim());
+        }
+
+        return response.Data.Achievement.Record;
+    }
+
+    /// <summary>
+    /// Tes succès pour un jeu (débloqué ou non, quand, avancement), rangés par nom de succès.
+    /// </summary>
+    internal static async Task<Dictionary<string, EpicPlayerAchievement>> GetPlayerAchievementsAsync(
+        string accountId, string productId, string accessToken, CancellationToken cancellationToken)
+    {
+        EpicPlayerResponse? response = await QueryGraphQlAsync<EpicPlayerResponse>(
+            PlayerAchievementsQuery,
+            new { EpicAccountId = accountId, ProductId = productId },
+            accessToken,
+            cancellationToken);
+
+        EpicPlayerProfile? profile = response?.Data?.PlayerProfile?.Profile;
+        bool hasErrors = response?.Errors is { Count: > 0 };
+
+        // Une vraie erreur (Epic renvoie des « errors », ou pas de profil du tout) : on lève une exception
+        // pour garder les valeurs déjà enregistrées, au lieu de tout faire passer « non débloqué ».
+        if (profile is null || hasErrors)
+        {
+            string details = string.Join(" ; ", response?.Errors?.Select(e => e.Message) ?? Enumerable.Empty<string?>());
+            throw new HttpRequestException($"Réponse Epic inattendue pour tes succès. {details}".Trim());
+        }
+
+        EpicPlayerAchievementsData? data = profile.ProductAchievements?.Data;
+
+        // Profil trouvé mais aucune fiche pour ce jeu : c'est le cas des jeux jamais lancés
+        // (vérifié sur ta bibliothèque : 59 des 63 jeux concernés n'avaient jamais été joués).
+        // Ce n'est pas une erreur : aucun succès débloqué.
+        if (data is null)
+        {
+            return new Dictionary<string, EpicPlayerAchievement>();
+        }
+
+        List<EpicPlayerAchievementWrapper> items = data.PlayerAchievements ?? new List<EpicPlayerAchievementWrapper>();
+
+        return items
+            .Select(item => item.PlayerAchievement)
+            .OfType<EpicPlayerAchievement>()
+            .Where(a => !string.IsNullOrEmpty(a.Name))
+            .DistinctBy(a => a.Name)
+            .ToDictionary(a => a.Name!);
+    }
+
+    /// <summary>
+    /// Envoie une requête GraphQL : un POST avec un JSON { query, variables }, et une réponse { data, errors }.
+    /// </summary>
+    private static async Task<T?> QueryGraphQlAsync<T>(string query, object variables, string? accessToken, CancellationToken cancellationToken)
+    {
+        await WaitForGraphQlTurnAsync(cancellationToken);
+
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, GraphQlUrl);
+        request.Headers.UserAgent.ParseAdd(GraphQlUserAgent);
+
+        if (accessToken is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        string body = JsonSerializer.Serialize(new { query, variables });
+        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            throw new AchievementSourceUnavailableException("La session Epic a expiré : clique sur Actualiser pour la renouveler.");
+        }
+
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests)
+        {
+            throw new AchievementSourceUnavailableException(
+                $"Epic refuse les requêtes pour l'instant ({(int)response.StatusCode}) : on réessaiera plus tard.");
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+        return JsonSerializer.Deserialize<T>(json);
+    }
+
+    private static async Task WaitForGraphQlTurnAsync(CancellationToken cancellationToken)
+    {
+        // Une seule tâche à la fois passe ici : elle attend si la requête précédente est trop récente.
+        await GraphQlGate.WaitAsync(cancellationToken);
+
+        try
+        {
+            TimeSpan wait = _lastGraphQlCall + GraphQlMinInterval - DateTime.UtcNow;
+
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, cancellationToken);
+            }
+
+            _lastGraphQlCall = DateTime.UtcNow;
+        }
+        finally
+        {
+            GraphQlGate.Release();
+        }
+    }
 }
 
 public class EpicTokenResponse
@@ -162,6 +363,13 @@ public class EpicTokenResponse
 
     [JsonPropertyName("account_id")]
     public string? AccountId { get; set; }
+
+    [JsonPropertyName("refresh_token")]
+    public string? RefreshToken { get; set; }
+
+    // Durée de validité du jeton d'accès, en secondes.
+    [JsonPropertyName("expires_in")]
+    public int ExpiresInSeconds { get; set; }
 }
 
 internal class EpicPlaytimeItem

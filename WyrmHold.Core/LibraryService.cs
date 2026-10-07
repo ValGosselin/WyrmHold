@@ -42,11 +42,20 @@ public class LibraryService
     // Succès : une source par plateforme. Pour en ajouter une, il suffira de l'ajouter à cette liste.
     private readonly SteamAchievementProvider _steamAchievements;
     private readonly GogAchievementProvider _gogAchievements = new GogAchievementProvider();
+    private readonly EpicAchievementProvider _epicAchievements;
     private readonly List<IAchievementProvider> _achievementProviders;
 
     // Le dernier jeton GOG reçu, et quand (il ne dure qu'environ une heure).
     private GogTokens? _gogTokens;
     private DateTimeOffset _gogTokensReceived;
+
+    // Les réglages (thème, regroupement, sources de succès), chargés une fois et partagés par toute l'appli.
+    public AppSettings Settings { get; } = AppSettings.Load();
+
+    public void SaveSettings()
+    {
+        Settings.Save();
+    }
 
     public LibraryService()
     {
@@ -54,7 +63,8 @@ public class LibraryService
         _steamApi = new SteamWebApi(_secrets);
         _steamGridDb = new SteamGridDbApi(_secrets.SteamGridDbApiKey);
         _steamAchievements = new SteamAchievementProvider(_steamApi);
-        _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements };
+        _epicAchievements = new EpicAchievementProvider(_epicCatalog);
+        _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements, _epicAchievements };
         _database.Initialize();
     }
 
@@ -433,6 +443,10 @@ public class LibraryService
             throw new InvalidOperationException("Epic n'a pas fourni de jeton d'accès.");
         }
 
+        // « ! » : tokens ne peut pas être null ici (accessToken vient de lui et n'est pas vide),
+        // mais le compilateur ne sait pas le déduire tout seul.
+        RememberEpicSession(tokens!);
+
         Dictionary<string, long> playtimes = await ReadEpicPlaytimesAsync(accessToken, tokens?.AccountId);
 
         List<EpicLibraryRecord> records = await EpicApi.GetLibraryRecordsAsync(accessToken);
@@ -468,6 +482,12 @@ public class LibraryService
                 };
 
                 _epicCatalog.Set(record.AppName, entry);
+            }
+
+            // Les jeux déjà en cache avant les succès n'ont pas encore leur namespace : on le complète.
+            if (string.IsNullOrEmpty(entry.Namespace))
+            {
+                entry.Namespace = record.Namespace;
             }
 
             if (entry.IsGame)
@@ -522,11 +542,13 @@ public class LibraryService
     public void ForgetEpicSession()
     {
         SecureStore.Delete(EpicMarkerName);
+        _epicAchievements.SetSession(null);
     }
 
     public void DisconnectEpic()
     {
         SecureStore.Delete(EpicMarkerName);
+        _epicAchievements.SetSession(null);
         _database.SaveOwnedGames(Platform.Epic, new List<Game>());
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.Epic);
@@ -534,6 +556,53 @@ public class LibraryService
         if (Directory.Exists(webViewFolder))
         {
             Directory.Delete(webViewFolder, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Garde le jeton Epic en mémoire (jamais sur le disque) pour lire les succès pendant la session.
+    /// </summary>
+    private void RememberEpicSession(EpicTokenResponse tokens)
+    {
+        if (string.IsNullOrEmpty(tokens.AccessToken) || string.IsNullOrEmpty(tokens.AccountId))
+        {
+            return;
+        }
+
+        // Si Epic ne dit pas combien de temps le jeton dure, on suppose une heure.
+        int lifetimeSeconds = tokens.ExpiresInSeconds > 0 ? tokens.ExpiresInSeconds : 3600;
+
+        _epicAchievements.SetSession(new EpicSession(
+            tokens.AccessToken,
+            tokens.AccountId,
+            tokens.RefreshToken,
+            DateTimeOffset.UtcNow.AddSeconds(lifetimeSeconds)));
+    }
+
+    /// <summary>
+    /// Renouvelle le jeton Epic s'il expire dans moins de 5 minutes (Wyrmhold peut rester ouvert longtemps).
+    /// </summary>
+    private async Task EnsureFreshEpicSessionAsync()
+    {
+        EpicSession? session = _epicAchievements.Session;
+
+        if (session?.RefreshToken is null || session.ExpiresAt - DateTimeOffset.UtcNow > TimeSpan.FromMinutes(5))
+        {
+            return;
+        }
+
+        try
+        {
+            EpicTokenResponse? tokens = await EpicApi.RefreshAsync(session.RefreshToken);
+
+            if (tokens is not null)
+            {
+                RememberEpicSession(tokens);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Jeton Epic impossible à renouveler : {ex.Message}");
         }
     }
 
@@ -988,11 +1057,13 @@ public class LibraryService
     public async Task<int> RefreshAchievementsAsync(List<Game> games, IProgress<(int Done, int Total)>? progress = null)
     {
         await EnsureFreshGogTokensAsync();
+        await EnsureFreshEpicSessionAsync();
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        // 1. Pour chaque source, la liste des jeux à relire.
+        // 1. Pour chaque source activée dans les réglages, la liste des jeux à relire.
         List<(IAchievementProvider Provider, List<Game> Games)> work = _achievementProviders
+            .Where(provider => Settings.IsAchievementSourceEnabled(provider.Platform))
             .Select(provider => (Provider: provider, Games: games
                 .Where(g => g.Platform == provider.Platform
                             && provider.CanHaveAchievements(g)
@@ -1089,6 +1160,10 @@ public class LibraryService
         if (game.Platform == Platform.Gog)
         {
             await EnsureFreshGogTokensAsync();
+        }
+        else if (game.Platform == Platform.Epic)
+        {
+            await EnsureFreshEpicSessionAsync();
         }
 
         List<AchievementDetail> details = await provider.GetAchievementsAsync(game);

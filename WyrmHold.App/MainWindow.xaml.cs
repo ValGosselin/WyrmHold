@@ -22,7 +22,10 @@ public partial class MainWindow : Window
     private bool _isExiting;
     private bool _trayTipShown;
     private string _summary = "Wyrmhold";
-    private ICollectionView? _gamesView;
+    // Les tuiles affichées en ce moment (après filtres, regroupement et tri).
+    private List<Game> _visibleGames = new List<Game>();
+    private bool _isBuildingCopySelector;
+    private bool _isLoadingSettings;
     private readonly HashSet<Platform> _selectedPlatforms = new HashSet<Platform>();
     private string _searchKey = "";
     private string _installFilter = "all";
@@ -59,6 +62,7 @@ public partial class MainWindow : Window
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         UpdateThemeButton();
+        LoadSettingsTab();
         BuildSavedViews(null);
         RefreshAccountsTab();
         await LoadGamesAsync();
@@ -175,6 +179,7 @@ public partial class MainWindow : Window
     private void ShowGames(List<Game> games)
     {
         _allGames = games;
+        AssignCopies();
 
         // 1. D'abord les filtres : ils peuvent remettre à zéro un choix devenu impossible
         //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
@@ -205,13 +210,68 @@ public partial class MainWindow : Window
         StatsTab.DataContext = _library.ComputeStatistics(_allGames);
     }
 
+    /// <summary>
+    /// Fait connaître à chaque jeu ses autres copies (même nom, autres plateformes).
+    /// Sans regroupement, chaque jeu n'a que lui-même comme copie.
+    /// </summary>
+    private void AssignCopies()
+    {
+        if (!_library.Settings.MergeDuplicates)
+        {
+            foreach (Game game in _allGames)
+            {
+                game.Copies = new List<Game> { game };
+            }
+
+            return;
+        }
+
+        foreach (IGrouping<string, Game> group in _allGames.GroupBy(GetGroupKey))
+        {
+            List<Game> copies = group.OrderBy(g => g.Platform).ToList();
+
+            foreach (Game game in copies)
+            {
+                game.Copies = copies;
+            }
+        }
+    }
+
+    /// <summary>
+    /// La clé de regroupement. Un nom sans aucune lettre ni chiffre donnerait une clé vide :
+    /// dans ce cas, le jeu reste seul (clé unique plateforme + identifiant).
+    /// </summary>
+    private static string GetGroupKey(Game game)
+    {
+        return game.GroupKey.Length > 0 ? game.GroupKey : $"{game.Platform}|{game.PlatformGameId}";
+    }
+
+    /// <summary>
+    /// Filtre, regroupe, trie. On filtre chaque copie AVANT de regrouper : avec le filtre « Epic »,
+    /// un jeu possédé sur Steam et Epic reste affiché, et c'est sa copie Epic qui sert de tuile.
+    /// </summary>
     private void RebuildGamesView()
     {
-        List<Game> sortedGames = SortGames(_allGames);
+        IEnumerable<Game> matching = _allGames.Where(MatchesFilters);
 
-        _gamesView = CollectionViewSource.GetDefaultView(sortedGames);
-        _gamesView.Filter = item => item is Game game && MatchesFilters(game);
-        GamesList.ItemsSource = _gamesView;
+        List<Game> shown = _library.Settings.MergeDuplicates
+            ? matching.GroupBy(GetGroupKey).Select(group => PickBestCopy(group)).ToList()
+            : matching.ToList();
+
+        _visibleGames = SortGames(shown);
+        GamesList.ItemsSource = _visibleGames;
+    }
+
+    /// <summary>
+    /// La copie qui représente le jeu sur sa tuile : installée d'abord, puis la plus jouée, puis la plus récente.
+    /// </summary>
+    private static Game PickBestCopy(IEnumerable<Game> copies)
+    {
+        return copies
+            .OrderByDescending(g => g.IsInstalled)
+            .ThenByDescending(g => g.PlaytimeMinutes)
+            .ThenByDescending(g => g.LastPlayedUnix)
+            .First();
     }
     private List<Game> SortGames(List<Game> games)
     {
@@ -242,17 +302,39 @@ public partial class MainWindow : Window
         RebuildGamesViewKeepingSelection();
     }
 
-    private void RebuildGamesViewKeepingSelection()
+    private void RebuildGamesViewKeepingSelection(bool scrollToSelection = true)
     {
-        object? selectedGame = GamesList.SelectedItem;
+        Game? selectedTile = GamesList.SelectedItem as Game;
+        Game? shownCopy = CurrentGame;
 
         RebuildGamesView();
 
-        // On garde le jeu sélectionné, et on le fait défiler jusqu'à l'écran.
-        if (selectedGame is not null)
+        if (selectedTile is null)
         {
-            GamesList.SelectedItem = selectedGame;
-            GamesList.ScrollIntoView(selectedGame);
+            return;
+        }
+
+        // On retrouve le même jeu dans la nouvelle liste : la même copie, ou une autre copie du même jeu
+        // (après un changement de filtre, ce n'est peut-être plus la même copie qui sert de tuile).
+        Game? tile = _visibleGames.FirstOrDefault(g => g == selectedTile)
+            ?? _visibleGames.FirstOrDefault(g => g.CopiesOrSelf.Contains(selectedTile));
+
+        if (tile is null)
+        {
+            return;   // le jeu ne correspond plus aux filtres
+        }
+
+        GamesList.SelectedItem = tile;
+
+        // Si tu avais choisi une autre copie dans la fiche, on la remet.
+        if (shownCopy is not null && shownCopy != tile && tile.CopiesOrSelf.Contains(shownCopy))
+        {
+            ShowDetails(tile, shownCopy);
+        }
+
+        if (scrollToSelection)
+        {
+            GamesList.ScrollIntoView(tile);
         }
     }
     // ===================== Recherche et filtres =====================
@@ -317,6 +399,8 @@ public partial class MainWindow : Window
             "complete" => game.IsAchievementsComplete,
             "inProgress" => game.HasAchievements && !game.IsAchievementsComplete,
             "newAchievements" => game.HasNewAchievements,
+            "withAchievements" => game.HasAchievements,
+            "withoutAchievements" => !game.HasAchievements,
             _ => true
         };
     }
@@ -517,8 +601,40 @@ public partial class MainWindow : Window
 
     private void GamesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        Game? tile = GamesList.SelectedItem as Game;
+        ShowDetails(tile, tile);
+    }
+
+    // ===================== Fiche et copies =====================
+
+    // Le jeu affiché dans la fiche : la tuile sélectionnée, ou la copie choisie dans « Plateforme ».
+    // C'est lui qu'on lance, qu'on met en favori, dont on montre les succès et les patch notes.
+    private Game? CurrentGame => DetailPanel.DataContext as Game;
+
+    private void ShowDetails(Game? tile, Game? copy)
+    {
+        DetailPanel.DataContext = copy;
+
+        // La liste « Plateforme » n'apparaît que pour un jeu possédé sur plusieurs plateformes.
+        _isBuildingCopySelector = true;
+        bool hasCopies = tile is not null && tile.HasOtherCopies;
+        CopySelectorPanel.Visibility = hasCopies ? Visibility.Visible : Visibility.Collapsed;
+        CopySelector.ItemsSource = hasCopies ? tile!.Copies : null;
+        CopySelector.SelectedItem = hasCopies ? copy : null;
+        _isBuildingCopySelector = false;
+
         BuildGameCollectionsPanel();
-        _ = LoadPatchNotesAsync(GamesList.SelectedItem as Game);
+        _ = LoadPatchNotesAsync(copy);
+    }
+
+    private void CopySelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isBuildingCopySelector || CopySelector.SelectedItem is not Game copy || copy == CurrentGame)
+        {
+            return;
+        }
+
+        ShowDetails(GamesList.SelectedItem as Game, copy);
     }
 
     // ===================== Patch notes =====================
@@ -582,7 +698,7 @@ public partial class MainWindow : Window
 
     private void ShowAchievementsButton_Click(object sender, RoutedEventArgs e)
     {
-        if (GamesList.SelectedItem is not Game game)
+        if (CurrentGame is not Game game)
         {
             return;
         }
@@ -628,7 +744,7 @@ public partial class MainWindow : Window
     {
         GameCollectionsPanel.Children.Clear();
 
-        if (GamesList.SelectedItem is not Game game)
+        if (CurrentGame is not Game game)
         {
             return;
         }
@@ -667,14 +783,18 @@ public partial class MainWindow : Window
     private void GameCollectionCheckBox_Changed(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox { Tag: GameCollection collection } checkBox
-            || GamesList.SelectedItem is not Game game)
+            || CurrentGame is not Game game)
         {
             return;
         }
 
         try
         {
-            _library.SetGameInCollection(game, collection, checkBox.IsChecked == true);
+            // Un jeu regroupé est « un seul jeu » pour toi : toutes ses copies entrent ou sortent ensemble.
+            foreach (Game copy in game.CopiesOrSelf)
+            {
+                _library.SetGameInCollection(copy, collection, checkBox.IsChecked == true);
+            }
         }
         catch (Exception ex)
         {
@@ -705,20 +825,94 @@ public partial class MainWindow : Window
 
     private void ThemeButton_Click(object sender, RoutedEventArgs e)
     {
-        string nextTheme = ThemeManager.Current.Id == "dark" ? "light" : "dark";
-        ThemeManager.Apply(nextTheme);
+        SetTheme(ThemeManager.Current.Id == "dark" ? "light" : "dark");
+    }
+
+    /// <summary>
+    /// Change de thème depuis le bouton ou l'onglet Réglages, et garde les deux d'accord.
+    /// </summary>
+    private void SetTheme(string themeId)
+    {
+        ThemeManager.Apply(themeId);
         UpdateThemeButton();
 
+        _isLoadingSettings = true;
+        LightThemeRadio.IsChecked = ThemeManager.Current.Id != "dark";
+        DarkThemeRadio.IsChecked = ThemeManager.Current.Id == "dark";
+        _isLoadingSettings = false;
+
+        _library.Settings.Theme = ThemeManager.Current.Id;
+        SaveSettings();
+    }
+
+    // ===================== Réglages =====================
+
+    private void LoadSettingsTab()
+    {
+        // Pendant qu'on coche les cases, leurs événements ne doivent rien enregistrer.
+        _isLoadingSettings = true;
+
+        LightThemeRadio.IsChecked = ThemeManager.Current.Id != "dark";
+        DarkThemeRadio.IsChecked = ThemeManager.Current.Id == "dark";
+        MergeDuplicatesCheck.IsChecked = _library.Settings.MergeDuplicates;
+
+        foreach (CheckBox checkBox in new[] { SteamAchievementsCheck, GogAchievementsCheck, EpicAchievementsCheck })
+        {
+            checkBox.IsChecked = checkBox.Tag is string name
+                && Enum.TryParse(name, out Platform platform)
+                && _library.Settings.IsAchievementSourceEnabled(platform);
+        }
+
+        _isLoadingSettings = false;
+    }
+
+    private void ThemeRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        SetTheme(sender == DarkThemeRadio ? "dark" : "light");
+    }
+
+    private void MergeDuplicatesCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        _library.Settings.MergeDuplicates = MergeDuplicatesCheck.IsChecked == true;
+        SaveSettings();
+
+        AssignCopies();
+        RebuildGamesViewKeepingSelection();
+        UpdateResultCount();
+    }
+
+    private void AchievementSourceCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings || sender is not CheckBox { Tag: string name } checkBox
+            || !Enum.TryParse(name, out Platform platform))
+        {
+            return;
+        }
+
+        _library.Settings.SetAchievementSourceEnabled(platform, checkBox.IsChecked == true);
+        SaveSettings();
+    }
+
+    private void SaveSettings()
+    {
         try
         {
-            AppSettings settings = AppSettings.Load();
-            settings.Theme = nextTheme;
-            settings.Save();
+            _library.SaveSettings();
         }
         catch (Exception ex)
         {
-            // Le thème est appliqué quand même : il ne sera juste pas retenu au prochain démarrage.
-            Logger.Log($"Thème impossible à enregistrer : {ex.Message}");
+            // Le réglage s'applique quand même : il ne sera juste pas retenu au prochain démarrage.
+            Logger.Log($"Réglages impossibles à enregistrer : {ex.Message}");
         }
     }
 
@@ -734,7 +928,7 @@ public partial class MainWindow : Window
 
     private void RandomGameButton_Click(object sender, RoutedEventArgs e)
     {
-        List<Game> shownGames = _gamesView?.Cast<Game>().ToList() ?? new List<Game>();
+        List<Game> shownGames = _visibleGames.ToList();
 
         if (shownGames.Count == 0)
         {
@@ -757,14 +951,20 @@ public partial class MainWindow : Window
 
     private void FavoriteButton_Click(object sender, RoutedEventArgs e)
     {
-        if (GamesList.SelectedItem is not Game game)
+        if (CurrentGame is not Game game)
         {
             return;
         }
 
         try
         {
-            _library.SetFavorite(game, !game.IsFavorite);
+            // Même idée que pour les collections : toutes les copies deviennent favorites ensemble.
+            bool isFavorite = !game.IsFavorite;
+
+            foreach (Game copy in game.CopiesOrSelf)
+            {
+                _library.SetFavorite(copy, isFavorite);
+            }
         }
         catch (Exception ex)
         {
@@ -782,14 +982,14 @@ public partial class MainWindow : Window
 
     private void RefreshFilters()
     {
-        _gamesView?.Refresh();
+        // Sans défilement : en tapant une recherche, la liste ne doit pas sauter vers le jeu sélectionné.
+        RebuildGamesViewKeepingSelection(scrollToSelection: false);
         UpdateResultCount();
     }
 
     private void UpdateResultCount()
     {
-        int shownCount = _gamesView?.Cast<object>().Count() ?? 0;
-        ResultCountText.Text = $"{shownCount} jeu(x) affiché(s)";
+        ResultCountText.Text = $"{_visibleGames.Count} jeu(x) affiché(s)";
     }
     private async Task<bool> SyncEaSilentlyAsync()
     {
@@ -1092,7 +1292,7 @@ public partial class MainWindow : Window
 
     private void LaunchSelectedGame()
     {
-        if (GamesList.SelectedItem is not Game game)
+        if (CurrentGame is not Game game)
         {
             MessageBox.Show("Sélectionne d'abord un jeu dans la liste.", "Wyrmhold");
             return;

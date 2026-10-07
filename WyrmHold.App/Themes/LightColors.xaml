@@ -20,4 +20,7 @@
 
     <!-- Texte « Débloqué le … » -->
     <SolidColorBrush x:Key="SuccessTextBrush" Color="#2E7D32"/>
+
+    <!-- Titre d'un jeu à 100 % de succès (doré, lisible sur le fond du thème) -->
+    <SolidColorBrush x:Key="CompleteTextBrush" Color="#B8860B"/>
 </ResourceDictionary>

@@ -125,14 +125,18 @@
                             <ComboBoxItem Content="Succès à 100 %" Tag="complete"/>
                             <ComboBoxItem Content="Succès en cours" Tag="inProgress"/>
                             <ComboBoxItem Content="Succès ajoutés" Tag="newAchievements"/>
+                            <ComboBoxItem Content="Jeux avec succès" Tag="withAchievements"/>
+                            <ComboBoxItem Content="Jeux sans succès" Tag="withoutAchievements"/>
                         </ComboBox>
                         <WrapPanel x:Name="PlatformFilters"/>
                     </DockPanel>
                 </StackPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
-                <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
+                <!-- Son DataContext est choisi par le code (ShowDetails) : la tuile sélectionnée,
+                     ou une autre copie du jeu choisie dans la liste « Plateforme ». -->
+                <Border x:Name="DetailPanel" DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
                         BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1"
-                        DataContext="{Binding SelectedItem, ElementName=GamesList}">
+                        DataContext="{x:Null}">
                     <Grid>
                         <TextBlock Text="Sélectionne un jeu pour voir sa fiche."
                                    Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
@@ -167,6 +171,14 @@
                                 <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold"
                                            TextWrapping="Wrap" Margin="0,12,0,0"/>
                                 <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource SecondaryTextBrush}"/>
+
+                                <!-- Jeu possédé sur plusieurs plateformes : choix de la copie (lancement, temps, succès) -->
+                                <DockPanel x:Name="CopySelectorPanel" Margin="0,8,0,0" Visibility="Collapsed">
+                                    <TextBlock Text="Plateforme" VerticalAlignment="Center" Margin="0,0,8,0"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    <ComboBox x:Name="CopySelector" DisplayMemberPath="CopyLabel"
+                                              SelectionChanged="CopySelector_SelectionChanged"/>
+                                </DockPanel>
                                 <Button HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,4" Click="FavoriteButton_Click">
                                     <Button.Style>
                                         <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -469,10 +481,55 @@
                                     </Border>
                                 </Grid>
 
+                                <!-- Titre doré si au moins une copie du jeu est à 100 % -->
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+                                           TextTrimming="CharacterEllipsis" Margin="0,4,0,0">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding AnyCopyComplete}" Value="True">
+                                                    <Setter Property="Foreground" Value="{DynamicResource CompleteTextBrush}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                            TextTrimming="CharacterEllipsis"/>
+
+                                <!-- Une pastille par plateforme si le jeu est possédé plusieurs fois (dorée = copie à 100 %).
+                                     « Hidden » et pas « Collapsed » : la place reste réservée, toutes les tuiles ont la même hauteur. -->
+                                <ItemsControl ItemsSource="{Binding CopyBadges}" Height="17" Margin="0,3,0,0">
+                                    <ItemsControl.Style>
+                                        <Style TargetType="ItemsControl">
+                                            <Setter Property="Visibility" Value="Hidden"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasOtherCopies}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ItemsControl.Style>
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border x:Name="Badge" CornerRadius="6" Padding="5,0" Margin="0,0,3,0"
+                                                    Background="{DynamicResource SubtleBrush}">
+                                                <TextBlock x:Name="BadgeText" Text="{Binding Name}" FontSize="10"/>
+                                            </Border>
+                                            <DataTemplate.Triggers>
+                                                <DataTrigger Binding="{Binding IsComplete}" Value="True">
+                                                    <Setter TargetName="Badge" Property="Background" Value="#FFC107"/>
+                                                    <Setter TargetName="BadgeText" Property="Foreground" Value="Black"/>
+                                                </DataTrigger>
+                                            </DataTemplate.Triggers>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </StackPanel>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
@@ -627,6 +684,48 @@
                         <TextBlock Grid.Row="6" Grid.Column="1" x:Name="BattleNetStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="6" Grid.Column="2" x:Name="BattleNetAccountButton" Click="BattleNetAccountButton_Click"/>
                     </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </TabItem>
+
+        <!-- ===================== Onglet Réglages ===================== -->
+        <TabItem Header="Réglages">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="20" MaxWidth="760" HorizontalAlignment="Left">
+                    <StackPanel.Resources>
+                        <Style x:Key="SettingsSection" TargetType="TextBlock">
+                            <Setter Property="FontSize" Value="16"/>
+                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Margin" Value="0,20,0,8"/>
+                        </Style>
+                    </StackPanel.Resources>
+
+                    <TextBlock Text="Réglages" FontSize="22" FontWeight="Bold"/>
+
+                    <TextBlock Text="Apparence" Style="{StaticResource SettingsSection}"/>
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="LightThemeRadio" GroupName="Theme" Content="Clair" Margin="0,0,20,0"
+                                     Checked="ThemeRadio_Checked"/>
+                        <RadioButton x:Name="DarkThemeRadio" GroupName="Theme" Content="Sombre"
+                                     Checked="ThemeRadio_Checked"/>
+                    </StackPanel>
+
+                    <TextBlock Text="Bibliothèque" Style="{StaticResource SettingsSection}"/>
+                    <CheckBox x:Name="MergeDuplicatesCheck"
+                              Content="Regrouper un même jeu possédé sur plusieurs plateformes"
+                              Checked="MergeDuplicatesCheck_Changed" Unchecked="MergeDuplicatesCheck_Changed"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="Une seule tuile par jeu ; la liste « Plateforme » de la fiche choisit la copie à lancer. Les jeux sont reconnus par leur nom."/>
+
+                    <TextBlock Text="Succès" Style="{StaticResource SettingsSection}"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Décoche une plateforme pour que Wyrmhold arrête de lire ses succès. Les chiffres déjà connus restent affichés."/>
+                    <CheckBox x:Name="SteamAchievementsCheck" Content="Steam" Tag="Steam" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="GogAchievementsCheck" Content="GOG" Tag="Gog" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="EpicAchievementsCheck" Content="Epic Games" Tag="Epic"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>

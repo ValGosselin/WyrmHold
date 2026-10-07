@@ -45,5 +45,12 @@ public class AchievementDetail
 
     public double ProgressRatio => HasProgress ? Math.Min(1, ProgressValue!.Value / ProgressMax!.Value) : 0;
 
-    public string ProgressText => HasProgress ? $"{ProgressValue:N0} / {ProgressMax:N0}" : "";
+    // Vrai quand la plateforme ne donne qu'un pourcentage (Epic) au lieu d'un compteur (Steam).
+    public bool ProgressIsPercent { get; init; }
+
+    public string ProgressText => !HasProgress
+        ? ""
+        : ProgressIsPercent
+            ? $"{ProgressRatio:P0}"
+            : $"{ProgressValue:N0} / {ProgressMax:N0}";
 }

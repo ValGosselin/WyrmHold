@@ -7,6 +7,9 @@ internal class EpicCatalogEntry
     public string Title { get; set; } = "";
     public bool IsGame { get; set; }
     public string? CoverUrl { get; set; }
+
+    // Le « namespace » (ou sandboxId) du jeu chez Epic : il sert à demander la liste de ses succès.
+    public string? Namespace { get; set; }
 }
 
 internal class EpicCatalogCache

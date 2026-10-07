@@ -13,6 +13,27 @@ public class AppSettings
     // L'identifiant du thème choisi (« light », « dark »… et plus tard ceux de la boutique de thèmes).
     public string Theme { get; set; } = "light";
 
+    // Regrouper un même jeu possédé sur plusieurs plateformes en une seule tuile.
+    public bool MergeDuplicates { get; set; } = true;
+
+    // Les plateformes dont on ne lit plus les succès (ex. « Epic »). Vide = toutes actives.
+    public List<string> DisabledAchievementSources { get; set; } = new List<string>();
+
+    public bool IsAchievementSourceEnabled(Platform platform)
+    {
+        return !DisabledAchievementSources.Contains(platform.ToString());
+    }
+
+    public void SetAchievementSourceEnabled(Platform platform, bool isEnabled)
+    {
+        DisabledAchievementSources.Remove(platform.ToString());
+
+        if (!isEnabled)
+        {
+            DisabledAchievementSources.Add(platform.ToString());
+        }
+    }
+
     public static AppSettings Load()
     {
         try

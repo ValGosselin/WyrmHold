@@ -31,6 +31,12 @@ public partial class AchievementsWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        if (!_library.Settings.IsAchievementSourceEnabled(_game.Platform))
+        {
+            StatusText.Text = $"Les succès {_game.PlatformName} sont désactivés dans l'onglet Réglages.";
+            return;
+        }
+
         StatusText.Text = "Chargement des succès…";
 
         try

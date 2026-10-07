@@ -146,6 +146,36 @@ public class Game : INotifyPropertyChanged
 
     public string NewAchievementsText => $"Succès ajoutés : {MissingAchievements} à faire";
 
+    // ----- Regroupement des copies (affichage seulement : chaque copie garde sa ligne en base) -----
+
+    // La clé qui reconnaît un même jeu sur plusieurs plateformes : son nom sans espaces, ponctuation
+    // ni symboles (« Rocket League® » et « Rocket League » donnent la même clé).
+    public string GroupKey => NameTools.Normalize(Name);
+
+    // Toutes les copies de ce jeu (lui compris), rangées par plateforme. Rempli par la fenêtre.
+    public List<Game> Copies { get; set; } = new List<Game>();
+
+    public bool HasOtherCopies => Copies.Count > 1;
+
+    // Ses copies, ou lui seul s'il n'a pas encore été regroupé.
+    public IEnumerable<Game> CopiesOrSelf => Copies.Count > 0 ? Copies : new[] { this };
+
+    // Titre doré sur la tuile : au moins une copie est à 100 %.
+    public bool AnyCopyComplete => CopiesOrSelf.Any(copy => copy.IsAchievementsComplete);
+
+    // Les pastilles de la tuile : une par plateforme, dorée si cette copie est à 100 %.
+    public IEnumerable<CopyBadge> CopyBadges => CopiesOrSelf.Select(copy => new CopyBadge(copy.PlatformShortName, copy.IsAchievementsComplete));
+
+    public string PlatformShortName => Platform switch
+    {
+        Platform.Epic => "Epic",
+        _ => PlatformName
+    };
+
+    // Le texte d'une copie dans la liste « Plateforme » de la fiche.
+    public string CopyLabel => string.Join(" · ",
+        new[] { PlatformName, InstallStatusText, PlaytimeText, AchievementsText }.Where(text => text.Length > 0));
+
     public string LastUpdateText => LastUpdateDetectedUnix == 0
         ? ""
         : DateTimeOffset.FromUnixTimeSeconds(LastUpdateDetectedUnix).LocalDateTime.ToString("dd/MM/yyyy");
@@ -179,3 +209,8 @@ public class Game : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
     }
 }
+
+/// <summary>
+/// Une pastille de plateforme sur la tuile d'un jeu possédé plusieurs fois.
+/// </summary>
+public record CopyBadge(string Name, bool IsComplete);
