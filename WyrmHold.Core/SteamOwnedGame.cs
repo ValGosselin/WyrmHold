@@ -53,6 +53,13 @@ internal class SteamPlayerAchievement
 
     [JsonPropertyName("unlocktime")]
     public long UnlockTimeUnix { get; set; }
+
+    // Remplis seulement quand on passe la langue (paramètre « l »).
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
 }
 
 internal class SteamOwnedGamesResponse

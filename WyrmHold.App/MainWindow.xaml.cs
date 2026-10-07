@@ -58,6 +58,7 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        UpdateThemeButton();
         BuildSavedViews(null);
         RefreshAccountsTab();
         await LoadGamesAsync();
@@ -579,6 +580,24 @@ public partial class MainWindow : Window
         PatchNotesLinkButton.Visibility = result.LinkUrl.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    private void ShowAchievementsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (GamesList.SelectedItem is not Game game)
+        {
+            return;
+        }
+
+        AchievementsWindow window = new AchievementsWindow(_library, game) { Owner = this };
+        window.ShowDialog();
+
+        // La fenêtre a relu les succès : le tri et les filtres de succès peuvent avoir changé.
+        if (_sortMode == "achievements" || _achievementFilter != "all")
+        {
+            RebuildGamesViewKeepingSelection();
+            UpdateResultCount();
+        }
+    }
+
     private void PatchNotesLinkButton_Click(object sender, RoutedEventArgs e)
     {
         OpenInBrowser(_patchNotesLinkUrl);
@@ -616,12 +635,16 @@ public partial class MainWindow : Window
 
         if (_collections.Count == 0)
         {
-            GameCollectionsPanel.Children.Add(new TextBlock
+            TextBlock emptyText = new TextBlock
             {
                 Text = "Aucune collection pour l'instant : crée-en une avec le bouton « Gérer… ».",
-                Foreground = Brushes.Gray,
                 TextWrapping = TextWrapping.Wrap
-            });
+            };
+
+            // L'équivalent en C# de Foreground="{DynamicResource SecondaryTextBrush}" :
+            // la couleur suivra le thème, même s'il change pendant que le texte est affiché.
+            emptyText.SetResourceReference(TextBlock.ForegroundProperty, "SecondaryTextBrush");
+            GameCollectionsPanel.Children.Add(emptyText);
             return;
         }
 
@@ -678,6 +701,37 @@ public partial class MainWindow : Window
         // Une collection a pu être créée, renommée ou supprimée : on recharge tout.
         ShowGames(_library.LoadGames());
     }
+    // ===================== Thème clair / sombre =====================
+
+    private void ThemeButton_Click(object sender, RoutedEventArgs e)
+    {
+        string nextTheme = ThemeManager.Current.Id == "dark" ? "light" : "dark";
+        ThemeManager.Apply(nextTheme);
+        UpdateThemeButton();
+
+        try
+        {
+            AppSettings settings = AppSettings.Load();
+            settings.Theme = nextTheme;
+            settings.Save();
+        }
+        catch (Exception ex)
+        {
+            // Le thème est appliqué quand même : il ne sera juste pas retenu au prochain démarrage.
+            Logger.Log($"Thème impossible à enregistrer : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Le bouton montre le thème vers lequel il bascule : une lune en clair, un soleil en sombre.
+    /// </summary>
+    private void UpdateThemeButton()
+    {
+        bool isDark = ThemeManager.Current.Id == "dark";
+        ThemeButton.Content = isDark ? "☀" : "🌙";
+        ThemeButton.ToolTip = isDark ? "Passer en mode clair" : "Passer en mode sombre";
+    }
+
     private void RandomGameButton_Click(object sender, RoutedEventArgs e)
     {
         List<Game> shownGames = _gamesView?.Cast<Game>().ToList() ?? new List<Game>();

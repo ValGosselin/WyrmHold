@@ -18,9 +18,11 @@
         <TabItem Header="Bibliothèque">
             <DockPanel Margin="10">
 
-                <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Height="30">
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Height="32">
                     <!-- À droite : les boutons d'action, comme avant -->
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button x:Name="ThemeButton" Width="46" Margin="0,0,10,0"
+                                Click="ThemeButton_Click"/>
                         <Button Content="🎲 Jeu au hasard" Width="130" Margin="0,0,10,0"
                                 Click="RandomGameButton_Click"/>
                         <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
@@ -35,7 +37,7 @@
                                   SelectionChanged="SavedViewsList_SelectionChanged"/>
                         <Button Content="Enregistrer la vue…" Width="140" Margin="10,0,0,0"
                                 Click="SaveViewButton_Click"/>
-                        <Button Content="Supprimer la vue" Width="120" Margin="6,0,0,0"
+                        <Button Content="Supprimer la vue" Width="129" Margin="6,0,0,0"
                                 Click="DeleteViewButton_Click"/>
                     </StackPanel>
                 </DockPanel>
@@ -43,11 +45,11 @@
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
 
                     <!-- Ligne 1 : recherche et filtres -->
-                    <StackPanel Orientation="Horizontal" Height="30">
+                    <StackPanel Orientation="Horizontal" Height="32">
                         <Grid Width="220" Margin="0,0,10,0">
                             <TextBox x:Name="SearchBox" Padding="6,0" VerticalContentAlignment="Center"
                      TextChanged="SearchBox_TextChanged"/>
-                            <TextBlock Text="Rechercher un jeu…" Foreground="Gray" Margin="10,0,0,0"
+                            <TextBlock Text="Rechercher un jeu…" Foreground="{DynamicResource SecondaryTextBrush}" Margin="10,0,0,0"
                        VerticalAlignment="Center" IsHitTestVisible="False">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
@@ -90,15 +92,16 @@
                         <ComboBox x:Name="TagFilter" Width="190" MaxDropDownHeight="400"
                   VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged"/>
                         <ToggleButton x:Name="FavoritesFilter" Content="★ Favoris" Margin="10,0,0,0" Padding="10,0"
+              VerticalAlignment="Stretch"
               Checked="FavoritesFilter_Changed" Unchecked="FavoritesFilter_Changed"/>
                     </StackPanel>
 
                     <!-- Ligne 2 : plateformes à gauche, tri et compteur à droite -->
                     <DockPanel Margin="0,8,0,0">
                         <TextBlock x:Name="ResultCountText" DockPanel.Dock="Right"
-                   VerticalAlignment="Center" Foreground="Gray" Margin="10,0,0,0"/>
+                   VerticalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}" Margin="10,0,0,0"/>
 
-                        <ComboBox x:Name="SortMode" DockPanel.Dock="Right" Width="170" Height="30"
+                        <ComboBox x:Name="SortMode" DockPanel.Dock="Right" Width="170" Height="32"
                   VerticalAlignment="Top" Margin="10,0,0,0" SelectedIndex="0"
                   VerticalContentAlignment="Center" SelectionChanged="SortMode_SelectionChanged">
                             <ComboBoxItem Content="Trier par nom" Tag="name"/>
@@ -110,12 +113,12 @@
                             <ComboBoxItem Content="Succès (%)" Tag="achievements"/>
                         </ComboBox>
                         <Button x:Name="ManageCollectionsButton" DockPanel.Dock="Right" Content="Gérer…"
-             Width="70" Height="30" VerticalAlignment="Top" Margin="6,0,0,0"
+             Width="70" Height="32" VerticalAlignment="Top" Margin="6,0,0,0"
              Click="ManageCollectionsButton_Click"/>
-                        <ComboBox x:Name="CollectionFilter" DockPanel.Dock="Right" Width="190" Height="30"
+                        <ComboBox x:Name="CollectionFilter" DockPanel.Dock="Right" Width="190" Height="32"
                VerticalAlignment="Top" Margin="10,0,0,0" VerticalContentAlignment="Center"
                MaxDropDownHeight="400" SelectionChanged="CollectionFilter_SelectionChanged"/>
-                        <ComboBox x:Name="AchievementFilter" DockPanel.Dock="Right" Width="160" Height="30"
+                        <ComboBox x:Name="AchievementFilter" DockPanel.Dock="Right" Width="160" Height="32"
                VerticalAlignment="Top" Margin="10,0,0,0" SelectedIndex="0"
                VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
                             <ComboBoxItem Content="Tous les succès" Tag="all"/>
@@ -128,11 +131,11 @@
                 </StackPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <Border DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
-                        BorderBrush="#DDDDDD" BorderThickness="1"
+                        BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1"
                         DataContext="{Binding SelectedItem, ElementName=GamesList}">
                     <Grid>
                         <TextBlock Text="Sélectionne un jeu pour voir sa fiche."
-                                   Foreground="Gray" TextWrapping="Wrap">
+                                   Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed"/>
@@ -147,7 +150,7 @@
 
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
                             <ScrollViewer.Style>
-                                <Style TargetType="ScrollViewer">
+                                <Style TargetType="ScrollViewer" BasedOn="{StaticResource {x:Type ScrollViewer}}">
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding}" Value="{x:Null}">
                                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -163,10 +166,10 @@
 
                                 <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold"
                                            TextWrapping="Wrap" Margin="0,12,0,0"/>
-                                <TextBlock Text="{Binding Subtitle}" Foreground="Gray"/>
+                                <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource SecondaryTextBrush}"/>
                                 <Button HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,4" Click="FavoriteButton_Click">
                                     <Button.Style>
-                                        <Style TargetType="Button">
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                             <Setter Property="Content" Value="☆ Ajouter aux favoris"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding IsFavorite}" Value="True">
@@ -189,7 +192,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </Border.Style>
-                                    <TextBlock Text="Accès anticipé" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Accès anticipé" FontWeight="SemiBold" Foreground="Black"/>
                                 </Border>
 
                                 <!-- Badges de la phase 5 : une ligne qui passe à la ligne si besoin -->
@@ -219,7 +222,7 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock Text="🏆 100 %" FontWeight="SemiBold"/>
+                                        <TextBlock Text="🏆 100 %" FontWeight="SemiBold" Foreground="Black"/>
                                     </Border>
 
                                     <Border Background="#E65100" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
@@ -237,6 +240,20 @@
                                     </Border>
                                 </WrapPanel>
 
+                                <Button HorizontalAlignment="Left" Margin="0,4,0,0" Padding="10,4"
+                                        Content="🏆 Voir les succès" Click="ShowAchievementsButton_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasAchievements}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+
                                 <Grid Margin="0,12,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
@@ -253,28 +270,28 @@
                                         <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
-                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Statut" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Statut" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallStatusText}"/>
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Temps de jeu" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Temps de jeu" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PlaytimeText}"/>
 
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Dernière partie" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Dernière partie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastPlayedText}"/>
 
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Sortie" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Sortie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReleaseDateText}"/>
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Developers}" TextWrapping="Wrap"/>
 
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SizeText}"/>
 
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Succès" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Succès" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding AchievementsDetailText}"/>
 
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Mise à jour" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Mise à jour" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding LastUpdateText}"/>
                                 </Grid>
 
@@ -286,7 +303,7 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Background="#EEEEEE" CornerRadius="10" Padding="8,2" Margin="0,0,6,6">
+                                            <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2" Margin="0,0,6,6">
                                                 <TextBlock Text="{Binding}" FontSize="11"/>
                                             </Border>
                                         </DataTemplate>
@@ -298,7 +315,7 @@
 
                                 <!-- Patch notes : remplies par le code quand on sélectionne un jeu -->
                                 <TextBlock Text="Patch notes" FontWeight="SemiBold" Margin="0,16,0,4"/>
-                                <TextBlock x:Name="PatchNotesStatusText" Foreground="Gray" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                                <TextBlock x:Name="PatchNotesStatusText" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,6"/>
 
                                 <ItemsControl x:Name="PatchNotesList">
                                     <ItemsControl.ItemTemplate>
@@ -307,7 +324,7 @@
                                                 <Expander.Header>
                                                     <StackPanel>
                                                         <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="235"/>
-                                                        <TextBlock Text="{Binding DateText}" Foreground="Gray" FontSize="11"/>
+                                                        <TextBlock Text="{Binding DateText}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11"/>
                                                     </StackPanel>
                                                 </Expander.Header>
 
@@ -454,7 +471,7 @@
 
                                 <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
                                            TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
-                                <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="Gray"
+                                <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"
                                            TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
                         </DataTemplate>
@@ -476,8 +493,8 @@
                         <TextBlock Grid.Column="0" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <ProgressBar Grid.Column="1" Value="{Binding Ratio, Mode=OneWay}" Maximum="1" Height="14"
-                                     Foreground="#4A90D9" Background="#EEEEEE" BorderThickness="0"/>
-                        <TextBlock Grid.Column="2" Text="{Binding ValueText}" Foreground="Gray"
+                                     Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
+                        <TextBlock Grid.Column="2" Text="{Binding ValueText}" Foreground="{DynamicResource SecondaryTextBrush}"
                                    VerticalAlignment="Center" Margin="10,0,0,0"/>
                     </Grid>
                 </DataTemplate>
@@ -495,40 +512,40 @@
 
                     <!-- Les chiffres clés -->
                     <WrapPanel>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding TotalPlaytimeText}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="de jeu au total" Foreground="Gray"/>
+                                <TextBlock Text="de jeu au total" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding GameCount}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="jeux dans la bibliothèque" Foreground="Gray"/>
+                                <TextBlock Text="jeux dans la bibliothèque" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding InstalledCount}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="installés" Foreground="Gray"/>
+                                <TextBlock Text="installés" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding PlayedCount}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="déjà joués" Foreground="Gray"/>
+                                <TextBlock Text="déjà joués" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding NeverPlayedCount}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="jamais lancés" Foreground="Gray"/>
+                                <TextBlock Text="jamais lancés" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
-                        <Border Background="#F3F3F3" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,10" Margin="0,0,10,10">
                             <StackPanel>
                                 <TextBlock Text="{Binding FavoriteCount}" FontSize="24" FontWeight="Bold"/>
-                                <TextBlock Text="favoris" Foreground="Gray"/>
+                                <TextBlock Text="favoris" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             </StackPanel>
                         </Border>
                     </WrapPanel>
@@ -544,7 +561,7 @@
 
                     <TextBlock Text="Temps de jeu par semaine" Style="{StaticResource StatTitle}"/>
                     <TextBlock Text="D'après les sessions lancées depuis Wyrmhold (hors Steam, qui compte le temps lui-même)."
-                               Foreground="Gray" Margin="0,-4,0,8" TextWrapping="Wrap"/>
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,-4,0,8" TextWrapping="Wrap"/>
                     <ItemsControl ItemsSource="{Binding PlaytimeByWeek}" ItemTemplate="{StaticResource StatBarTemplate}"/>
                 </StackPanel>
             </ScrollViewer>
@@ -554,7 +571,7 @@
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <StackPanel Margin="20" MaxWidth="760" HorizontalAlignment="Left">
                     <TextBlock Text="Comptes" FontSize="22" FontWeight="Bold"/>
-                    <TextBlock Foreground="Gray" TextWrapping="Wrap" Margin="0,6,0,20"
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,6,0,20"
                                Text="Connecte tes comptes pour ajouter à ta bibliothèque les jeux que tu possèdes, même non installés. Une fois connecté, Wyrmhold se synchronise tout seul à chaque démarrage et à chaque actualisation."/>
 
                     <Grid>
@@ -562,9 +579,9 @@
                             <Style TargetType="TextBlock">
                                 <Setter Property="VerticalAlignment" Value="Center"/>
                             </Style>
-                            <Style TargetType="Button">
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
                                 <Setter Property="Width" Value="140"/>
-                                <Setter Property="Height" Value="28"/>
+                                <Setter Property="Height" Value="32"/>
                             </Style>
                         </Grid.Resources>
 
@@ -584,30 +601,30 @@
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Steam" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SteamStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SteamStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Famille Steam" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SteamFamilyStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SteamFamilyStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="1" Grid.Column="2" x:Name="SteamFamilyButton" Click="SteamFamilyButton_Click"/>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="GOG" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="GogStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="GogStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="2" Grid.Column="2" x:Name="GogAccountButton" Click="GogAccountButton_Click"/>
 
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Epic Games" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="EpicStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="EpicStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="3" Grid.Column="2" x:Name="EpicAccountButton" Click="EpicAccountButton_Click"/>
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Ubisoft Connect" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="4" Grid.Column="1" x:Name="UbisoftStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="4" Grid.Column="1" x:Name="UbisoftStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="4" Grid.Column="2" x:Name="UbisoftAccountButton" Click="UbisoftAccountButton_Click"/>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="EA app" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="EaStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="EaStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="5" Grid.Column="2" x:Name="EaAccountButton" Click="EaAccountButton_Click"/>
 
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Battle.net" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="BattleNetStatusText" Foreground="Gray"/>
+                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="BattleNetStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="6" Grid.Column="2" x:Name="BattleNetAccountButton" Click="BattleNetAccountButton_Click"/>
                     </Grid>
                 </StackPanel>

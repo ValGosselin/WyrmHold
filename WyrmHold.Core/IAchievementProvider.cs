@@ -18,6 +18,11 @@ public interface IAchievementProvider
     /// Lève AchievementSourceUnavailableException si toute la source est hors service.
     /// </summary>
     Task<AchievementProgress> GetProgressAsync(Game game, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// La liste complète des succès du jeu, débloqués ou non (plus lent : appelé à l'ouverture de la liste).
+    /// </summary>
+    Task<List<AchievementDetail>> GetAchievementsAsync(Game game, CancellationToken cancellationToken = default);
 }
 
 public record AchievementProgress(int Unlocked, int Total);

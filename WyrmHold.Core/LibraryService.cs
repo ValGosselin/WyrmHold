@@ -41,7 +41,12 @@ public class LibraryService
 
     // Succès : une source par plateforme. Pour en ajouter une, il suffira de l'ajouter à cette liste.
     private readonly SteamAchievementProvider _steamAchievements;
+    private readonly GogAchievementProvider _gogAchievements = new GogAchievementProvider();
     private readonly List<IAchievementProvider> _achievementProviders;
+
+    // Le dernier jeton GOG reçu, et quand (il ne dure qu'environ une heure).
+    private GogTokens? _gogTokens;
+    private DateTimeOffset _gogTokensReceived;
 
     public LibraryService()
     {
@@ -49,7 +54,7 @@ public class LibraryService
         _steamApi = new SteamWebApi(_secrets);
         _steamGridDb = new SteamGridDbApi(_secrets.SteamGridDbApiKey);
         _steamAchievements = new SteamAchievementProvider(_steamApi);
-        _achievementProviders = new List<IAchievementProvider> { _steamAchievements };
+        _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements };
         _database.Initialize();
     }
 
@@ -326,6 +331,7 @@ public class LibraryService
             when (ex.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
         {
             SecureStore.Delete(GogTokenName);
+            RememberGogTokens(null);
             throw new InvalidOperationException("La session GOG a expiré : reconnecte-toi dans l'onglet Comptes.");
         }
 
@@ -340,6 +346,7 @@ public class LibraryService
     public void DisconnectGog()
     {
         SecureStore.Delete(GogTokenName);
+        RememberGogTokens(null);
         _database.SaveOwnedGames(Platform.Gog, new List<Game>());
 
         string webViewFolder = AppPaths.GetWebViewFolder(Platform.Gog);
@@ -353,6 +360,7 @@ public class LibraryService
     private async Task<int> ImportGogLibraryAsync(GogTokens tokens)
     {
         SecureStore.Save(GogTokenName, tokens.RefreshToken);
+        RememberGogTokens(tokens);
 
         List<long> ownedIds = await GogApi.GetOwnedGameIdsAsync(tokens.AccessToken);
         List<GogProduct> products = await GogApi.GetProductsAsync(ownedIds);
@@ -369,6 +377,48 @@ public class LibraryService
 
         _database.SaveOwnedGames(Platform.Gog, games);
         return games.Count;
+    }
+
+    private void RememberGogTokens(GogTokens? tokens)
+    {
+        _gogTokens = tokens;
+        _gogTokensReceived = DateTimeOffset.UtcNow;
+        _gogAchievements.SetSession(tokens);
+    }
+
+    /// <summary>
+    /// Renouvelle le jeton GOG s'il a plus de 50 minutes (Wyrmhold peut rester ouvert des heures).
+    /// Ne réimporte pas la bibliothèque : on veut juste un jeton valide pour lire les succès.
+    /// </summary>
+    private async Task EnsureFreshGogTokensAsync()
+    {
+        if (_gogTokens is not null && DateTimeOffset.UtcNow - _gogTokensReceived < TimeSpan.FromMinutes(50))
+        {
+            return;
+        }
+
+        string? refreshToken = SecureStore.Load(GogTokenName);
+
+        if (refreshToken is null)
+        {
+            return;
+        }
+
+        try
+        {
+            GogTokens? tokens = await GogApi.RefreshAsync(refreshToken);
+
+            if (tokens is not null)
+            {
+                // GOG donne un nouveau jeton de renouvellement à chaque fois : on garde le dernier.
+                SecureStore.Save(GogTokenName, tokens.RefreshToken);
+                RememberGogTokens(tokens);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Jeton GOG impossible à renouveler : {ex.Message}");
+        }
     }
 
     // ----- Epic Games -----
@@ -937,6 +987,8 @@ public class LibraryService
     /// </summary>
     public async Task<int> RefreshAchievementsAsync(List<Game> games, IProgress<(int Done, int Total)>? progress = null)
     {
+        await EnsureFreshGogTokensAsync();
+
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         // 1. Pour chaque source, la liste des jeux à relire.
@@ -975,6 +1027,15 @@ public class LibraryService
                         AchievementProgress result = await provider.GetProgressAsync(game, token);
                         results.Add((game, result));
                     }
+                    catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.InternalServerError
+                                                          && game.AchievementsTotal == 0
+                                                          && !token.IsCancellationRequested)
+                    {
+                        // Steam répond « erreur 500 » pour certains jeux, peut-être ceux qui n'ont aucun succès.
+                        // On ne connaissait aucun succès à ce jeu : on le note « sans succès » (rien n'est perdu)
+                        // pour ne pas le redemander à chaque démarrage. Il sera relu s'il est joué ou mis à jour.
+                        results.Add((game, new AchievementProgress(0, 0)));
+                    }
                     catch (AchievementSourceUnavailableException ex)
                     {
                         // Toute la source est hors service : on arrête d'interroger ses jeux.
@@ -1010,6 +1071,46 @@ public class LibraryService
         }
 
         return refreshedGames.Count;
+    }
+
+    /// <summary>
+    /// La liste complète des succès d'un jeu, pour la fenêtre des succès.
+    /// On en profite pour mettre à jour sa progression (« 37/50 ») avec ces chiffres tout frais.
+    /// </summary>
+    public async Task<List<AchievementDetail>> GetAchievementDetailsAsync(Game game)
+    {
+        IAchievementProvider? provider = _achievementProviders.FirstOrDefault(p => p.Platform == game.Platform);
+
+        if (provider is null)
+        {
+            return new List<AchievementDetail>();
+        }
+
+        if (game.Platform == Platform.Gog)
+        {
+            await EnsureFreshGogTokensAsync();
+        }
+
+        List<AchievementDetail> details = await provider.GetAchievementsAsync(game);
+
+        AchievementProgress progress = new AchievementProgress(details.Count(d => d.IsUnlocked), details.Count);
+        game.ApplyAchievementProgress(progress, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _database.SaveAchievements(new List<Game> { game });
+
+        return details;
+    }
+
+    /// <summary>
+    /// Les statistiques brutes d'un jeu (Steam seulement : les autres plateformes n'en donnent pas).
+    /// </summary>
+    public async Task<List<GameStat>> GetGameStatsAsync(Game game)
+    {
+        if (game.Platform != Platform.Steam || !_steamApi.IsConfigured)
+        {
+            return new List<GameStat>();
+        }
+
+        return await _steamApi.GetGameStatsAsync(game.PlatformGameId);
     }
 
     private static bool NeedsAchievementRefresh(Game game, long now)

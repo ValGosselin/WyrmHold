@@ -7,6 +7,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
 	 <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF0001 : Application.ThemeMode (thème Fluent clair/sombre) est encore marqué « expérimental »
+         dans .NET 10. On l'utilise quand même, en sachant que Microsoft peut encore le modifier. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

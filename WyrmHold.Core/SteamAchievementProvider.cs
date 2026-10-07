@@ -40,4 +40,9 @@ public class SteamAchievementProvider : IAchievementProvider
     {
         return _api.GetAchievementProgressAsync(game.PlatformGameId, cancellationToken);
     }
+
+    public Task<List<AchievementDetail>> GetAchievementsAsync(Game game, CancellationToken cancellationToken = default)
+    {
+        return _api.GetAchievementDetailsAsync(game.PlatformGameId, cancellationToken);
+    }
 }

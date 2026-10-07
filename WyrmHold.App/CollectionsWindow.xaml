@@ -1,18 +1,18 @@
 ﻿<Window x:Class="WyrmHold.App.CollectionsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Mes collections" Height="420" Width="440"
+        Title="Mes collections" Height="440" Width="440"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         Loaded="Window_Loaded">
 
     <DockPanel Margin="12">
 
         <!-- En bas : fermer la fenêtre (Échap marche aussi grâce à IsCancel) -->
-        <Button DockPanel.Dock="Bottom" Content="Fermer" Width="90" Height="28"
+        <Button DockPanel.Dock="Bottom" Content="Fermer" Width="90" Height="32"
                 HorizontalAlignment="Right" Margin="0,10,0,0" IsCancel="True"/>
 
         <!-- En haut : le nom à créer ou à donner -->
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10" Height="28">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10" Height="32">
             <Button DockPanel.Dock="Right" Content="Créer" Width="90" Margin="8,0,0,0"
                     IsDefault="True" Click="CreateButton_Click"/>
             <TextBox x:Name="NameBox" Padding="6,0" VerticalContentAlignment="Center"/>
@@ -20,8 +20,8 @@
 
         <!-- À droite : actions sur la collection sélectionnée -->
         <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0">
-            <Button Content="Renommer" Width="90" Height="28" Margin="0,0,0,8" Click="RenameButton_Click"/>
-            <Button Content="Supprimer" Width="90" Height="28" Click="DeleteButton_Click"/>
+            <Button Content="Renommer" Width="90" Height="32" Margin="0,0,0,8" Click="RenameButton_Click"/>
+            <Button Content="Supprimer" Width="90" Height="32" Click="DeleteButton_Click"/>
         </StackPanel>
 
         <!-- Au centre : la liste des collections -->

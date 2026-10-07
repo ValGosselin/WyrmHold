@@ -1,10 +1,13 @@
-﻿using System.Net.Http.Headers;
+﻿using System.Globalization;
+using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Wyrmhold.Core;
 
-public record GogTokens(string AccessToken, string RefreshToken);
+// UserId : ton identifiant GOG, nécessaire pour lire tes succès.
+public record GogTokens(string AccessToken, string RefreshToken, string UserId);
 
 public static class GogApi
 {
@@ -52,7 +55,7 @@ public static class GogApi
             return null;
         }
 
-        return new GogTokens(response.AccessToken, response.RefreshToken);
+        return new GogTokens(response.AccessToken, response.RefreshToken, response.UserId ?? "");
     }
 
     public static async Task<List<long>> GetOwnedGameIdsAsync(string accessToken)
@@ -79,6 +82,73 @@ public static class GogApi
 
         return products;
     }
+
+    // ----- Succès -----
+
+    /// <summary>
+    /// Tes succès pour un jeu GOG (adresse interne de GOG, non documentée : elle peut changer).
+    /// Liste vide si le jeu n'a pas de succès.
+    /// </summary>
+    public static async Task<List<AchievementDetail>> GetAchievementsAsync(
+        string productId, string userId, string accessToken, CancellationToken cancellationToken = default)
+    {
+        string url = $"https://gameplay.gog.com/clients/{Uri.EscapeDataString(productId)}"
+            + $"/users/{Uri.EscapeDataString(userId)}/achievements";
+
+        using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+        using HttpResponseMessage response = await Http.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            throw new AchievementSourceUnavailableException("La session GOG a expiré : reconnecte-toi dans l'onglet Comptes.");
+        }
+
+        // Un jeu sans succès (ou sans fonctions Galaxy) n'a pas de page de succès.
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return new List<AchievementDetail>();
+        }
+
+        response.EnsureSuccessStatusCode();
+
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+        List<GogAchievement> items = JsonSerializer.Deserialize<GogAchievementsResponse>(json)?.Items
+            ?? new List<GogAchievement>();
+
+        return items.Select((item, index) => new AchievementDetail
+        {
+            // « ?? "" » : si GOG envoie null, System.Text.Json met null même dans un string non-nullable.
+            Id = item.Key ?? "",
+            Name = (item.Name ?? "").Trim(),
+            Description = (item.Description ?? "").Trim(),
+            IsUnlocked = item.DateUnlocked is not null,
+            UnlockedUnix = ParseGogDate(item.DateUnlocked),
+            IsHidden = !item.Visible,
+            IconUrl = item.DateUnlocked is not null ? item.ImageUrlUnlocked : item.ImageUrlLocked,
+            RarityPercent = item.Rarity,
+            Order = index
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Si le fuseau horaire est écrit sans deux-points (« +0000 »), .NET ne sait pas le lire :
+    /// on les ajoute (« +00:00 ») par prudence avant de lire la date.
+    /// </summary>
+    private static long ParseGogDate(string? date)
+    {
+        if (string.IsNullOrEmpty(date))
+        {
+            return 0;
+        }
+
+        string fixedDate = Regex.Replace(date, @"([+-]\d{2})(\d{2})$", "$1:$2");
+
+        return DateTimeOffset.TryParse(fixedDate, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset parsed)
+            ? parsed.ToUnixTimeSeconds()
+            : 0;
+    }
 }
 
 internal class GogTokenResponse
@@ -88,6 +158,9 @@ internal class GogTokenResponse
 
     [JsonPropertyName("refresh_token")]
     public string? RefreshToken { get; set; }
+
+    [JsonPropertyName("user_id")]
+    public string? UserId { get; set; }
 }
 
 internal class GogOwnedResponse
@@ -106,4 +179,43 @@ internal class GogProduct
 
     [JsonPropertyName("game_type")]
     public string GameType { get; set; } = "";
+}
+
+internal class GogAchievementsResponse
+{
+    [JsonPropertyName("total_count")]
+    public int TotalCount { get; set; }
+
+    [JsonPropertyName("items")]
+    public List<GogAchievement> Items { get; set; } = new List<GogAchievement>();
+}
+
+internal class GogAchievement
+{
+    [JsonPropertyName("achievement_key")]
+    public string? Key { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    // false = succès caché.
+    [JsonPropertyName("visible")]
+    public bool Visible { get; set; } = true;
+
+    [JsonPropertyName("image_url_unlocked")]
+    public string? ImageUrlUnlocked { get; set; }
+
+    [JsonPropertyName("image_url_locked")]
+    public string? ImageUrlLocked { get; set; }
+
+    // Pourcentage des joueurs qui l'ont.
+    [JsonPropertyName("rarity")]
+    public double? Rarity { get; set; }
+
+    // null tant que le succès n'est pas débloqué. Lu comme du texte (voir ParseGogDate).
+    [JsonPropertyName("date_unlocked")]
+    public string? DateUnlocked { get; set; }
 }

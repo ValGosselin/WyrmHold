@@ -1,0 +1,23 @@
+﻿<!-- Palette claire : les couleurs propres à Wyrmhold (le reste vient du thème Fluent de WPF).
+     Chaque clé doit exister dans TOUTES les palettes, avec le même nom. -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Texte secondaire : sous-titres, libellés, compteurs -->
+    <SolidColorBrush x:Key="SecondaryTextBrush" Color="#666666"/>
+
+    <!-- Texte des descriptions (succès) -->
+    <SolidColorBrush x:Key="DescriptionTextBrush" Color="#555555"/>
+
+    <!-- Fond des cartes de la page Statistiques -->
+    <SolidColorBrush x:Key="CardBrush" Color="#F3F3F3"/>
+
+    <!-- Fond discret : étiquettes de genre, rail des barres de progression -->
+    <SolidColorBrush x:Key="SubtleBrush" Color="#EEEEEE"/>
+
+    <!-- Bordure de la fiche du jeu -->
+    <SolidColorBrush x:Key="PanelBorderBrush" Color="#DDDDDD"/>
+
+    <!-- Texte « Débloqué le … » -->
+    <SolidColorBrush x:Key="SuccessTextBrush" Color="#2E7D32"/>
+</ResourceDictionary>
