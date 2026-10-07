@@ -43,7 +43,8 @@ public class EpicProvider : ILibraryProvider
                     Name = manifest.DisplayName,
                     IsInstalled = true,
                     InstallPath = Path.GetFullPath(manifest.InstallLocation),
-                    SizeOnDiskBytes = manifest.InstallSize
+                    SizeOnDiskBytes = manifest.InstallSize,
+                    InstalledVersion = string.IsNullOrEmpty(manifest.AppVersionString) ? null : manifest.AppVersionString
                 });
             }
             catch (Exception ex)

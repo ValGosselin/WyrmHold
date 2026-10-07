@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿using System.Collections.Concurrent;
+using System.Net;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 
@@ -38,11 +39,17 @@ public class LibraryService
     private readonly SteamWebApi _steamApi;
     private readonly SteamGridDbApi _steamGridDb;
 
+    // Succès : une source par plateforme. Pour en ajouter une, il suffira de l'ajouter à cette liste.
+    private readonly SteamAchievementProvider _steamAchievements;
+    private readonly List<IAchievementProvider> _achievementProviders;
+
     public LibraryService()
     {
         _secrets = Secrets.Load();
         _steamApi = new SteamWebApi(_secrets);
         _steamGridDb = new SteamGridDbApi(_secrets.SteamGridDbApiKey);
+        _steamAchievements = new SteamAchievementProvider(_steamApi);
+        _achievementProviders = new List<IAchievementProvider> { _steamAchievements };
         _database.Initialize();
     }
 
@@ -189,6 +196,10 @@ public class LibraryService
             }
 
             HashSet<string> ownedIds = ownedGames.Select(g => g.AppId.ToString()).ToHashSet();
+
+            _steamAchievements.SetAppsWithStats(ownedGames
+                .Where(g => g.HasCommunityVisibleStats)
+                .Select(g => g.AppId.ToString()));
 
             foreach (Game game in steamGames)
             {
@@ -832,6 +843,183 @@ public class LibraryService
         {
             Directory.Delete(webViewFolder, recursive: true);
         }
+    }
+
+    // ----- Patch notes -----
+
+    private const int AnnouncementsToRead = 20;
+    private const int PatchNotesToShow = 5;
+    private const int AnnouncementsToShowWithoutPatchNotes = 3;
+
+    // Annonces Steam déjà lues pendant cette session, par appid (évite de rappeler Steam à chaque clic).
+    private readonly Dictionary<string, List<SteamNewsItem>> _announcementsCache = new Dictionary<string, List<SteamNewsItem>>();
+
+    public async Task<PatchNotesResult> GetPatchNotesAsync(Game game)
+    {
+        string? steamAppId = await FindSteamAppIdAsync(game);
+
+        if (steamAppId is null)
+        {
+            return new PatchNotesResult
+            {
+                Message = "Ce jeu n'a pas été trouvé sur Steam : pas de patch notes automatiques.",
+                LinkUrl = "https://www.google.com/search?q=" + Uri.EscapeDataString($"{game.Name} patch notes"),
+                LinkText = "Chercher ses notes de mise à jour sur le web"
+            };
+        }
+
+        if (!_announcementsCache.TryGetValue(steamAppId, out List<SteamNewsItem>? announcements))
+        {
+            announcements = await SteamNewsApi.GetAnnouncementsAsync(steamAppId, AnnouncementsToRead);
+            _announcementsCache[steamAppId] = announcements;
+        }
+
+        // 1. Les annonces étiquetées « patchnotes ».
+        List<SteamNewsItem> shown = announcements.Where(a => a.IsPatchNotes).Take(PatchNotesToShow).ToList();
+        List<string> messages = new List<string>();
+
+        // 2. Beaucoup de studios n'étiquettent pas leurs notes : on montre alors les dernières annonces.
+        if (shown.Count == 0)
+        {
+            shown = announcements.Take(AnnouncementsToShowWithoutPatchNotes).ToList();
+            messages.Add(shown.Count == 0
+                ? "Aucune annonce sur Steam pour ce jeu."
+                : "Aucune note de patch étiquetée : voici les dernières annonces du studio.");
+        }
+
+        if (game.Platform != Platform.Steam)
+        {
+            messages.Add("D'après la page Steam du même jeu : la version de ton lanceur peut avoir un peu d'avance ou de retard.");
+        }
+
+        return new PatchNotesResult
+        {
+            Notes = shown.Select((item, index) => PatchNote.FromSteam(item, isExpanded: index == 0)).ToList(),
+            Message = string.Join(" ", messages),
+            LinkUrl = $"https://store.steampowered.com/news/app/{steamAppId}",
+            LinkText = "Toutes les actualités sur Steam"
+        };
+    }
+
+    /// <summary>
+    /// L'appid Steam d'un jeu : le sien pour un jeu Steam, sinon celui du même jeu trouvé par son nom.
+    /// La recherche est faite une seule fois puis enregistrée en base (même quand elle ne trouve rien).
+    /// </summary>
+    private async Task<string?> FindSteamAppIdAsync(Game game)
+    {
+        if (game.Platform == Platform.Steam)
+        {
+            return game.PlatformGameId;
+        }
+
+        if (game.SteamAppId is null)
+        {
+            string? foundAppId = await SteamStoreApi.FindAppIdByNameAsync(game.Name);
+            game.SteamAppId = foundAppId ?? "";
+            _database.SetSteamAppId(game, game.SteamAppId);
+        }
+
+        return game.SteamAppId.Length == 0 ? null : game.SteamAppId;
+    }
+
+    // ----- Succès -----
+
+    // Combien de jeux on interroge en même temps.
+    private const int ParallelAchievementRequests = 4;
+
+    // Un jeu joué ces derniers jours est relu à chaque fois : tu as pu débloquer des succès
+    // après la dernière lecture, pendant la même partie.
+    private const int RecentlyPlayedDays = 3;
+
+    /// <summary>
+    /// Relit les succès des jeux qui en ont besoin, et renvoie le nombre de jeux mis à jour.
+    /// Si une source ne répond pas, ses jeux gardent leur dernière valeur enregistrée.
+    /// </summary>
+    public async Task<int> RefreshAchievementsAsync(List<Game> games, IProgress<(int Done, int Total)>? progress = null)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        // 1. Pour chaque source, la liste des jeux à relire.
+        List<(IAchievementProvider Provider, List<Game> Games)> work = _achievementProviders
+            .Select(provider => (Provider: provider, Games: games
+                .Where(g => g.Platform == provider.Platform
+                            && provider.CanHaveAchievements(g)
+                            && NeedsAchievementRefresh(g, now))
+                .ToList()))
+            .Where(item => item.Games.Count > 0)
+            .ToList();
+
+        int total = work.Sum(item => item.Games.Count);
+        int done = 0;
+
+        // ConcurrentBag : une liste qu'on peut remplir depuis plusieurs tâches en même temps.
+        ConcurrentBag<(Game Game, AchievementProgress Progress)> results = new ConcurrentBag<(Game, AchievementProgress)>();
+
+        // 2. On interroge chaque source, quelques jeux à la fois.
+        foreach ((IAchievementProvider provider, List<Game> toRefresh) in work)
+        {
+            using CancellationTokenSource stopSource = new CancellationTokenSource();
+
+            ParallelOptions options = new ParallelOptions
+            {
+                MaxDegreeOfParallelism = ParallelAchievementRequests,
+                CancellationToken = stopSource.Token
+            };
+
+            try
+            {
+                await Parallel.ForEachAsync(toRefresh, options, async (game, token) =>
+                {
+                    try
+                    {
+                        AchievementProgress result = await provider.GetProgressAsync(game, token);
+                        results.Add((game, result));
+                    }
+                    catch (AchievementSourceUnavailableException ex)
+                    {
+                        // Toute la source est hors service : on arrête d'interroger ses jeux.
+                        Logger.Log($"Succès {provider.Platform} indisponibles : {ex.Message}");
+                        stopSource.Cancel();
+                    }
+                    catch (Exception ex) when (!token.IsCancellationRequested)
+                    {
+                        // Un seul jeu en échec : on passe au suivant.
+                        Logger.Log($"Succès illisibles pour {game.Name} : {ex.Message}");
+                    }
+
+                    progress?.Report((Interlocked.Increment(ref done), total));
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // La source a été arrêtée : les jeux déjà lus sont gardés, les autres attendront.
+            }
+        }
+
+        // 3. On applique les résultats aux jeux, puis on enregistre tout d'un coup.
+        foreach ((Game game, AchievementProgress result) in results)
+        {
+            game.ApplyAchievementProgress(result, now);
+        }
+
+        List<Game> refreshedGames = results.Select(r => r.Game).ToList();
+
+        if (refreshedGames.Count > 0)
+        {
+            _database.SaveAchievements(refreshedGames);
+        }
+
+        return refreshedGames.Count;
+    }
+
+    private static bool NeedsAchievementRefresh(Game game, long now)
+    {
+        const long OneDay = 24 * 60 * 60;
+
+        return game.AchievementsCheckedUnix == 0                              // jamais lu (premier scan)
+            || game.LastPlayedUnix > game.AchievementsCheckedUnix             // joué depuis la dernière lecture
+            || game.LastPlayedUnix >= now - RecentlyPlayedDays * OneDay       // joué ces derniers jours
+            || game.LastUpdateDetectedUnix > game.AchievementsCheckedUnix;    // mis à jour depuis
     }
 
     // ----- Taille sur le disque -----

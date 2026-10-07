@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Net;
+using System.Text.Json;
 
 namespace Wyrmhold.Core;
 
@@ -84,5 +85,63 @@ public class SteamWebApi
         return JsonSerializer.Deserialize<SharedLibraryResponse>(libraryJson)?.Response?.Apps
             ?? new List<SharedLibraryApp>();
     }
-    
+
+    // ----- Succès -----
+
+    public async Task<AchievementProgress> GetAchievementProgressAsync(string appId, CancellationToken cancellationToken = default)
+    {
+        string url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/"
+            + $"?key={_secrets.SteamApiKey}&steamid={_secrets.SteamId}&appid={Uri.EscapeDataString(appId)}";
+
+        // GetAsync et pas GetStringAsync : pour un jeu sans succès, Steam répond avec une erreur 400
+        // et un message, qu'on veut pouvoir lire au lieu de recevoir directement une exception.
+        using HttpResponseMessage response = await Http.GetAsync(url, cancellationToken);
+
+        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            throw new AchievementSourceUnavailableException(
+                "Steam refuse l'accès : vérifie que les détails de jeu de ton profil sont publics et que ta clé API est valide.");
+        }
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            throw new AchievementSourceUnavailableException("Trop d'appels à l'API Steam : on réessaiera au prochain démarrage.");
+        }
+
+        string json = await response.Content.ReadAsStringAsync(cancellationToken);
+        SteamPlayerStats? stats = ReadPlayerStats(json);
+
+        if (stats is { Success: true })
+        {
+            int unlocked = stats.Achievements.Count(a => a.Achieved == 1);
+            return new AchievementProgress(unlocked, stats.Achievements.Count);
+        }
+
+        string error = stats?.Error ?? "";
+
+        if (error.Contains("not public", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new AchievementSourceUnavailableException("Ton profil Steam est privé : les succès ne sont pas lisibles.");
+        }
+
+        if (error.Contains("no stats", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AchievementProgress(0, 0);
+        }
+
+        throw new HttpRequestException($"Réponse inattendue de Steam ({(int)response.StatusCode}) : {(error.Length > 0 ? error : "illisible")}");
+    }
+
+    private static SteamPlayerStats? ReadPlayerStats(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<SteamPlayerAchievementsResponse>(json)?.PlayerStats;
+        }
+        catch (JsonException)
+        {
+            // Pas du JSON (page d'erreur HTML, par exemple).
+            return null;
+        }
+    }
 }

@@ -46,6 +46,9 @@ public class SteamProvider : ILibraryProvider
                 string? installDir = ReadValue(lines, "installdir");
                 long.TryParse(ReadValue(lines, "SizeOnDisk"), out long sizeOnDisk);
 
+                // Le numéro de build change à chaque mise à jour du jeu.
+                string? buildId = ReadValue(lines, "buildid");
+
                 if (appId is null || name is null || installDir is null)
                 {
                     continue;
@@ -62,7 +65,8 @@ public class SteamProvider : ILibraryProvider
                     Name = name,
                     IsInstalled = true,
                     InstallPath = Path.Combine(steamappsPath, "common", installDir),
-                    SizeOnDiskBytes = sizeOnDisk
+                    SizeOnDiskBytes = sizeOnDisk,
+                    InstalledVersion = buildId
                 });
             }
         }

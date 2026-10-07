@@ -94,5 +94,88 @@ public class Game : INotifyPropertyChanged
         _ => $"{PlaytimeMinutes / 60} h"
     };
 
-    
+    // ----- Mises à jour -----
+
+    // Pendant combien de jours un jeu mis à jour garde son badge « Mis à jour ».
+    public const int RecentUpdateDays = 7;
+
+    // La version installée, telle que le lanceur l'écrit : numéro de build pour Steam,
+    // AppVersionString pour Epic. null = inconnue (autres lanceurs).
+    public string? InstalledVersion { get; set; }
+
+    // Le moment où Wyrmhold a vu la version changer (temps Unix, 0 = jamais).
+    public long LastUpdateDetectedUnix { get; set; }
+
+    public bool IsRecentlyUpdated => LastUpdateDetectedUnix > 0
+        && LastUpdateDetectedUnix >= DateTimeOffset.UtcNow.AddDays(-RecentUpdateDays).ToUnixTimeSeconds();
+
+    // Pour un jeu non Steam : l'appid Steam du même jeu, qui sert à lire ses patch notes.
+    // null = pas encore cherché, "" = cherché mais introuvable sur Steam.
+    public string? SteamAppId { get; set; }
+
+    // ----- Succès -----
+
+    public int AchievementsUnlocked { get; set; }
+    public int AchievementsTotal { get; set; }
+
+    // Vrai si le jeu était à 100 % et que son total a augmenté depuis (nouveaux succès à faire).
+    public bool HasNewAchievements { get; set; }
+
+    // Dernière fois que les succès ont été lus (temps Unix, 0 = jamais).
+    public long AchievementsCheckedUnix { get; set; }
+
+    public bool HasAchievements => AchievementsTotal > 0;
+
+    public bool IsAchievementsComplete => AchievementsTotal > 0 && AchievementsUnlocked == AchievementsTotal;
+
+    public int MissingAchievements => AchievementsTotal - AchievementsUnlocked;
+
+    public double AchievementsRatio => AchievementsTotal == 0
+        ? 0
+        : (double)AchievementsUnlocked / AchievementsTotal;
+
+    // « 37/50 » sur la vignette.
+    public string AchievementsText => AchievementsTotal == 0
+        ? ""
+        : $"{AchievementsUnlocked}/{AchievementsTotal}";
+
+    // « 37/50 (74 %) » sur la fiche.
+    public string AchievementsDetailText => AchievementsTotal == 0
+        ? ""
+        : $"{AchievementsUnlocked}/{AchievementsTotal} ({AchievementsRatio:P0})";
+
+    public string NewAchievementsText => $"Succès ajoutés : {MissingAchievements} à faire";
+
+    public string LastUpdateText => LastUpdateDetectedUnix == 0
+        ? ""
+        : DateTimeOffset.FromUnixTimeSeconds(LastUpdateDetectedUnix).LocalDateTime.ToString("dd/MM/yyyy");
+
+    /// <summary>
+    /// Enregistre une nouvelle lecture des succès et tient à jour le badge « Succès ajoutés ».
+    /// </summary>
+    public void ApplyAchievementProgress(AchievementProgress progress, long checkedUnix)
+    {
+        // À regarder AVANT d'écraser les anciennes valeurs : après, on ne saurait plus.
+        bool wasComplete = IsAchievementsComplete;
+        bool totalIncreased = progress.Total > AchievementsTotal;
+
+        AchievementsUnlocked = progress.Unlocked;
+        AchievementsTotal = progress.Total;
+        AchievementsCheckedUnix = checkedUnix;
+
+        if (IsAchievementsComplete || AchievementsTotal == 0)
+        {
+            // Revenu à 100 % (ou plus de succès du tout) : le badge disparaît.
+            HasNewAchievements = false;
+        }
+        else if (wasComplete && totalIncreased)
+        {
+            // Était à 100 %, et le jeu a reçu de nouveaux succès.
+            HasNewAchievements = true;
+        }
+        // Sinon, on garde la valeur d'avant : le badge reste jusqu'au retour à 100 %.
+
+        // Chaîne vide = « toutes les propriétés ont changé » : la fiche et la vignette se redessinent.
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+    }
 }

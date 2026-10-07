@@ -37,6 +37,11 @@ public partial class MainWindow : Window
     private long _collectionFilter;   // 0 = toutes les collections
     private bool _isBuildingCollectionFilter;
     private bool _isBuildingSavedViews;
+    private string _achievementFilter = "all";
+
+    // Numéro de la dernière demande de patch notes : une réponse plus ancienne est ignorée.
+    private int _patchNotesRequest;
+    private string _patchNotesLinkUrl = "";
 
 
     public MainWindow()
@@ -216,6 +221,8 @@ public partial class MainWindow : Window
             "release" => games.OrderByDescending(g => g.ReleaseDateUnix),
             "added" => games.OrderByDescending(g => g.AddedUnix),
             "size" => games.OrderByDescending(g => g.IsInstalled ? g.SizeOnDiskBytes : 0),
+            // Les jeux sans succès passent après ceux à 0 %.
+            "achievements" => games.OrderByDescending(g => g.HasAchievements ? g.AchievementsRatio : -1),
             _ => games.OrderBy(g => NameTools.Normalize(g.Name))
         };
 
@@ -230,9 +237,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        _sortMode = ReadSelectedTag(SortMode);
+        RebuildGamesViewKeepingSelection();
+    }
+
+    private void RebuildGamesViewKeepingSelection()
+    {
         object? selectedGame = GamesList.SelectedItem;
 
-        _sortMode = ReadSelectedTag(SortMode);
         RebuildGamesView();
 
         // On garde le jeu sélectionné, et on le fait défiler jusqu'à l'écran.
@@ -261,7 +273,7 @@ public partial class MainWindow : Window
         {
             return false;
         }
-        if (!MatchesActivity(game))
+        if (!MatchesActivity(game) || !MatchesAchievements(game))
         {
             return false;
         }
@@ -292,6 +304,18 @@ public partial class MainWindow : Window
             "overTenHours" => game.PlaytimeMinutes >= 10 * 60,
             "last7Days" => game.LastPlayedUnix >= now - 7 * OneDay,
             "last30Days" => game.LastPlayedUnix >= now - 30 * OneDay,
+            "recentlyUpdated" => game.IsRecentlyUpdated,
+            _ => true
+        };
+    }
+
+    private bool MatchesAchievements(Game game)
+    {
+        return _achievementFilter switch
+        {
+            "complete" => game.IsAchievementsComplete,
+            "inProgress" => game.HasAchievements && !game.IsAchievementsComplete,
+            "newAchievements" => game.HasNewAchievements,
             _ => true
         };
     }
@@ -400,6 +424,7 @@ public partial class MainWindow : Window
         _originFilter = ReadSelectedTag(OriginFilter);
         _activityFilter = ReadSelectedTag(ActivityFilter);
         _tagFilter = ReadSelectedTag(TagFilter);
+        _achievementFilter = ReadSelectedTag(AchievementFilter);
         RefreshFilters();
     }
 
@@ -428,6 +453,7 @@ public partial class MainWindow : Window
         OriginFilter.SelectedIndex = 0;
         ActivityFilter.SelectedIndex = 0;
         TagFilter.SelectedIndex = 0;
+        AchievementFilter.SelectedIndex = 0;
         FavoritesFilter.IsChecked = false;
         CollectionFilter.SelectedIndex = 0;
         SavedViewsList.SelectedIndex = 0;
@@ -491,6 +517,89 @@ public partial class MainWindow : Window
     private void GamesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         BuildGameCollectionsPanel();
+        _ = LoadPatchNotesAsync(GamesList.SelectedItem as Game);
+    }
+
+    // ===================== Patch notes =====================
+
+    private async Task LoadPatchNotesAsync(Game? game)
+    {
+        // Chaque sélection reçoit un numéro. Si une autre sélection arrive pendant qu'on attend,
+        // son numéro est plus grand et on abandonne celle-ci.
+        int request = ++_patchNotesRequest;
+
+        PatchNotesList.ItemsSource = null;
+        PatchNotesLinkButton.Visibility = Visibility.Collapsed;
+
+        if (game is null)
+        {
+            PatchNotesStatusText.Text = "";
+            return;
+        }
+
+        PatchNotesStatusText.Text = "Chargement…";
+
+        // Petite pause : si tu descends la liste avec les flèches, on n'appelle Steam
+        // que pour le jeu sur lequel tu t'arrêtes.
+        await Task.Delay(400);
+
+        if (request != _patchNotesRequest)
+        {
+            return;
+        }
+
+        PatchNotesResult result;
+
+        try
+        {
+            result = await _library.GetPatchNotesAsync(game);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Patch notes indisponibles pour {game.Name} : {ex.Message}");
+
+            if (request == _patchNotesRequest)
+            {
+                PatchNotesStatusText.Text = "Patch notes indisponibles pour le moment.";
+            }
+
+            return;
+        }
+
+        if (request != _patchNotesRequest)
+        {
+            return;
+        }
+
+        PatchNotesStatusText.Text = result.Message;
+        PatchNotesList.ItemsSource = result.Notes;
+
+        _patchNotesLinkUrl = result.LinkUrl;
+        PatchNotesLinkButton.Content = result.LinkText;
+        PatchNotesLinkButton.Visibility = result.LinkUrl.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void PatchNotesLinkButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenInBrowser(_patchNotesLinkUrl);
+    }
+
+    private void Hyperlink_RequestNavigate(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        OpenInBrowser(e.Uri.AbsoluteUri);
+        e.Handled = true;
+    }
+
+    private static void OpenInBrowser(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Impossible d'ouvrir {url} : {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -737,6 +846,28 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Logger.Log($"Mesure de la taille des jeux impossible : {ex.Message}");
+        }
+
+        Title = $"{_summary} — lecture des succès…";
+
+        try
+        {
+            // Progress<T> renvoie chaque avancée sur le fil de l'interface : on peut y toucher au Title.
+            Progress<(int Done, int Total)> progress = new Progress<(int Done, int Total)>(
+                p => Title = $"{_summary} — succès {p.Done}/{p.Total}…");
+
+            int refreshedCount = await _library.RefreshAchievementsAsync(games, progress);
+
+            if (refreshedCount > 0)
+            {
+                // Les vignettes se redessinent toutes seules ; il reste à refaire le tri et les filtres.
+                RebuildGamesViewKeepingSelection();
+                UpdateResultCount();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Lecture des succès impossible : {ex.Message}");
         }
 
         Title = _summary;
@@ -1405,6 +1536,7 @@ public partial class MainWindow : Window
             OriginFilter = _originFilter,
             ActivityFilter = _activityFilter,
             TagFilter = _tagFilter,
+            AchievementFilter = _achievementFilter,
             CollectionId = _collectionFilter,
             FavoritesOnly = _favoritesOnly,
             SortMode = _sortMode
@@ -1431,6 +1563,7 @@ public partial class MainWindow : Window
         SelectByTag(OriginFilter, filters.OriginFilter);
         SelectByTag(ActivityFilter, filters.ActivityFilter);
         SelectByTag(TagFilter, filters.TagFilter);
+        SelectByTag(AchievementFilter, filters.AchievementFilter);
         SelectByTag(CollectionFilter, filters.CollectionId);
         FavoritesFilter.IsChecked = filters.FavoritesOnly;
         SelectByTag(SortMode, filters.SortMode);

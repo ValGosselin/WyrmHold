@@ -84,6 +84,7 @@
                             <ComboBoxItem Content="Plus de 10 h de jeu" Tag="overTenHours"/>
                             <ComboBoxItem Content="Joués ces 7 jours" Tag="last7Days"/>
                             <ComboBoxItem Content="Joués ces 30 jours" Tag="last30Days"/>
+                            <ComboBoxItem Content="Mis à jour ces 7 jours" Tag="recentlyUpdated"/>
                         </ComboBox>
 
                         <ComboBox x:Name="TagFilter" Width="190" MaxDropDownHeight="400"
@@ -106,6 +107,7 @@
                             <ComboBoxItem Content="Date de sortie" Tag="release"/>
                             <ComboBoxItem Content="Date d'ajout" Tag="added"/>
                             <ComboBoxItem Content="Taille sur le disque" Tag="size"/>
+                            <ComboBoxItem Content="Succès (%)" Tag="achievements"/>
                         </ComboBox>
                         <Button x:Name="ManageCollectionsButton" DockPanel.Dock="Right" Content="Gérer…"
              Width="70" Height="30" VerticalAlignment="Top" Margin="6,0,0,0"
@@ -113,6 +115,14 @@
                         <ComboBox x:Name="CollectionFilter" DockPanel.Dock="Right" Width="190" Height="30"
                VerticalAlignment="Top" Margin="10,0,0,0" VerticalContentAlignment="Center"
                MaxDropDownHeight="400" SelectionChanged="CollectionFilter_SelectionChanged"/>
+                        <ComboBox x:Name="AchievementFilter" DockPanel.Dock="Right" Width="160" Height="30"
+               VerticalAlignment="Top" Margin="10,0,0,0" SelectedIndex="0"
+               VerticalContentAlignment="Center" SelectionChanged="Filter_SelectionChanged">
+                            <ComboBoxItem Content="Tous les succès" Tag="all"/>
+                            <ComboBoxItem Content="Succès à 100 %" Tag="complete"/>
+                            <ComboBoxItem Content="Succès en cours" Tag="inProgress"/>
+                            <ComboBoxItem Content="Succès ajoutés" Tag="newAchievements"/>
+                        </ComboBox>
                         <WrapPanel x:Name="PlatformFilters"/>
                     </DockPanel>
                 </StackPanel>
@@ -182,12 +192,59 @@
                                     <TextBlock Text="Accès anticipé" FontWeight="SemiBold"/>
                                 </Border>
 
+                                <!-- Badges de la phase 5 : une ligne qui passe à la ligne si besoin -->
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Border Background="#2E7D32" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="Mis à jour" Foreground="White" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <Border Background="#FFC107" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="🏆 100 %" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <Border Background="#E65100" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasNewAchievements}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="{Binding NewAchievementsText}" Foreground="White" FontWeight="SemiBold"/>
+                                    </Border>
+                                </WrapPanel>
+
                                 <Grid Margin="0,12,0,0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
@@ -213,6 +270,12 @@
 
                                     <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="Gray" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SizeText}"/>
+
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Succès" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding AchievementsDetailText}"/>
+
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Mise à jour" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding LastUpdateText}"/>
                                 </Grid>
 
                                 <ItemsControl ItemsSource="{Binding TagList}" Margin="0,12,0,0">
@@ -232,6 +295,58 @@
                                 <TextBlock Text="Collections" FontWeight="SemiBold" Margin="0,12,0,4"/>
                                 <StackPanel x:Name="GameCollectionsPanel"/>
                                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+
+                                <!-- Patch notes : remplies par le code quand on sélectionne un jeu -->
+                                <TextBlock Text="Patch notes" FontWeight="SemiBold" Margin="0,16,0,4"/>
+                                <TextBlock x:Name="PatchNotesStatusText" Foreground="Gray" TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                                <ItemsControl x:Name="PatchNotesList">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Expander IsExpanded="{Binding IsExpanded, Mode=OneTime}" Margin="0,0,0,8">
+                                                <Expander.Header>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="235"/>
+                                                        <TextBlock Text="{Binding DateText}" Foreground="Gray" FontSize="11"/>
+                                                    </StackPanel>
+                                                </Expander.Header>
+
+                                                <StackPanel Margin="4,6,0,0">
+                                                    <ItemsControl ItemsSource="{Binding Lines}">
+                                                        <ItemsControl.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <DockPanel Margin="0,0,0,4">
+                                                                    <Border DockPanel.Dock="Left" Width="{Binding Indent}"/>
+                                                                    <TextBlock x:Name="Bullet" DockPanel.Dock="Left" Text="• "
+                                                                               Visibility="Collapsed"/>
+                                                                    <TextBlock x:Name="LineText" Text="{Binding Text}" TextWrapping="Wrap"/>
+                                                                </DockPanel>
+                                                                <DataTemplate.Triggers>
+                                                                    <DataTrigger Binding="{Binding Kind}" Value="Bullet">
+                                                                        <Setter TargetName="Bullet" Property="Visibility" Value="Visible"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Kind}" Value="Heading">
+                                                                        <Setter TargetName="LineText" Property="FontWeight" Value="Bold"/>
+                                                                        <Setter TargetName="LineText" Property="Margin" Value="0,6,0,0"/>
+                                                                    </DataTrigger>
+                                                                </DataTemplate.Triggers>
+                                                            </DataTemplate>
+                                                        </ItemsControl.ItemTemplate>
+                                                    </ItemsControl>
+
+                                                    <TextBlock Margin="0,4,0,0">
+                                                        <Hyperlink NavigateUri="{Binding Url}" RequestNavigate="Hyperlink_RequestNavigate">
+                                                            Lire sur Steam
+                                                        </Hyperlink>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </Expander>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Button x:Name="PatchNotesLinkButton" HorizontalAlignment="Left" Padding="10,4"
+                                        Margin="0,4,0,0" Visibility="Collapsed" Click="PatchNotesLinkButton_Click"/>
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
@@ -283,6 +398,57 @@
                                             </Style>
                                         </Border.Style>
                                         <TextBlock Text="★" Foreground="Gold" FontSize="16"/>
+                                    </Border>
+
+                                    <!-- Badge « Mis à jour » (en haut à gauche) -->
+                                    <Border Background="#2E7D32" CornerRadius="10" Padding="6,1"
+                                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="Mis à jour" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <!-- Progression des succès (en bas à gauche) : « 🏆 37/50 », dorée à 100 %, orange si des succès ont été ajoutés -->
+                                    <Border CornerRadius="10" Padding="6,1"
+                                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6,0,0,6">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="#CC000000"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding HasAchievements}" Value="False">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
+                                                        <Setter Property="Background" Value="#FFC107"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding HasNewAchievements}" Value="True">
+                                                        <Setter Property="Background" Value="#E65100"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock FontSize="11" FontWeight="SemiBold">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Setter Property="Text" Value="{Binding AchievementsText, StringFormat='🏆 {0}'}"/>
+                                                    <Setter Property="Foreground" Value="White"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
+                                                            <Setter Property="Text" Value="🏆 100 %"/>
+                                                            <Setter Property="Foreground" Value="Black"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
                                     </Border>
                                 </Grid>
 

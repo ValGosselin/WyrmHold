@@ -49,6 +49,15 @@ public class GameDatabase
         AddColumnIfMissing(connection, "AddedUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "SizeOnDiskBytes", "INTEGER NOT NULL DEFAULT 0");
 
+        // Phase 5 : mises à jour et succès.
+        AddColumnIfMissing(connection, "InstalledVersion", "TEXT");
+        AddColumnIfMissing(connection, "LastUpdateDetectedUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "SteamAppId", "TEXT");
+        AddColumnIfMissing(connection, "AchievementsUnlocked", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "AchievementsTotal", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "HasNewAchievements", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "AchievementsCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
+
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
         using (SqliteCommand fillAddedDates = connection.CreateCommand())
         {
@@ -225,11 +234,18 @@ public class GameDatabase
             upsert.CommandText = """
             INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, InstallPath,
                               PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId,
-                              SizeOnDiskBytes, AddedUnix)
+                              SizeOnDiskBytes, AddedUnix, InstalledVersion)
             VALUES ($platform, $gameId, $name, $isInstalled, $installPath,
                     $playtime, $lastPlayed, $isFamilyShared, $ownerSteamId,
-                    $size, CAST(strftime('%s', 'now') AS INTEGER))
+                    $size, CAST(strftime('%s', 'now') AS INTEGER), $version)
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
+                LastUpdateDetectedUnix = CASE
+                    WHEN excluded.InstalledVersion IS NOT NULL
+                         AND Game.InstalledVersion IS NOT NULL
+                         AND excluded.InstalledVersion <> Game.InstalledVersion
+                    THEN CAST(strftime('%s', 'now') AS INTEGER)
+                    ELSE Game.LastUpdateDetectedUnix END,
+                InstalledVersion = COALESCE(excluded.InstalledVersion, Game.InstalledVersion),
                 SizeOnDiskBytes = CASE WHEN excluded.SizeOnDiskBytes > 0
                                        THEN excluded.SizeOnDiskBytes
                                        ELSE Game.SizeOnDiskBytes END,
@@ -256,6 +272,7 @@ public class GameDatabase
             upsert.Parameters.AddWithValue("$ownerSteamId", (object?)game.OwnerSteamId ?? DBNull.Value);
             upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.Parameters.AddWithValue("$size", game.SizeOnDiskBytes);
+            upsert.Parameters.AddWithValue("$version", (object?)game.InstalledVersion ?? DBNull.Value);
             upsert.ExecuteNonQuery();
         }
 
@@ -285,7 +302,9 @@ public class GameDatabase
 
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes
+        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes,
+               InstalledVersion, LastUpdateDetectedUnix, SteamAppId,
+               AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix
         FROM Game
         WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
         """;
@@ -318,13 +337,75 @@ public class GameDatabase
                 MetadataUpdatedUnix = reader.GetInt64(14),
                 IsFavorite = reader.GetInt64(reader.GetOrdinal("IsFavorite")) == 1,
                 AddedUnix = reader.GetInt64(reader.GetOrdinal("AddedUnix")),
-                SizeOnDiskBytes = reader.GetInt64(reader.GetOrdinal("SizeOnDiskBytes"))
-
+                SizeOnDiskBytes = reader.GetInt64(reader.GetOrdinal("SizeOnDiskBytes")),
+                InstalledVersion = ReadNullableString(reader, "InstalledVersion"),
+                LastUpdateDetectedUnix = reader.GetInt64(reader.GetOrdinal("LastUpdateDetectedUnix")),
+                SteamAppId = ReadNullableString(reader, "SteamAppId"),
+                AchievementsUnlocked = reader.GetInt32(reader.GetOrdinal("AchievementsUnlocked")),
+                AchievementsTotal = reader.GetInt32(reader.GetOrdinal("AchievementsTotal")),
+                HasNewAchievements = reader.GetInt64(reader.GetOrdinal("HasNewAchievements")) == 1,
+                AchievementsCheckedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsCheckedUnix"))
             });
         }
 
         return games;
     }
+
+    private static string? ReadNullableString(SqliteDataReader reader, string column)
+    {
+        int ordinal = reader.GetOrdinal(column);
+        return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+    }
+
+    // ----- Succès et patch notes -----
+
+    public void SaveAchievements(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE Game SET
+                AchievementsUnlocked    = $unlocked,
+                AchievementsTotal       = $total,
+                HasNewAchievements      = $hasNew,
+                AchievementsCheckedUnix = $checked
+            WHERE Platform = $platform AND PlatformGameId = $gameId;
+            """;
+            update.Parameters.AddWithValue("$unlocked", game.AchievementsUnlocked);
+            update.Parameters.AddWithValue("$total", game.AchievementsTotal);
+            update.Parameters.AddWithValue("$hasNew", game.HasNewAchievements ? 1 : 0);
+            update.Parameters.AddWithValue("$checked", game.AchievementsCheckedUnix);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public void SetSteamAppId(Game game, string steamAppId)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+        UPDATE Game SET SteamAppId = $steamAppId
+        WHERE Platform = $platform AND PlatformGameId = $gameId;
+        """;
+        command.Parameters.AddWithValue("$steamAppId", steamAppId);
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.ExecuteNonQuery();
+    }
+
     public void SetFavorite(Game game, bool isFavorite)
     {
         using SqliteConnection connection = new SqliteConnection(_connectionString);

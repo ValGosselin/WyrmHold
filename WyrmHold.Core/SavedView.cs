@@ -12,6 +12,9 @@ public class SavedViewFilters
     public string OriginFilter { get; set; } = "all";
     public string ActivityFilter { get; set; } = "all";
     public string TagFilter { get; set; } = "all";
+
+    // Absent des vues enregistrées avant la phase 5 : le JSON garde alors la valeur par défaut.
+    public string AchievementFilter { get; set; } = "all";
     public long CollectionId { get; set; }
     public bool FavoritesOnly { get; set; }
     public string SortMode { get; set; } = "name";
