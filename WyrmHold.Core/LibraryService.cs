@@ -842,6 +842,48 @@ public class LibraryService
         return LibraryStatistics.Compute(games, _database.LoadPlaySessions(sinceUnix));
     }
 
+    // ----- Vues enregistrées -----
+
+    public List<SavedView> LoadSavedViews()
+    {
+        List<SavedView> views = new List<SavedView>();
+
+        foreach ((long id, string name, string filtersJson) in _database.LoadSavedViews())
+        {
+            try
+            {
+                SavedViewFilters filters = JsonSerializer.Deserialize<SavedViewFilters>(filtersJson) ?? new SavedViewFilters();
+                views.Add(new SavedView(id, name, filters));
+            }
+            catch (JsonException ex)
+            {
+                Logger.Log($"Vue « {name} » illisible : {ex.Message}");
+            }
+        }
+
+        return views;
+    }
+
+    /// <summary>
+    /// Enregistre une vue. Si une vue porte déjà ce nom, ses réglages sont remplacés.
+    /// </summary>
+    public void SaveView(string name, SavedViewFilters filters)
+    {
+        string cleanName = name.Trim();
+
+        if (cleanName.Length == 0)
+        {
+            throw new InvalidOperationException("Donne un nom à la vue.");
+        }
+
+        _database.SaveView(cleanName, JsonSerializer.Serialize(filters));
+    }
+
+    public void DeleteSavedView(SavedView view)
+    {
+        _database.DeleteSavedView(view.Id);
+    }
+
     // ----- Favoris -----
 
     public void SetFavorite(Game game, bool isFavorite)

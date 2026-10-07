@@ -18,17 +18,27 @@
         <TabItem Header="Bibliothèque">
             <DockPanel Margin="10">
 
-                <StackPanel DockPanel.Dock="Bottom"
-                            Orientation="Horizontal"
-                            HorizontalAlignment="Right"
-                            Margin="0,10,0,0">
-                    <Button Content="🎲 Jeu au hasard" Width="130" Margin="0,0,10,0"
-                            Click="RandomGameButton_Click"/>
-                    <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
-                            Click="RefreshButton_Click"/>
-                    <Button Content="Jouer" Width="100"
-                            Click="PlayButton_Click"/>
-                </StackPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Height="30">
+                    <!-- À droite : les boutons d'action, comme avant -->
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Content="🎲 Jeu au hasard" Width="130" Margin="0,0,10,0"
+                                Click="RandomGameButton_Click"/>
+                        <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
+                                Click="RefreshButton_Click"/>
+                        <Button Content="Jouer" Width="100"
+                                Click="PlayButton_Click"/>
+                    </StackPanel>
+
+                    <!-- À gauche : les vues enregistrées -->
+                    <StackPanel Orientation="Horizontal">
+                        <ComboBox x:Name="SavedViewsList" Width="220" VerticalContentAlignment="Center"
+                                  SelectionChanged="SavedViewsList_SelectionChanged"/>
+                        <Button Content="Enregistrer la vue…" Width="140" Margin="10,0,0,0"
+                                Click="SaveViewButton_Click"/>
+                        <Button Content="Supprimer la vue" Width="120" Margin="6,0,0,0"
+                                Click="DeleteViewButton_Click"/>
+                    </StackPanel>
+                </DockPanel>
                 <!-- Barre de recherche et filtres -->
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
 

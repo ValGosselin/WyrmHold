@@ -64,6 +64,18 @@ public class GameDatabase
             createCollections.ExecuteNonQuery();
         }
 
+        using (SqliteCommand createViews = connection.CreateCommand())
+        {
+            createViews.CommandText = """
+                CREATE TABLE IF NOT EXISTS SavedView (
+                    Id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    FiltersJson TEXT NOT NULL
+                );
+                """;
+            createViews.ExecuteNonQuery();
+        }
+
         using SqliteCommand createSessions = connection.CreateCommand();
         createSessions.CommandText = """
         CREATE TABLE IF NOT EXISTS PlaySession (
@@ -476,5 +488,51 @@ public class GameDatabase
 
         return sessions;
     }
-}
 
+    // ----- Vues enregistrées -----
+
+    public List<(long Id, string Name, string FiltersJson)> LoadSavedViews()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Id, Name, FiltersJson FROM SavedView ORDER BY Name COLLATE NOCASE;";
+
+        List<(long, string, string)> views = new List<(long, string, string)>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            views.Add((reader.GetInt64(0), reader.GetString(1), reader.GetString(2)));
+        }
+
+        return views;
+    }
+
+    public void SaveView(string name, string filtersJson)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO SavedView (Name, FiltersJson) VALUES ($name, $json)
+            ON CONFLICT (Name) DO UPDATE SET FiltersJson = excluded.FiltersJson;
+            """;
+        command.Parameters.AddWithValue("$name", name);
+        command.Parameters.AddWithValue("$json", filtersJson);
+        command.ExecuteNonQuery();
+    }
+
+    public void DeleteSavedView(long viewId)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM SavedView WHERE Id = $id;";
+        command.Parameters.AddWithValue("$id", viewId);
+        command.ExecuteNonQuery();
+    }
+}

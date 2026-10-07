@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private List<GameCollection> _collections = new List<GameCollection>();
     private long _collectionFilter;   // 0 = toutes les collections
     private bool _isBuildingCollectionFilter;
+    private bool _isBuildingSavedViews;
 
 
     public MainWindow()
@@ -52,6 +53,7 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        BuildSavedViews(null);
         RefreshAccountsTab();
         await LoadGamesAsync();
         RefreshAccountsTab();
@@ -426,6 +428,7 @@ public partial class MainWindow : Window
         TagFilter.SelectedIndex = 0;
         FavoritesFilter.IsChecked = false;
         CollectionFilter.SelectedIndex = 0;
+        SavedViewsList.SelectedIndex = 0;
         SearchBox.Clear();
     }
     private void FavoritesFilter_Changed(object sender, RoutedEventArgs e)
@@ -1335,5 +1338,156 @@ public partial class MainWindow : Window
         _isExiting = true;
         _trayIcon.Dispose();
         Application.Current.Shutdown();
+    }
+
+    // ===================== Vues enregistrées =====================
+
+    private void BuildSavedViews(long? viewIdToSelect)
+    {
+        _isBuildingSavedViews = true;
+
+        SavedViewsList.Items.Clear();
+        SavedViewsList.Items.Add(new ComboBoxItem { Content = "Vues enregistrées…" });
+
+        foreach (SavedView view in _library.LoadSavedViews())
+        {
+            ComboBoxItem item = new ComboBoxItem { Content = view.Name, Tag = view };
+            SavedViewsList.Items.Add(item);
+
+            if (view.Id == viewIdToSelect)
+            {
+                SavedViewsList.SelectedItem = item;
+            }
+        }
+
+        if (SavedViewsList.SelectedItem is null)
+        {
+            SavedViewsList.SelectedIndex = 0;
+        }
+
+        _isBuildingSavedViews = false;
+    }
+
+    private void SavedViewsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _isBuildingSavedViews
+            || (SavedViewsList.SelectedItem as ComboBoxItem)?.Tag is not SavedView view)
+        {
+            return;
+        }
+
+        ApplyView(view.Filters);
+    }
+
+    /// <summary>
+    /// Photographie l'état actuel des filtres et du tri.
+    /// </summary>
+    private SavedViewFilters CaptureFilters()
+    {
+        return new SavedViewFilters
+        {
+            SearchText = SearchBox.Text,
+            Platforms = _selectedPlatforms.Select(p => p.ToString()).ToList(),
+            InstallFilter = _installFilter,
+            OriginFilter = _originFilter,
+            ActivityFilter = _activityFilter,
+            TagFilter = _tagFilter,
+            CollectionId = _collectionFilter,
+            FavoritesOnly = _favoritesOnly,
+            SortMode = _sortMode
+        };
+    }
+
+    /// <summary>
+    /// Remet les contrôles dans l'état enregistré. Chaque contrôle déclenche son propre
+    /// événement, qui met à jour le champ correspondant et rafraîchit la liste.
+    /// </summary>
+    private void ApplyView(SavedViewFilters filters)
+    {
+        SearchBox.Text = filters.SearchText;
+
+        _selectedPlatforms.Clear();
+
+        foreach (ToggleButton button in PlatformFilters.Children.OfType<ToggleButton>())
+        {
+            button.IsChecked = button.Tag is Platform platform
+                && filters.Platforms.Contains(platform.ToString());
+        }
+
+        SelectByTag(InstallFilter, filters.InstallFilter);
+        SelectByTag(OriginFilter, filters.OriginFilter);
+        SelectByTag(ActivityFilter, filters.ActivityFilter);
+        SelectByTag(TagFilter, filters.TagFilter);
+        SelectByTag(CollectionFilter, filters.CollectionId);
+        FavoritesFilter.IsChecked = filters.FavoritesOnly;
+        SelectByTag(SortMode, filters.SortMode);
+    }
+
+    /// <summary>
+    /// Sélectionne l'élément dont le Tag vaut « tag » ; s'il n'existe plus
+    /// (un genre ou une collection disparus), revient au premier élément.
+    /// </summary>
+    private static void SelectByTag(ComboBox comboBox, object tag)
+    {
+        ComboBoxItem? match = comboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => Equals(item.Tag, tag));
+
+        comboBox.SelectedItem = match ?? comboBox.Items[0];
+    }
+
+    private void SaveViewButton_Click(object sender, RoutedEventArgs e)
+    {
+        string currentName = (SavedViewsList.SelectedItem as ComboBoxItem)?.Tag is SavedView view ? view.Name : "";
+
+        TextInputWindow dialog = new TextInputWindow(
+            "Enregistrer la vue",
+            "Nom de la vue (si elle existe déjà, ses réglages seront remplacés) :",
+            currentName)
+        { Owner = this };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            _library.SaveView(dialog.Text, CaptureFilters());
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Vue impossible à enregistrer : {ex.Message}");
+            MessageBox.Show("La vue n'a pas pu être enregistrée. Les détails sont dans le journal.", "Wyrmhold");
+            return;
+        }
+
+        long? savedId = _library.LoadSavedViews()
+            .FirstOrDefault(v => string.Equals(v.Name, dialog.Text, StringComparison.OrdinalIgnoreCase))?.Id;
+
+        BuildSavedViews(savedId);
+    }
+
+    private void DeleteViewButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((SavedViewsList.SelectedItem as ComboBoxItem)?.Tag is not SavedView view)
+        {
+            MessageBox.Show("Choisis d'abord la vue à supprimer dans la liste.", "Wyrmhold");
+            return;
+        }
+
+        MessageBoxResult answer = MessageBox.Show(
+            $"Supprimer la vue « {view.Name} » ? Tes filtres actuels ne changent pas.",
+            "Wyrmhold",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (answer != MessageBoxResult.Yes)
+        {
+            return;
+        }
+
+        _library.DeleteSavedView(view);
+        BuildSavedViews(null);
     }
 }
