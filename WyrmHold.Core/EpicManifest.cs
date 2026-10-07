@@ -9,6 +9,7 @@ internal class EpicManifest
     public string DisplayName { get; set; } = "";
     public string InstallLocation { get; set; } = "";
     public List<string> AppCategories { get; set; } = new List<string>();
+    public long InstallSize { get; set; }
 
     [JsonPropertyName("bIsIncompleteInstall")]
     public bool IsIncompleteInstall { get; set; }

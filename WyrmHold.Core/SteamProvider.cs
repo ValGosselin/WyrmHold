@@ -44,6 +44,7 @@ public class SteamProvider : ILibraryProvider
                 string? appId = ReadValue(lines, "appid");
                 string? name = ReadValue(lines, "name");
                 string? installDir = ReadValue(lines, "installdir");
+                long.TryParse(ReadValue(lines, "SizeOnDisk"), out long sizeOnDisk);
 
                 if (appId is null || name is null || installDir is null)
                 {
@@ -60,7 +61,8 @@ public class SteamProvider : ILibraryProvider
                     PlatformGameId = appId,
                     Name = name,
                     IsInstalled = true,
-                    InstallPath = Path.Combine(steamappsPath, "common", installDir)
+                    InstallPath = Path.Combine(steamappsPath, "common", installDir),
+                    SizeOnDiskBytes = sizeOnDisk
                 });
             }
         }

@@ -22,6 +22,22 @@ public class Game : INotifyPropertyChanged
     public string? Tags { get; set; }
     public HashSet<long> CollectionIds { get; } = new HashSet<long>();
     public long MetadataUpdatedUnix { get; set; }
+
+    // Date à laquelle le jeu est apparu dans Wyrmhold (temps Unix).
+    public long AddedUnix { get; set; }
+
+    // Place occupée sur le disque, en octets (0 = inconnue).
+    public long SizeOnDiskBytes { get; set; }
+
+    // Comme Steam et Windows, on compte 1 Go = 1024 × 1024 × 1024 octets.
+    private const double BytesPerGigabyte = 1024.0 * 1024 * 1024;
+    private const double BytesPerMegabyte = 1024.0 * 1024;
+
+    public string SizeText => !IsInstalled || SizeOnDiskBytes <= 0
+        ? ""
+        : SizeOnDiskBytes >= BytesPerGigabyte
+            ? $"{SizeOnDiskBytes / BytesPerGigabyte:0.00} Go"
+            : $"{SizeOnDiskBytes / BytesPerMegabyte:0} Mo";
     private bool _isFavorite;
 
     public bool IsFavorite

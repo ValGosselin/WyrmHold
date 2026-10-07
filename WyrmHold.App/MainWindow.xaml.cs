@@ -214,6 +214,8 @@ public partial class MainWindow : Window
             "lastPlayed" => games.OrderByDescending(g => g.LastPlayedUnix),
             "playtime" => games.OrderByDescending(g => g.PlaytimeMinutes),
             "release" => games.OrderByDescending(g => g.ReleaseDateUnix),
+            "added" => games.OrderByDescending(g => g.AddedUnix),
+            "size" => games.OrderByDescending(g => g.IsInstalled ? g.SizeOnDiskBytes : 0),
             _ => games.OrderBy(g => NameTools.Normalize(g.Name))
         };
 
@@ -724,6 +726,17 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             Logger.Log($"Récupération des infos impossible : {ex.Message}");
+        }
+
+        Title = $"{_summary} — mesure de la taille des jeux…";
+
+        try
+        {
+            await _library.UpdateMissingSizesAsync(games);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Mesure de la taille des jeux impossible : {ex.Message}");
         }
 
         Title = _summary;

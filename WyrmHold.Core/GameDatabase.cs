@@ -46,6 +46,15 @@ public class GameDatabase
         AddColumnIfMissing(connection, "MetadataUpdatedUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "IsOwned", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "IsFavorite", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "AddedUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "SizeOnDiskBytes", "INTEGER NOT NULL DEFAULT 0");
+
+        // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
+        using (SqliteCommand fillAddedDates = connection.CreateCommand())
+        {
+            fillAddedDates.CommandText = "UPDATE Game SET AddedUnix = CAST(strftime('%s', 'now') AS INTEGER) WHERE AddedUnix = 0;";
+            fillAddedDates.ExecuteNonQuery();
+        }
         using (SqliteCommand createCollections = connection.CreateCommand())
         {
             createCollections.CommandText = """
@@ -215,10 +224,15 @@ public class GameDatabase
             upsert.Transaction = transaction;
             upsert.CommandText = """
             INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, InstallPath,
-                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId)
+                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId,
+                              SizeOnDiskBytes, AddedUnix)
             VALUES ($platform, $gameId, $name, $isInstalled, $installPath,
-                    $playtime, $lastPlayed, $isFamilyShared, $ownerSteamId)
+                    $playtime, $lastPlayed, $isFamilyShared, $ownerSteamId,
+                    $size, CAST(strftime('%s', 'now') AS INTEGER))
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
+                SizeOnDiskBytes = CASE WHEN excluded.SizeOnDiskBytes > 0
+                                       THEN excluded.SizeOnDiskBytes
+                                       ELSE Game.SizeOnDiskBytes END,
                 Name            = excluded.Name,
                 IsInstalled     = excluded.IsInstalled,
                 InstallPath     = excluded.InstallPath,
@@ -241,6 +255,7 @@ public class GameDatabase
             });
             upsert.Parameters.AddWithValue("$ownerSteamId", (object?)game.OwnerSteamId ?? DBNull.Value);
             upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
+            upsert.Parameters.AddWithValue("$size", game.SizeOnDiskBytes);
             upsert.ExecuteNonQuery();
         }
 
@@ -270,7 +285,7 @@ public class GameDatabase
 
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = """
-        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite
+        SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes
         FROM Game
         WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
         """;
@@ -301,7 +316,9 @@ public class GameDatabase
                 IsEarlyAccess = reader.GetInt64(12) == 1,
                 Tags = reader.IsDBNull(13) ? null : reader.GetString(13),
                 MetadataUpdatedUnix = reader.GetInt64(14),
-                IsFavorite = reader.GetInt64(reader.GetOrdinal("IsFavorite")) == 1
+                IsFavorite = reader.GetInt64(reader.GetOrdinal("IsFavorite")) == 1,
+                AddedUnix = reader.GetInt64(reader.GetOrdinal("AddedUnix")),
+                SizeOnDiskBytes = reader.GetInt64(reader.GetOrdinal("SizeOnDiskBytes"))
 
             });
         }
@@ -319,6 +336,21 @@ public class GameDatabase
         WHERE Platform = $platform AND PlatformGameId = $gameId;
         """;
         command.Parameters.AddWithValue("$isFavorite", isFavorite ? 1 : 0);
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.ExecuteNonQuery();
+    }
+    public void SetSizeOnDisk(Game game, long sizeOnDiskBytes)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+        UPDATE Game SET SizeOnDiskBytes = $size
+        WHERE Platform = $platform AND PlatformGameId = $gameId;
+        """;
+        command.Parameters.AddWithValue("$size", sizeOnDiskBytes);
         command.Parameters.AddWithValue("$platform", game.Platform.ToString());
         command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
         command.ExecuteNonQuery();
@@ -341,8 +373,8 @@ public class GameDatabase
             using SqliteCommand upsert = connection.CreateCommand();
             upsert.Transaction = transaction;
             upsert.CommandText = """
-            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, IsOwned, PlaytimeMinutes, LastPlayedUnix)
-            VALUES ($platform, $gameId, $name, 0, 1, $playtime, $lastPlayed)
+            INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, IsOwned, PlaytimeMinutes, LastPlayedUnix, AddedUnix)
+            VALUES ($platform, $gameId, $name, 0, 1, $playtime, $lastPlayed, CAST(strftime('%s', 'now') AS INTEGER))
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
                 IsOwned         = 1,
                 PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes),
@@ -384,9 +416,9 @@ public class GameDatabase
             upsert.Transaction = transaction;
             upsert.CommandText = """
             INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled,
-                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId)
+                              PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId, AddedUnix)
             VALUES ('Steam', $gameId, $name, 0,
-                    $playtime, $lastPlayed, 1, $ownerSteamId)
+                    $playtime, $lastPlayed, 1, $ownerSteamId, CAST(strftime('%s', 'now') AS INTEGER))
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
                 PlaytimeMinutes = max(Game.PlaytimeMinutes, excluded.PlaytimeMinutes),
                 LastPlayedUnix  = max(Game.LastPlayedUnix, excluded.LastPlayedUnix),

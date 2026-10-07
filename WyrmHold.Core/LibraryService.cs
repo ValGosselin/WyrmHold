@@ -834,6 +834,53 @@ public class LibraryService
         }
     }
 
+    // ----- Taille sur le disque -----
+
+    /// <summary>
+    /// Mesure le dossier des jeux installés dont on ne connaît pas encore la taille
+    /// (Steam et Epic la donnent déjà dans leurs fichiers ; les autres non).
+    /// Chaque taille mesurée est enregistrée : on ne mesure qu'une fois par jeu.
+    /// </summary>
+    public async Task UpdateMissingSizesAsync(List<Game> games)
+    {
+        List<Game> toMeasure = games
+            .Where(g => g.IsInstalled && g.SizeOnDiskBytes <= 0 && Directory.Exists(g.InstallPath))
+            .ToList();
+
+        foreach (Game game in toMeasure)
+        {
+            long size = await Task.Run(() => MeasureFolder(game.InstallPath!));
+
+            if (size > 0)
+            {
+                game.SizeOnDiskBytes = size;
+                _database.SetSizeOnDisk(game, size);
+            }
+        }
+    }
+
+    private static long MeasureFolder(string folder)
+    {
+        EnumerationOptions options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.ReparsePoint
+        };
+
+        try
+        {
+            return new DirectoryInfo(folder)
+                .EnumerateFiles("*", options)
+                .Sum(file => file.Length);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Taille impossible à mesurer pour {folder} : {ex.Message}");
+            return 0;
+        }
+    }
+
     // ----- Statistiques -----
 
     public LibraryStatistics ComputeStatistics(List<Game> games)

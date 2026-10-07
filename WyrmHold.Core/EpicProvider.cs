@@ -42,7 +42,8 @@ public class EpicProvider : ILibraryProvider
                     PlatformGameId = manifest.AppName,
                     Name = manifest.DisplayName,
                     IsInstalled = true,
-                    InstallPath = Path.GetFullPath(manifest.InstallLocation)
+                    InstallPath = Path.GetFullPath(manifest.InstallLocation),
+                    SizeOnDiskBytes = manifest.InstallSize
                 });
             }
             catch (Exception ex)

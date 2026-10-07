@@ -104,6 +104,8 @@
                             <ComboBoxItem Content="Dernière partie" Tag="lastPlayed"/>
                             <ComboBoxItem Content="Temps de jeu" Tag="playtime"/>
                             <ComboBoxItem Content="Date de sortie" Tag="release"/>
+                            <ComboBoxItem Content="Date d'ajout" Tag="added"/>
+                            <ComboBoxItem Content="Taille sur le disque" Tag="size"/>
                         </ComboBox>
                         <Button x:Name="ManageCollectionsButton" DockPanel.Dock="Right" Content="Gérer…"
              Width="70" Height="30" VerticalAlignment="Top" Margin="6,0,0,0"
@@ -191,6 +193,7 @@
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
                                         <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
                                     </Grid.RowDefinitions>
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Statut" Foreground="Gray" Margin="0,0,12,4"/>
@@ -207,6 +210,9 @@
 
                                     <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="Gray" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Developers}" TextWrapping="Wrap"/>
+
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="Gray" Margin="0,0,12,4"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SizeText}"/>
                                 </Grid>
 
                                 <ItemsControl ItemsSource="{Binding TagList}" Margin="0,12,0,0">
