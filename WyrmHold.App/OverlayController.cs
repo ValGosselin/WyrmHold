@@ -30,6 +30,13 @@ public sealed class OverlayController : IDisposable
 
         _clock.Tick += (sender, e) =>
         {
+            // Le jeu est passé en plein écran exclusif pendant que l'overlay était affiché : on se retire.
+            if (FullScreenDetector.IsExclusiveFullScreen())
+            {
+                Hide();
+                return;
+            }
+
             if (_library.Watcher.Current is RunningGame running)
             {
                 _window.UpdateSessionTime(running);
@@ -114,6 +121,12 @@ public sealed class OverlayController : IDisposable
 
     private void Show()
     {
+        // En plein écran exclusif, s'afficher ferait sortir le jeu du plein écran : on ne fait rien.
+        if (FullScreenDetector.IsExclusiveFullScreen())
+        {
+            return;
+        }
+
         Refresh();
         _window.Show();
         _clock.Start();
