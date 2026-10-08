@@ -29,7 +29,15 @@ try
         mode = Console.ReadLine() ?? "";
     }
 
-    if (mode.Trim() == "4")
+    if (mode.Trim() == "6")
+    {
+        await TestRecommendationsAsync(itad);
+    }
+    else if (mode.Trim() == "5")
+    {
+        await TestSortValuesAsync(itad);
+    }
+    else if (mode.Trim() == "4")
     {
         // « dotnet run -- 4 Hades » : la présentation du premier jeu trouvé.
         await ShowPresentationAsync(itad, string.Join(" ", args.Skip(1)));
@@ -184,6 +192,70 @@ static async Task TestQualityFiltersAsync(IsThereAnyDealApi itad)
     }
 }
 
+// La documentation dit seulement que « sort » prend les mêmes valeurs que la liste des promos du site,
+// sans les lister. On essaie des valeurs probables : refusée (erreur), ignorée (même ordre que sans tri) ou acceptée.
+static async Task TestSortValuesAsync(IsThereAnyDealApi itad)
+{
+    string[] tags = { "RPG", "Strategy" };
+    var quality = new Dictionary<string, object>
+    {
+        ["type"] = new[] { 1 },
+        ["steamPerc"] = new { min = 80, max = 100 },
+        ["steamCount"] = new { min = 2000, max = (int?)null }
+    };
+
+    string[] sorts =
+    {
+        "", "-cut", "price", "rank", "-rank", "trending", "-trending", "waitlisted", "-waitlisted",
+        "collected", "-collected", "steam", "-steam", "release-date", "-release-date", "time", "-time", "popularity"
+    };
+
+    string? defaultOrder = null;
+
+    foreach (string sort in sorts)
+    {
+        try
+        {
+            ItadDealsPage page = await itad.GetDealsByTagsAsync(tags, false, 0, 6, sort, extraFilter: quality);
+            string titles = string.Join(" | ", page.List.Select(item => item.Title));
+            defaultOrder ??= titles;
+
+            string verdict = sort.Length > 0 && titles == defaultOrder ? "(même ordre que sans tri)" : "";
+            Console.WriteLine($"{(sort.Length == 0 ? "(aucun)" : sort),-15} {verdict} {titles}");
+        }
+        catch (HttpRequestException ex)
+        {
+            Console.WriteLine($"{sort,-15} refusé : {ex.Message}");
+        }
+    }
+}
+
+// Les genres préférés calculés depuis ta bibliothèque (lue seulement), puis les promos recommandées.
+static async Task TestRecommendationsAsync(IsThereAnyDealApi itad)
+{
+    List<Game> games = new GameDatabase().LoadGames();
+    var recommender = new GenreRecommender();
+    List<PreferredGenre> genres = await recommender.GetPreferredGenresAsync(games, Array.Empty<string>());
+
+    Console.WriteLine($"{games.Count} jeux, {games.Count(g => g.PlaytimeMinutes > 0)} joués, {games.Count(g => g.TagList.Length > 0)} avec des tags");
+    Console.WriteLine("Genres préférés :");
+
+    foreach (PreferredGenre genre in genres)
+    {
+        Console.WriteLine($"  {genre.Label,-30} → {genre.Name}");
+    }
+
+    ItadDealsPage page = await GenreRecommender.GetDealsAsync(itad, genres.Select(g => g.Name), 80, 2000, 0, 15, "rank");
+
+    Console.WriteLine();
+    Console.WriteLine("Promos recommandées (tri : popularité) :");
+
+    foreach (ItadDealListItem item in page.List)
+    {
+        Console.WriteLine($"  {item.Title,-45} {item.Deal.Price.Amount,7:0.00} € (-{item.Deal.Cut} %) chez {item.Deal.Shop.Name}");
+    }
+}
+
 static async Task ShowPresentationAsync(IsThereAnyDealApi itad, string title)
 {
     List<ItadSearchResult> results = await itad.SearchAsync(title);
@@ -209,6 +281,13 @@ static async Task ShowPresentationAsync(IsThereAnyDealApi itad, string title)
     Console.WriteLine($"Genres      : {presentation.TagsLine}");
     Console.WriteLine($"Avis        : {presentation.ReviewLine}");
     Console.WriteLine($"Description : {presentation.Description}");
+
+    SteamGameMedia? media = presentation.SteamMedia;
+    Console.WriteLine($"Captures    : {media?.Screenshots.Count ?? 0}  ex. {media?.Screenshots.FirstOrDefault()?.SmallUrl}");
+    Console.WriteLine($"Bandes-ann. : {media?.Trailers.Count ?? 0}  ex. {media?.Trailers.FirstOrDefault()?.Name}");
+    Console.WriteLine($"  image     : {media?.Trailers.FirstOrDefault()?.ThumbnailUrl}");
+    Console.WriteLine($"  teaser    : {media?.Trailers.FirstOrDefault()?.MicrotrailerUrl}");
+    Console.WriteLine($"Page Steam  : {media?.StoreUrl}");
 }
 
 static string ReadOrDefault(string defaultValue)

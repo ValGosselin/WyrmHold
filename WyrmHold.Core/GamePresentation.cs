@@ -15,8 +15,11 @@ public class GamePresentation
     public int? SteamScore { get; set; }
     public int? SteamReviewCount { get; set; }
 
-    // Description courte, en français, venue de la boutique Steam (null si le jeu n'est pas sur Steam).
-    public string? Description { get; set; }
+    // Description courte, captures et bandes-annonces, venues de la boutique Steam
+    // (null si le jeu n'est pas sur Steam ou si Steam n'a pas répondu).
+    public SteamGameMedia? SteamMedia { get; set; }
+
+    public string? Description => SteamMedia?.Description;
 
     // « Supergiant Games · sorti le 25/09/2025 »
     public string InfoLine => string.Join(" · ",
@@ -41,7 +44,7 @@ public class GamePresentation
 /// <summary>
 /// Prépare la présentation d'un jeu en combinant deux sources :
 /// 1. IsThereAnyDeal (/games/info/v2) : jaquette, studio, date, tags, note, numéro Steam ;
-/// 2. la boutique Steam : la description courte en français, grâce au numéro Steam.
+/// 2. la boutique Steam, grâce au numéro Steam : description courte en français, captures, bandes-annonces.
 /// Chaque présentation est gardée en mémoire : recliquer sur un jeu ne relance aucune requête.
 /// </summary>
 public class GamePresentationService
@@ -81,16 +84,16 @@ public class GamePresentationService
             SteamReviewCount = steamReview?.Count
         };
 
-        // La description est un bonus : si Steam ne répond pas, on affiche le reste quand même.
+        // Description, captures et bandes-annonces sont un bonus : si Steam ne répond pas, on affiche le reste quand même.
         if (info.AppId is int appId)
         {
             try
             {
-                presentation.Description = await SteamStoreApi.GetShortDescriptionAsync(appId);
+                presentation.SteamMedia = await SteamStoreApi.GetMediaAsync(appId);
             }
             catch (Exception ex)
             {
-                Logger.Log($"Description Steam indisponible pour {info.Title} (appid {appId}) : {ex.Message}");
+                Logger.Log($"Présentation Steam indisponible pour {info.Title} (appid {appId}) : {ex.Message}");
             }
         }
 

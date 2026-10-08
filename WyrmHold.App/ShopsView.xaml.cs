@@ -26,6 +26,11 @@ public partial class ShopsView : UserControl
     // La présentation des jeux (jaquette, genres, description), gardée en mémoire jeu par jeu.
     private readonly GamePresentationService _presentations;
 
+    // Les captures et la bande-annonce du jeu affiché (null si le jeu n'est pas sur Steam).
+    private SteamGameMedia? _currentMedia;
+    private SteamTrailer? _currentTrailer;
+    private string _currentPresentationTitle = "";
+
     // Tous les résultats de la dernière recherche, avant le filtre « Jeux et éditions seulement ».
     private List<ItadSearchResult> _searchResults = new List<ItadSearchResult>();
 
@@ -54,14 +59,17 @@ public partial class ShopsView : UserControl
     private readonly WatchListService _watchList = new WatchListService();
     private LeftListMode _leftMode = LeftListMode.Results;
 
-    // Onglet Promos : les promos chargées (page après page), où reprendre, et l'état du chargement.
+    // Onglets Promos et Pour toi : deux listes de promos chargées page par page (voir DealsFeed).
     private const int PromosPageSize = 50;
-    private List<ItadDealListItem> _promos = new List<ItadDealListItem>();
-    private int _promosNextOffset;
-    private bool _promosHasMore;
-    private bool _promosLoaded;
-    private bool _isLoadingPromos;
-    private bool _promosLoadFailed;
+    private readonly DealsFeed _promos;
+    private readonly DealsFeed _forYou;
+
+    // Onglet Pour toi : la bibliothèque (pour calculer tes genres), le calcul, et les genres retenus.
+    private List<Game> _libraryGames = new List<Game>();
+    private readonly GenreRecommender _recommender = new GenreRecommender();
+    private List<PreferredGenre> _preferredGenres = new List<PreferredGenre>();
+    private bool _genresComputed;
+    private bool _genresFailed;
 
     // Le jeu dont les offres sont affichées à droite (null tant qu'aucun jeu n'a été choisi).
     private SearchResultRow? _currentGame;
@@ -87,6 +95,16 @@ public partial class ShopsView : UserControl
 
     public ShopsView()
     {
+        // Les listes de promos sont créées AVANT InitializeComponent : pendant celui-ci, les onglets
+        // déclenchent déjà RefreshLeftList, qui les lit. Chaque liste sait comment charger une page :
+        // le tri (et les genres) sont relus à chaque chargement.
+        _promos = new DealsFeed(offset => _itad.GetDealsAsync(offset, PromosPageSize, GetSelectedTag(PromosSortMode)));
+        _forYou = new DealsFeed(offset => GenreRecommender.GetDealsAsync(_itad,
+            _preferredGenres.Select(genre => genre.Name),
+            _settings?.RecommendationMinSteamPercent ?? 80,
+            _settings?.RecommendationMinSteamReviews ?? 2000,
+            offset, PromosPageSize, GetSelectedTag(ForYouSortMode)));
+
         InitializeComponent();
         _presentations = new GamePresentationService(_itad);
 
@@ -117,7 +135,13 @@ public partial class ShopsView : UserControl
     /// </summary>
     public void SetLibrary(IEnumerable<Game> games)
     {
-        _libraryByName = games
+        _libraryGames = games.ToList();
+
+        // La bibliothèque a changé (temps de jeu, nouveaux jeux) : les genres seront recalculés
+        // à la prochaine ouverture de l'onglet Pour toi.
+        _genresComputed = false;
+
+        _libraryByName = _libraryGames
             .GroupBy(game => NormalizeTitle(game.Name))
             .ToDictionary(group => group.Key, group => group.ToList());
 
@@ -171,89 +195,161 @@ public partial class ShopsView : UserControl
         // « ?. » renvoie null au lieu de planter, et null == true est faux.
         _leftMode = WatchListTabButton?.IsChecked == true ? LeftListMode.WatchList
             : PromosTabButton?.IsChecked == true ? LeftListMode.Promos
+            : ForYouTabButton?.IsChecked == true ? LeftListMode.ForYou
             : LeftListMode.Results;
 
         RefreshLeftList();
 
         // Première ouverture de l'onglet Promos : on charge la liste (une seule requête).
-        if (_leftMode == LeftListMode.Promos && !_promosLoaded)
+        if (_leftMode == LeftListMode.Promos && !_promos.IsLoaded)
         {
-            await LoadPromosAsync(reset: true);
+            await LoadFeedAsync(_promos, reset: true);
+        }
+
+        // Onglet Pour toi : on calcule d'abord tes genres (si la bibliothèque a changé), puis on charge.
+        if (_leftMode == LeftListMode.ForYou && (!_genresComputed || !_forYou.IsLoaded))
+        {
+            await LoadForYouAsync(recomputeGenres: !_genresComputed);
         }
     }
 
-    // ===================== Meilleures promos =====================
+    // ===================== Meilleures promos et « Pour toi » =====================
+
+    /// <summary>Le Tag de l'élément choisi dans une liste déroulante (ici, la valeur de tri).</summary>
+    private static string GetSelectedTag(ComboBox? comboBox)
+    {
+        return (comboBox?.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
+    }
 
     /// <summary>
-    /// Charge une page de promos. reset = true : on repart du début (premier affichage, tri changé, ↻) ;
-    /// reset = false : on ajoute la page suivante à la suite (« Charger 50 promos de plus »).
+    /// Charge une page de promos (voir DealsFeed.LoadAsync) en tenant la liste de gauche à jour :
+    /// « Chargement… » pendant l'attente, puis les promos reçues.
     /// </summary>
-    private async Task LoadPromosAsync(bool reset)
+    private async Task LoadFeedAsync(DealsFeed feed, bool reset)
     {
-        if (_isLoadingPromos || !_itad.IsConfigured)
+        if (feed.IsLoading || !_itad.IsConfigured)
         {
             return;
         }
 
-        _isLoadingPromos = true;
+        Task loading = feed.LoadAsync(reset);   // passe IsLoading à true tout de suite
+        RefreshLeftList();                      // affiche « Chargement… » et désactive les boutons
+        await loading;
+        RefreshLeftList();
+    }
 
-        if (reset)
+    /// <summary>
+    /// Onglet Pour toi : (re)calcule tes genres préférés si besoin, affiche leurs cases, puis charge les promos.
+    /// </summary>
+    private async Task LoadForYouAsync(bool recomputeGenres)
+    {
+        if (_forYou.IsLoading)
         {
-            _promos = new List<ItadDealListItem>();
-            _promosNextOffset = 0;
-            _promosHasMore = false;
+            return;
         }
 
-        RefreshLeftList();   // affiche « Chargement des promos… » et désactive les boutons
-
-        try
+        if (recomputeGenres)
         {
-            string sort = (PromosSortMode.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
-            ItadDealsPage page = await _itad.GetDealsAsync(_promosNextOffset, PromosPageSize, sort);
+            ShopStatusText.Text = "Calcul de tes genres préférés…";
 
-            // Si la liste du site a bougé entre deux pages, un même jeu pourrait revenir :
-            // HashSet.Add renvoie false quand l'identifiant y est déjà, et on ne l'ajoute pas une 2e fois.
-            HashSet<string> knownIds = _promos.Select(item => item.Id).ToHashSet();
-
-            foreach (ItadDealListItem item in page.List)
+            try
             {
-                if (knownIds.Add(item.Id))
-                {
-                    _promos.Add(item);
-                }
+                _preferredGenres = await _recommender.GetPreferredGenresAsync(
+                    _libraryGames, _settings?.ExcludedRecommendationGenres ?? new List<string>());
+                _genresComputed = true;
+                _genresFailed = false;
+            }
+            catch (Exception ex)
+            {
+                // Sans la liste des tags de Steam, impossible de traduire les genres pour IsThereAnyDeal.
+                _genresFailed = true;
+                Logger.Log($"Calcul des genres préférés impossible : {ex.Message}");
             }
 
-            _promosNextOffset = page.NextOffset;
-            _promosHasMore = page.HasMore;
-            _promosLoaded = true;
-            _promosLoadFailed = false;
+            BuildGenreCheckBoxes();
         }
-        catch (Exception ex)
+
+        if (_genresFailed || _preferredGenres.Count == 0)
         {
-            _promosLoadFailed = true;
-            Logger.Log($"Chargement des promos IsThereAnyDeal impossible : {ex.Message}");
+            RefreshLeftList();   // affiche pourquoi il n'y a pas de recommandations
+            return;
         }
-        finally
+
+        await LoadFeedAsync(_forYou, reset: true);
+    }
+
+    /// <summary>Une case cochée par genre préféré : la décocher retire le genre (le suivant prend sa place).</summary>
+    private void BuildGenreCheckBoxes()
+    {
+        ForYouGenresPanel.Children.Clear();
+
+        foreach (PreferredGenre genre in _preferredGenres)
         {
-            _isLoadingPromos = false;
-            RefreshLeftList();
+            var checkBox = new CheckBox
+            {
+                Content = genre.Label,
+                IsChecked = true,
+                Tag = genre.Name,
+                Margin = new Thickness(0, 0, 12, 2),
+                ToolTip = "Décocher pour retirer ce genre des recommandations"
+            };
+
+            checkBox.Unchecked += GenreCheckBox_Unchecked;
+            ForYouGenresPanel.Children.Add(checkBox);
         }
+
+        bool hasExcluded = _settings?.ExcludedRecommendationGenres.Count > 0;
+        ResetGenresText.Visibility = hasExcluded ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private async void GenreCheckBox_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string genreName } || _settings == null)
+        {
+            return;
+        }
+
+        _settings.ExcludedRecommendationGenres.Add(genreName);
+        SaveSettings();
+        await LoadForYouAsync(recomputeGenres: true);
+    }
+
+    private async void ResetGenresLink_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null)
+        {
+            return;
+        }
+
+        _settings.ExcludedRecommendationGenres.Clear();
+        SaveSettings();
+        await LoadForYouAsync(recomputeGenres: true);
     }
 
     private async void PromosSortMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // SelectedIndex="0" déclenche cet événement pendant InitializeComponent : rien à charger alors.
-        if (!_promosLoaded)
+        if (!_promos.IsLoaded)
         {
             return;
         }
 
-        await LoadPromosAsync(reset: true);
+        await LoadFeedAsync(_promos, reset: true);
+    }
+
+    private async void ForYouSortMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_forYou.IsLoaded)
+        {
+            return;
+        }
+
+        await LoadFeedAsync(_forYou, reset: true);
     }
 
     private async void LoadMorePromosButton_Click(object sender, RoutedEventArgs e)
     {
-        await LoadPromosAsync(reset: false);
+        await LoadFeedAsync(_leftMode == LeftListMode.ForYou ? _forYou : _promos, reset: false);
     }
 
     private void PromosFilter_Changed(object sender, RoutedEventArgs e)
@@ -342,10 +438,15 @@ public partial class ShopsView : UserControl
 
     private async void RefreshPricesButton_Click(object sender, RoutedEventArgs e)
     {
-        // Le bouton ↻ met à jour ce que montre l'onglet : la liste des promos, ou les jeux suivis.
+        // Le bouton ↻ met à jour ce que montre l'onglet : la liste des promos, les recommandations
+        // (genres recalculés compris), ou les jeux suivis.
         if (_leftMode == LeftListMode.Promos)
         {
-            await LoadPromosAsync(reset: true);
+            await LoadFeedAsync(_promos, reset: true);
+        }
+        else if (_leftMode == LeftListMode.ForYou)
+        {
+            await LoadForYouAsync(recomputeGenres: true);
         }
         else
         {
@@ -545,36 +646,48 @@ public partial class ShopsView : UserControl
         }
 
         bool isPromos = _leftMode == LeftListMode.Promos;
+        bool isForYou = _leftMode == LeftListMode.ForYou;
         PromosOptionsPanel.Visibility = isPromos ? Visibility.Visible : Visibility.Collapsed;
-        LoadMorePromosButton.Visibility = isPromos ? Visibility.Visible : Visibility.Collapsed;
+        ForYouOptionsPanel.Visibility = isForYou ? Visibility.Visible : Visibility.Collapsed;
+        LoadMorePromosButton.Visibility = isPromos || isForYou ? Visibility.Visible : Visibility.Collapsed;
 
         List<SearchResultRow> shown;
 
-        if (_leftMode == LeftListMode.Promos)
+        if (isPromos || isForYou)
         {
-            bool hideOwned = HideOwnedCheck.IsChecked == true;
+            DealsFeed feed = isForYou ? _forYou : _promos;
+
+            // Pour toi : les jeux possédés sont toujours masqués (le but est de découvrir).
+            bool hideOwned = isForYou || HideOwnedCheck.IsChecked == true;
             bool gamesOnly = GamesOnlyCheck.IsChecked == true;
 
             // Les filtres s'appliquent aux promos déjà chargées : aucune requête en plus.
-            shown = _promos
+            shown = feed.Items
                 .Where(item => !_hiddenShops.Contains(item.Deal.Shop.Name))
                 .Where(item => !hideOwned || GetOwnedPlatforms(item.Title) == null)
                 .Where(item => !gamesOnly || item.Type == "game")
                 .Select(MakePromoRow)
                 .ToList();
 
-            int hiddenCount = _promos.Count - shown.Count;
+            int hiddenCount = feed.Items.Count - shown.Count;
+            string hiddenReason = isForYou ? "déjà possédée(s) ou masquée(s)" : "masquée(s) par les filtres";
 
-            ShopStatusText.Text = _isLoadingPromos
-                ? "Chargement des promos…"
-                : _promosLoadFailed
-                    ? "Impossible de charger les promos (détail dans le journal)."
-                    : hiddenCount > 0
-                        ? $"{shown.Count} promo(s), {hiddenCount} masquée(s) par les filtres"
-                        : $"{shown.Count} promo(s)";
+            ShopStatusText.Text = isForYou && _genresFailed
+                ? "Impossible de calculer tes genres (détail dans le journal)."
+                : isForYou && _genresComputed && _preferredGenres.Count == 0
+                    ? "Pas encore assez de temps de jeu sur des jeux avec des genres connus."
+                    : feed.IsLoading
+                        ? "Chargement des promos…"
+                        : feed.LoadFailed
+                            ? "Impossible de charger les promos (détail dans le journal)."
+                            : hiddenCount > 0
+                                ? $"{shown.Count} promo(s), {hiddenCount} {hiddenReason}"
+                                : $"{shown.Count} promo(s)";
 
-            LoadMorePromosButton.IsEnabled = _promosHasMore && !_isLoadingPromos;
-            PromosSortMode.IsEnabled = !_isLoadingPromos;
+            LoadMorePromosButton.IsEnabled = feed.HasMore && !feed.IsLoading;
+            PromosSortMode.IsEnabled = !_promos.IsLoading;
+            ForYouSortMode.IsEnabled = !_forYou.IsLoading;
+            ForYouGenresPanel.IsEnabled = !_forYou.IsLoading;
         }
         else if (_leftMode == LeftListMode.WatchList)
         {
@@ -684,6 +797,8 @@ public partial class ShopsView : UserControl
         DealsList.ItemsSource = null;
 
         // La présentation se charge en même temps que les prix (« _ = » : on lance sans attendre).
+        StopTrailer();
+        RightScroll.ScrollToTop();   // nouveau jeu : on revient en haut de sa fiche
         PresentationPanel.Visibility = Visibility.Collapsed;
         _ = ShowPresentationAsync(game, request);
 
@@ -742,12 +857,173 @@ public partial class ShopsView : UserControl
             SetTextOrHide(PresentationTags, presentation.TagsLine);
             SetTextOrHide(PresentationReviews, presentation.ReviewLine);
             SetTextOrHide(PresentationDescription, presentation.Description ?? "");
+            ShowMedia(game.Title, presentation.SteamMedia);
 
             PresentationPanel.Visibility = Visibility.Visible;
         }
         catch (Exception ex)
         {
             Logger.Log($"Présentation IsThereAnyDeal « {game.Title} » : {ex.Message}");
+        }
+    }
+
+    // ===================== Captures et bande-annonce =====================
+
+    /// <summary>Remplit la rangée d'images : la première bande-annonce, puis les captures.</summary>
+    private void ShowMedia(string title, SteamGameMedia? media)
+    {
+        _currentMedia = media;
+        _currentPresentationTitle = title;
+
+        // On prend la première bande-annonce qui a une image (c'est celle que le studio met en avant).
+        _currentTrailer = media?.Trailers.FirstOrDefault(trailer => trailer.ThumbnailUrl != null);
+
+        bool hasScreenshots = media != null && media.Screenshots.Count > 0;
+
+        if (media == null || (!hasScreenshots && _currentTrailer == null))
+        {
+            PresentationMedia.Visibility = Visibility.Collapsed;
+            ScreenshotsList.ItemsSource = null;
+            return;
+        }
+
+        TrailerBox.Visibility = _currentTrailer == null ? Visibility.Collapsed : Visibility.Visible;
+        WebImageLoader.SetUrl(TrailerThumbnail, _currentTrailer?.ThumbnailUrl);
+        TrailerBox.ToolTip = _currentTrailer == null
+            ? null
+            : _currentTrailer.MicrotrailerUrl == null
+                ? $"{_currentTrailer.Name} : ouvrir sur Steam"
+                : $"{_currentTrailer.Name} : cliquer pour lire un extrait (sans le son)";
+
+        ScreenshotsList.ItemsSource = media.Screenshots;
+        PresentationMedia.Visibility = Visibility.Visible;
+    }
+
+    private void ScreenshotButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentMedia == null || sender is not Button { Tag: SteamScreenshot screenshot })
+        {
+            return;
+        }
+
+        List<string> fullUrls = _currentMedia.Screenshots.Select(s => s.FullUrl).ToList();
+
+        var viewer = new ImageViewerWindow(_currentPresentationTitle, fullUrls, _currentMedia.Screenshots.IndexOf(screenshot))
+        {
+            Owner = Window.GetWindow(this)
+        };
+
+        viewer.Show();
+    }
+
+    // Vrai pendant le téléchargement de l'extrait : un second clic ne relance pas un second téléchargement.
+    private bool _isLoadingTrailer;
+
+    /// <summary>Clic sur la bande-annonce : lit l'extrait, ou l'arrête s'il est déjà en cours.</summary>
+    private async void TrailerBox_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        SteamTrailer? trailer = _currentTrailer;
+
+        if (trailer == null || _isLoadingTrailer)
+        {
+            return;
+        }
+
+        // Pas d'extrait fourni par Steam : on ouvre directement la page du jeu.
+        if (trailer.MicrotrailerUrl == null)
+        {
+            OpenSteamPage();
+            return;
+        }
+
+        if (TrailerVideo.Visibility == Visibility.Visible)
+        {
+            StopTrailer();
+            return;
+        }
+
+        _isLoadingTrailer = true;
+        ShowTrailerStatus("Chargement de l'extrait…");
+
+        try
+        {
+            // La vidéo (environ 3 Mo) n'est téléchargée qu'à ce moment-là, puis lue depuis le disque :
+            // le lecteur de WPF refuse de la lire directement depuis internet.
+            string localFile = await VideoCache.GetLocalFileAsync(trailer.MicrotrailerUrl);
+
+            // Un autre jeu a été choisi pendant le téléchargement : on ne lit pas l'ancien extrait.
+            if (trailer != _currentTrailer)
+            {
+                return;
+            }
+
+            TrailerStatus.Visibility = Visibility.Collapsed;
+            TrailerVideo.Source = new Uri(localFile);
+            TrailerVideo.Visibility = Visibility.Visible;
+            TrailerPlayIcon.Visibility = Visibility.Collapsed;
+            TrailerVideo.Play();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Extrait vidéo impossible à télécharger ({trailer.MicrotrailerUrl}) : {ex.Message}");
+            ShowTrailerStatus("Extrait indisponible : utilise le lien vers Steam en dessous.");
+        }
+        finally
+        {
+            _isLoadingTrailer = false;
+        }
+    }
+
+    private void ShowTrailerStatus(string text)
+    {
+        TrailerStatusText.Text = text;
+        TrailerStatus.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// La molette au-dessus de la rangée d'images fait défiler toute la colonne (comme ailleurs),
+    /// au lieu d'être « avalée » par la rangée, qui ne défile que de gauche à droite.
+    /// </summary>
+    private void MediaStrip_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        RightScroll.ScrollToVerticalOffset(RightScroll.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    // Fin de l'extrait : on le relance depuis le début, comme sur la boutique Steam.
+    private void TrailerVideo_MediaEnded(object sender, RoutedEventArgs e)
+    {
+        TrailerVideo.Position = TimeSpan.Zero;
+        TrailerVideo.Play();
+    }
+
+    private void TrailerVideo_MediaFailed(object sender, ExceptionRoutedEventArgs e)
+    {
+        Logger.Log($"Extrait vidéo illisible ({_currentTrailer?.MicrotrailerUrl}) : {e.ErrorException?.Message}");
+        StopTrailer();
+        ShowTrailerStatus("Extrait illisible sur ce PC : utilise le lien vers Steam en dessous.");
+    }
+
+    /// <summary>Arrête l'extrait et remet l'image de la bande-annonce.</summary>
+    private void StopTrailer()
+    {
+        TrailerVideo.Stop();
+        TrailerVideo.Source = null;
+        TrailerVideo.Visibility = Visibility.Collapsed;
+        TrailerPlayIcon.Visibility = Visibility.Visible;
+        TrailerStatus.Visibility = Visibility.Collapsed;
+    }
+
+    private void SteamPageLink_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSteamPage();
+    }
+
+    private void OpenSteamPage()
+    {
+        if (_currentMedia != null)
+        {
+            BrowserHelper.Open(_currentMedia.StoreUrl);
         }
     }
 
@@ -883,15 +1159,22 @@ public partial class ShopsView : UserControl
         }
 
         _settings.HiddenShops = _hiddenShops.OrderBy(name => name).ToList();
+        SaveSettings();
+    }
 
+    /// <summary>
+    /// Enregistre settings.json. En cas d'échec, le choix s'applique quand même :
+    /// il ne sera juste pas retenu au prochain démarrage.
+    /// </summary>
+    private void SaveSettings()
+    {
         try
         {
-            _settings.Save();
+            _settings?.Save();
         }
         catch (Exception ex)
         {
-            // Le filtre s'applique quand même : il ne sera juste pas retenu au prochain démarrage.
-            Logger.Log($"Enregistrement des boutiques masquées impossible : {ex.Message}");
+            Logger.Log($"Enregistrement des réglages impossible : {ex.Message}");
         }
     }
 
@@ -1080,5 +1363,6 @@ public enum LeftListMode
 {
     Results,
     WatchList,
-    Promos
+    Promos,
+    ForYou
 }

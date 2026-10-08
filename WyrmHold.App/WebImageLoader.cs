@@ -19,6 +19,15 @@ public static class WebImageLoader
 {
     private const int MaxCachedImages = 500;
 
+    // Taille maximale du dossier d'images sur le disque. Au-delà, on supprime les images
+    // les moins récemment utilisées jusqu'à redescendre à TrimmedCacheBytes (marge pour ne pas nettoyer sans arrêt).
+    private const long MaxCacheBytes = 300L * 1024 * 1024;
+    private const long TrimmedCacheBytes = 250L * 1024 * 1024;
+
+    // On vérifie la taille au premier téléchargement de la session, puis tous les 100 téléchargements.
+    private const int DownloadsBetweenChecks = 100;
+    private static int _downloadsSinceCheck = DownloadsBetweenChecks;
+
     private static readonly HttpClient Http = CreateHttpClient();
     private static readonly string CacheFolder = Path.Combine(AppPaths.DataFolder, "WebImages");
     private static readonly Dictionary<string, BitmapImage> MemoryCache = new Dictionary<string, BitmapImage>();
@@ -40,6 +49,27 @@ public static class WebImageLoader
         element.SetValue(UrlProperty, value);
     }
 
+    // Largeur (en pixels) à laquelle l'image est décodée : 96 par défaut, assez pour une icône.
+    // Une capture d'écran en a besoin de plus, sinon elle serait floue.
+    // Dans un DataTemplate, WPF peut donner l'adresse AVANT la largeur : quand la largeur change,
+    // on recharge donc l'image (sinon elle resterait décodée en 96 pixels, puis étirée et floue).
+    public static readonly DependencyProperty DecodeWidthProperty =
+        DependencyProperty.RegisterAttached(
+            "DecodeWidth",
+            typeof(int),
+            typeof(WebImageLoader),
+            new PropertyMetadata(96, OnDecodeWidthChanged));
+
+    public static int GetDecodeWidth(DependencyObject element)
+    {
+        return (int)element.GetValue(DecodeWidthProperty);
+    }
+
+    public static void SetDecodeWidth(DependencyObject element, int value)
+    {
+        element.SetValue(DecodeWidthProperty, value);
+    }
+
     private static HttpClient CreateHttpClient()
     {
         HttpClient client = new HttpClient();
@@ -47,14 +77,27 @@ public static class WebImageLoader
         return client;
     }
 
-    private static async void OnUrlChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
+    private static void OnUrlChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
     {
-        if (element is not Image image)
+        if (element is Image image)
         {
-            return;
+            LoadIntoImage(image);
         }
+    }
 
-        string? url = e.NewValue as string;
+    private static void OnDecodeWidthChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
+    {
+        // Pas encore d'adresse : rien à recharger, la largeur sera lue quand l'adresse arrivera.
+        if (element is Image image && !string.IsNullOrEmpty(GetUrl(image)))
+        {
+            LoadIntoImage(image);
+        }
+    }
+
+    /// <summary>Affiche dans l'image l'adresse et la largeur qu'elle a en ce moment.</summary>
+    private static async void LoadIntoImage(Image image)
+    {
+        string? url = GetUrl(image);
         image.Source = null;
 
         if (string.IsNullOrEmpty(url))
@@ -62,16 +105,21 @@ public static class WebImageLoader
             return;
         }
 
-        if (MemoryCache.TryGetValue(url, out BitmapImage? cachedImage))
+        // Une même image peut être demandée en petit et en grand : la clé de la mémoire contient la largeur.
+        int decodeWidth = GetDecodeWidth(image);
+        string memoryKey = $"{decodeWidth}|{url}";
+
+        if (MemoryCache.TryGetValue(memoryKey, out BitmapImage? cachedImage))
         {
             image.Source = cachedImage;
             return;
         }
 
-        BitmapImage? loadedImage = await LoadAsync(url);
+        BitmapImage? loadedImage = await LoadAsync(url, decodeWidth);
 
-        // Pendant le téléchargement, la ligne a pu être réutilisée pour un autre succès (liste virtualisée).
-        if (loadedImage is null || GetUrl(image) != url)
+        // Pendant le téléchargement, la ligne a pu être réutilisée pour un autre succès (liste virtualisée),
+        // ou la largeur a changé : un autre chargement, plus récent, s'occupe alors de l'image.
+        if (loadedImage is null || GetUrl(image) != url || GetDecodeWidth(image) != decodeWidth)
         {
             return;
         }
@@ -81,11 +129,11 @@ public static class WebImageLoader
             MemoryCache.Clear();
         }
 
-        MemoryCache[url] = loadedImage;
+        MemoryCache[memoryKey] = loadedImage;
         image.Source = loadedImage;
     }
 
-    private static async Task<BitmapImage?> LoadAsync(string url)
+    private static async Task<BitmapImage?> LoadAsync(string url, int decodeWidth)
     {
         try
         {
@@ -94,17 +142,25 @@ public static class WebImageLoader
             if (File.Exists(path))
             {
                 byte[] cachedBytes = await File.ReadAllBytesAsync(path);
-                return await Task.Run(() => Decode(cachedBytes));
+                MarkAsUsed(path);
+                return await Task.Run(() => Decode(cachedBytes, decodeWidth));
             }
 
             byte[] bytes = await Http.GetByteArrayAsync(url);
 
             // On décode AVANT d'enregistrer : si ce n'est pas une image (page d'erreur…),
             // Decode lève une exception et le fichier n'est pas gardé.
-            BitmapImage bitmap = await Task.Run(() => Decode(bytes));
+            BitmapImage bitmap = await Task.Run(() => Decode(bytes, decodeWidth));
 
             Directory.CreateDirectory(CacheFolder);
             await File.WriteAllBytesAsync(path, bytes);
+
+            if (++_downloadsSinceCheck >= DownloadsBetweenChecks)
+            {
+                _downloadsSinceCheck = 0;
+                _ = Task.Run(TrimCache);   // en arrière-plan : l'image s'affiche sans attendre le ménage
+            }
+
             return bitmap;
         }
         catch (Exception ex)
@@ -114,7 +170,69 @@ public static class WebImageLoader
         }
     }
 
-    private static BitmapImage Decode(byte[] bytes)
+    /// <summary>
+    /// Met la date du fichier à maintenant : l'image compte comme « utilisée récemment »
+    /// et sera parmi les dernières supprimées par TrimCache.
+    /// </summary>
+    private static void MarkAsUsed(string path)
+    {
+        try
+        {
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow);
+        }
+        catch (IOException)
+        {
+            // Pas grave : l'image risque juste d'être supprimée un peu plus tôt.
+        }
+    }
+
+    /// <summary>
+    /// Si le dossier d'images dépasse MaxCacheBytes, supprime les images les moins récemment utilisées
+    /// jusqu'à redescendre à TrimmedCacheBytes. Une image supprimée sera simplement retéléchargée si besoin.
+    /// </summary>
+    private static void TrimCache()
+    {
+        try
+        {
+            List<FileInfo> files = new DirectoryInfo(CacheFolder).GetFiles()
+                .OrderBy(file => file.LastWriteTimeUtc)   // les plus anciennes d'abord
+                .ToList();
+
+            long totalBytes = files.Sum(file => file.Length);
+
+            if (totalBytes <= MaxCacheBytes)
+            {
+                return;
+            }
+
+            foreach (FileInfo file in files)
+            {
+                if (totalBytes <= TrimmedCacheBytes)
+                {
+                    break;
+                }
+
+                try
+                {
+                    long length = file.Length;
+                    file.Delete();
+                    totalBytes -= length;
+                }
+                catch (IOException)
+                {
+                    // Image en cours de lecture : on passe à la suivante.
+                }
+            }
+
+            Logger.Log($"Cache d'images réduit à {totalBytes / (1024 * 1024)} Mo.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Nettoyage du cache d'images impossible : {ex.Message}");
+        }
+    }
+
+    private static BitmapImage Decode(byte[] bytes, int decodeWidth)
     {
         using MemoryStream stream = new MemoryStream(bytes);
 
@@ -122,7 +240,7 @@ public static class WebImageLoader
         bitmap.BeginInit();
         bitmap.CacheOption = BitmapCacheOption.OnLoad;   // lit tout de suite : le flux peut être fermé après
         bitmap.StreamSource = stream;
-        bitmap.DecodePixelWidth = 96;
+        bitmap.DecodePixelWidth = decodeWidth;
         bitmap.EndInit();
         bitmap.Freeze();                                  // utilisable depuis n'importe quel fil
         return bitmap;

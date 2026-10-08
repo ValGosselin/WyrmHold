@@ -22,6 +22,13 @@ public class AppSettings
     // Onglet Boutiques : les boutiques décochées dans le filtre (ex. « Muve »). Vide = toutes affichées.
     public List<string> HiddenShops { get; set; } = new List<string>();
 
+    // Onglet « Pour toi » : critères de qualité des promos recommandées (avis Steam).
+    public int RecommendationMinSteamPercent { get; set; } = 80;
+    public int RecommendationMinSteamReviews { get; set; } = 2000;
+
+    // Onglet « Pour toi » : les genres décochés (nom anglais, ex. « Roguelike »), écartés du calcul.
+    public List<string> ExcludedRecommendationGenres { get; set; } = new List<string>();
+
     public bool IsAchievementSourceEnabled(Platform platform)
     {
         return !DisabledAchievementSources.Contains(platform.ToString());

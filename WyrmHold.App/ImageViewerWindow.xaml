@@ -1,0 +1,25 @@
+<!-- Fenêtre qui affiche une capture d'écran en grand.
+     Flèches ← → (ou les boutons) pour passer d'une capture à l'autre, Échap pour fermer. -->
+<Window x:Class="WyrmHold.App.ImageViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WyrmHold.App"
+        Height="720" Width="1200" Background="Black"
+        WindowStartupLocation="CenterOwner"
+        PreviewKeyDown="Window_PreviewKeyDown">
+
+    <Grid>
+        <!-- Décodée en 1920 pixels de large : nette même en plein écran. -->
+        <Image x:Name="FullImage" local:WebImageLoader.DecodeWidth="1920" Stretch="Uniform"/>
+
+        <Button x:Name="PreviousButton" Content="‹" FontSize="32" Width="56" Height="80"
+                HorizontalAlignment="Left" VerticalAlignment="Center" Margin="10,0,0,0" Opacity="0.75"
+                ToolTip="Capture précédente (←)" Click="PreviousButton_Click"/>
+        <Button x:Name="NextButton" Content="›" FontSize="32" Width="56" Height="80"
+                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,10,0" Opacity="0.75"
+                ToolTip="Capture suivante (→)" Click="NextButton_Click"/>
+
+        <TextBlock x:Name="CounterText" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                   Margin="0,0,0,10" FontSize="14"/>
+    </Grid>
+</Window>

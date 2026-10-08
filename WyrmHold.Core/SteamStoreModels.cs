@@ -33,6 +33,68 @@ internal class StoreItem
 
     [JsonPropertyName("release")]
     public StoreRelease? Release { get; set; }
+
+    // Rempli seulement si la demande contient include_screenshots / include_trailers.
+    [JsonPropertyName("screenshots")]
+    public StoreScreenshots? Screenshots { get; set; }
+
+    [JsonPropertyName("trailers")]
+    public StoreTrailers? Trailers { get; set; }
+}
+
+internal class StoreScreenshots
+{
+    // Les captures visibles par tous (Steam range à part celles réservées aux adultes : on ne les prend pas).
+    [JsonPropertyName("all_ages_screenshots")]
+    public List<StoreScreenshot> AllAges { get; set; } = new List<StoreScreenshot>();
+}
+
+internal class StoreScreenshot
+{
+    // Chemin de l'image, ex. « steam/apps/1145350/ss_….jpg?t=… », à coller derrière l'adresse du serveur d'images.
+    [JsonPropertyName("filename")]
+    public string FileName { get; set; } = "";
+
+    [JsonPropertyName("ordinal")]
+    public int Ordinal { get; set; }
+}
+
+internal class StoreTrailers
+{
+    // Les bandes-annonces mises en avant par le studio, puis les autres.
+    [JsonPropertyName("highlights")]
+    public List<StoreTrailer> Highlights { get; set; } = new List<StoreTrailer>();
+
+    [JsonPropertyName("other_trailers")]
+    public List<StoreTrailer> Others { get; set; } = new List<StoreTrailer>();
+}
+
+internal class StoreTrailer
+{
+    [JsonPropertyName("trailer_name")]
+    public string Name { get; set; } = "";
+
+    // Image de la bande-annonce (600 × 337), ex. « 257204779/…/movie_600x337.jpg ».
+    [JsonPropertyName("screenshot_medium")]
+    public string? ScreenshotMedium { get; set; }
+
+    // La même image en pleine taille, ex. « 257204779/…/movie_full.jpg ».
+    [JsonPropertyName("screenshot_full")]
+    public string? ScreenshotFull { get; set; }
+
+    // Le « microtrailer » : une boucle courte et muette, en .webm et en .mp4.
+    [JsonPropertyName("microtrailer")]
+    public List<StoreTrailerFile> Microtrailer { get; set; } = new List<StoreTrailerFile>();
+}
+
+internal class StoreTrailerFile
+{
+    [JsonPropertyName("filename")]
+    public string FileName { get; set; } = "";
+
+    // « video/mp4 » ou « video/webm ».
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = "";
 }
 
 internal class StoreBasicInfo

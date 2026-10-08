@@ -99,22 +99,91 @@ public static class SteamStoreApi
         return items.Where(item => item.Success == 1).ToList();
     }
 
-    /// <summary>
-    /// La description courte d'un jeu sur la boutique Steam, en français (null si Steam ne la donne pas).
-    /// </summary>
-    public static async Task<string?> GetShortDescriptionAsync(int appId)
-    {
-        List<StoreItem> items = await GetItemsAsync(new[] { appId });
-        string? description = items.FirstOrDefault()?.BasicInfo?.ShortDescription;
+    // Les vidéos ne sont pas sur le même serveur que les images (adresse vérifiée le 8 octobre 2026).
+    private const string VideoServer = "https://video.fastly.steamstatic.com/store_trailers/";
 
-        // Steam écrit certains caractères en code HTML (« &quot; » pour un guillemet) : on les remet en clair.
-        return string.IsNullOrWhiteSpace(description) ? null : WebUtility.HtmlDecode(description).Trim();
+    /// <summary>
+    /// La description courte (en français), les captures d'écran et les bandes-annonces d'un jeu,
+    /// en une seule requête à la boutique Steam. null si Steam ne connaît pas le jeu.
+    /// </summary>
+    public static async Task<SteamGameMedia?> GetMediaAsync(int appId)
+    {
+        var request = new
+        {
+            ids = new[] { new { appid = appId } },
+            context = new { language = "french", country_code = "FR" },
+            data_request = new { include_basic_info = true, include_screenshots = true, include_trailers = true }
+        };
+
+        string url = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json="
+            + Uri.EscapeDataString(JsonSerializer.Serialize(request));
+
+        string json = await Http.GetStringAsync(url);
+        StoreItem? item = JsonSerializer.Deserialize<StoreItemsResponse>(json)?.Response?.StoreItems
+            .FirstOrDefault(storeItem => storeItem.Success == 1);
+
+        if (item == null)
+        {
+            return null;
+        }
+
+        string? description = item.BasicInfo?.ShortDescription;
+
+        var media = new SteamGameMedia
+        {
+            AppId = appId,
+
+            // Steam écrit certains caractères en code HTML (« &quot; » pour un guillemet) : on les remet en clair.
+            Description = string.IsNullOrWhiteSpace(description) ? null : WebUtility.HtmlDecode(description).Trim()
+        };
+
+        foreach (StoreScreenshot screenshot in (item.Screenshots?.AllAges ?? new List<StoreScreenshot>()).OrderBy(s => s.Ordinal))
+        {
+            media.Screenshots.Add(new SteamScreenshot(
+                ImageServer + ToThumbnailScreenshot(screenshot.FileName),
+                ImageServer + screenshot.FileName));
+        }
+
+        IEnumerable<StoreTrailer> trailers = (item.Trailers?.Highlights ?? new List<StoreTrailer>())
+            .Concat(item.Trailers?.Others ?? new List<StoreTrailer>());
+
+        foreach (StoreTrailer trailer in trailers)
+        {
+            string? mp4 = trailer.Microtrailer.FirstOrDefault(file => file.Type == "video/mp4")?.FileName;
+
+            // L'image pleine taille de la bande-annonce, ou à défaut la moyenne (600 × 337, floue en grand).
+            string? thumbnail = trailer.ScreenshotFull ?? trailer.ScreenshotMedium;
+
+            media.Trailers.Add(new SteamTrailer(
+                trailer.Name,
+                thumbnail == null ? null : ImageServer + "steam/apps/" + thumbnail,
+                mp4 == null ? null : VideoServer + mp4));
+        }
+
+        return media;
     }
 
-    internal static async Task<Dictionary<int, string>> GetTagNamesAsync()
+    /// <summary>
+    /// La version 1920 × 1080 d'une capture (environ 500 Ko, contre 800 Ko pour l'originale en 2560 × 1440) :
+    /// « ss_abc.jpg?t=1 » devient « ss_abc.1920x1080.jpg?t=1 ».
+    /// La version 600 × 338 existe aussi, mais elle est floue une fois agrandie à l'écran (essai du 8 octobre 2026).
+    /// </summary>
+    private static string ToThumbnailScreenshot(string fileName)
+    {
+        int queryStart = fileName.IndexOf('?');
+        string path = queryStart < 0 ? fileName : fileName.Substring(0, queryStart);
+        string query = queryStart < 0 ? "" : fileName.Substring(queryStart);
+
+        return path.EndsWith(".jpg")
+            ? path.Substring(0, path.Length - ".jpg".Length) + ".1920x1080.jpg" + query
+            : fileName;
+    }
+
+    /// <summary>Tous les tags de Steam : numéro → nom, dans la langue demandée (« french », « english »…).</summary>
+    internal static async Task<Dictionary<int, string>> GetTagNamesAsync(string language = "french")
     {
         string json = await Http.GetStringAsync(
-            "https://api.steampowered.com/IStoreService/GetTagList/v1/?language=french");
+            "https://api.steampowered.com/IStoreService/GetTagList/v1/?language=" + Uri.EscapeDataString(language));
 
         List<TagName> tags = JsonSerializer.Deserialize<TagListResponse>(json)?.Response?.Tags
             ?? new List<TagName>();

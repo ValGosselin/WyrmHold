@@ -3,7 +3,8 @@
      que MainWindow.xaml place dans un onglet avec <local:ShopsView/>. -->
 <UserControl x:Class="WyrmHold.App.ShopsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:WyrmHold.App">
 
     <UserControl.Resources>
         <!-- Transforme true/false en Visible/Collapsed : sert à cacher le badge de réduction
@@ -49,7 +50,7 @@
         <!-- À gauche : les résultats de la recherche, la liste de suivi, ou les meilleures promos -->
         <DockPanel DockPanel.Dock="Left" Width="320" Margin="0,0,10,0">
 
-            <!-- Trois RadioButton habillés en boutons à bascule (style ToggleButton) :
+            <!-- Quatre RadioButton habillés en boutons à bascule (style ToggleButton) :
                  un seul peut être enfoncé à la fois, comme des onglets.
                  WrapPanel : passe à la ligne si les libellés ne tiennent pas sur 320 pixels. -->
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
@@ -59,24 +60,50 @@
                              Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
                 <RadioButton x:Name="PromosTabButton" Content="🔥 Promos" Padding="12,4" Margin="0,0,6,4"
                              Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
+                <RadioButton x:Name="ForYouTabButton" Content="✨ Pour toi" Padding="12,4" Margin="0,0,6,4"
+                             Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
                 <Button x:Name="RefreshPricesButton" Content="↻" Padding="10,4" Margin="0,0,0,4"
                         ToolTip="Mettre à jour : jeux suivis (synchro Waitlist et prix) ou liste des promos, selon l'onglet"
                         Click="RefreshPricesButton_Click"/>
             </WrapPanel>
 
-            <!-- Options de l'onglet Promos (cachées dans les autres onglets) -->
+            <!-- Options de l'onglet Promos (cachées dans les autres onglets).
+                 Valeurs de tri vérifiées en console le 8 octobre 2026 (la documentation ne les liste pas). -->
             <StackPanel x:Name="PromosOptionsPanel" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
                 <ComboBox x:Name="PromosSortMode" Height="32" VerticalContentAlignment="Center" SelectedIndex="0"
                           SelectionChanged="PromosSortMode_SelectionChanged">
                     <ComboBoxItem Content="Classement IsThereAnyDeal" Tag=""/>
+                    <ComboBoxItem Content="Les plus populaires" Tag="rank"/>
+                    <ComboBoxItem Content="Tendances" Tag="-trending"/>
+                    <ComboBoxItem Content="Les plus possédés" Tag="-collected"/>
                     <ComboBoxItem Content="Plus forte réduction" Tag="-cut"/>
                     <ComboBoxItem Content="Prix le plus bas" Tag="price"/>
+                    <ComboBoxItem Content="Nouveautés" Tag="-release-date"/>
                 </ComboBox>
                 <CheckBox x:Name="HideOwnedCheck" Content="Masquer les jeux que je possède" Margin="0,6,0,0"
                           Checked="PromosFilter_Changed" Unchecked="PromosFilter_Changed"/>
             </StackPanel>
 
-            <!-- En bas, dans l'onglet Promos seulement : charger la page suivante -->
+            <!-- Options de l'onglet « Pour toi » : tes genres préférés (cases à cocher créées par le code) et le tri.
+                 Les jeux que tu possèdes sont toujours masqués ici. -->
+            <StackPanel x:Name="ForYouOptionsPanel" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+                <TextBlock Text="Tes genres, selon ton temps de jeu :" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                <WrapPanel x:Name="ForYouGenresPanel" Margin="0,4,0,0"/>
+                <TextBlock x:Name="ResetGenresText" Margin="0,2,0,0" Visibility="Collapsed">
+                    <Hyperlink Click="ResetGenresLink_Click">Remettre les genres retirés</Hyperlink>
+                </TextBlock>
+                <ComboBox x:Name="ForYouSortMode" Height="32" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                          SelectedIndex="0" SelectionChanged="ForYouSortMode_SelectionChanged">
+                    <ComboBoxItem Content="Les plus populaires" Tag="rank"/>
+                    <ComboBoxItem Content="Tendances" Tag="-trending"/>
+                    <ComboBoxItem Content="Les plus possédés" Tag="-collected"/>
+                    <ComboBoxItem Content="Plus forte réduction" Tag="-cut"/>
+                    <ComboBoxItem Content="Prix le plus bas" Tag="price"/>
+                    <ComboBoxItem Content="Nouveautés" Tag="-release-date"/>
+                </ComboBox>
+            </StackPanel>
+
+            <!-- En bas, dans les onglets Promos et Pour toi : charger la page suivante -->
             <Button x:Name="LoadMorePromosButton" DockPanel.Dock="Bottom" Content="Charger 50 promos de plus"
                     Margin="0,6,0,0" Height="32" Visibility="Collapsed" Click="LoadMorePromosButton_Click"/>
 
@@ -146,26 +173,91 @@
                 </StackPanel>
             </DockPanel>
 
-            <!-- Présentation du jeu choisi : jaquette, studio et date, genres, note Steam, description.
+            <!-- Tout le reste (présentation, filtres, offres) défile d'un bloc : la présentation est grande,
+                 elle ne doit pas écraser la liste des prix sur un petit écran. -->
+            <ScrollViewer x:Name="RightScroll" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+
+            <!-- Présentation du jeu choisi : jaquette, studio et date, genres, note Steam, description, médias.
                  Cachée tant qu'elle n'est pas chargée (ou si IsThereAnyDeal ne connaît pas le jeu). -->
-            <Border x:Name="PresentationPanel" DockPanel.Dock="Top" Background="{DynamicResource CardBrush}"
-                    CornerRadius="6" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+            <Border x:Name="PresentationPanel" Background="{DynamicResource CardBrush}"
+                    CornerRadius="6" Padding="16" Margin="0,0,0,10" Visibility="Collapsed">
                 <DockPanel>
                     <!-- L'image est chargée par le code (WebImageLoader), qui la garde aussi en cache sur le disque -->
-                    <Image x:Name="PresentationCover" DockPanel.Dock="Left" Width="96" Margin="0,0,14,0"
-                           VerticalAlignment="Top" Stretch="Uniform"/>
+                    <Image x:Name="PresentationCover" DockPanel.Dock="Left" Width="192" Margin="0,0,20,0"
+                           local:WebImageLoader.DecodeWidth="384" VerticalAlignment="Top" Stretch="Uniform"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <StackPanel>
-                        <TextBlock x:Name="PresentationInfo" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
-                        <TextBlock x:Name="PresentationTags" Margin="0,2,0,0" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                        <TextBlock x:Name="PresentationReviews" Margin="0,2,0,0" TextWrapping="Wrap"
+                        <TextBlock x:Name="PresentationInfo" FontSize="15" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PresentationTags" Margin="0,4,0,0" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PresentationReviews" Margin="0,4,0,0" FontSize="15" TextWrapping="Wrap"
                                    Foreground="{DynamicResource SuccessTextBrush}"/>
-                        <TextBlock x:Name="PresentationDescription" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PresentationDescription" Margin="0,12,0,0" FontSize="16" TextWrapping="Wrap"/>
+
+                        <!-- Bande-annonce et captures d'écran (jeux présents sur Steam seulement) -->
+                        <StackPanel x:Name="PresentationMedia" Margin="0,14,0,0" Visibility="Collapsed">
+                            <!-- Rangée qui défile de gauche à droite si les images ne tiennent pas.
+                                 PreviewMouseWheel : la molette fait défiler la page, pas cette rangée. -->
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                          PreviewMouseWheel="MediaStrip_PreviewMouseWheel">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+
+                                    <!-- La bande-annonce : son image, et au clic sa boucle courte (« microtrailer »), sans le son -->
+                                    <Grid x:Name="TrailerBox" Width="392" Height="220" Margin="0,0,10,0" Cursor="Hand"
+                                          Background="Black" MouseLeftButtonUp="TrailerBox_MouseLeftButtonUp">
+                                        <Image x:Name="TrailerThumbnail" local:WebImageLoader.DecodeWidth="1000" Stretch="UniformToFill"
+                                               RenderOptions.BitmapScalingMode="HighQuality"/>
+                                        <!-- LoadedBehavior="Manual" : c'est le code qui dit quand lire et quand arrêter -->
+                                        <MediaElement x:Name="TrailerVideo" LoadedBehavior="Manual" UnloadedBehavior="Close"
+                                                      IsMuted="True" Stretch="UniformToFill" Visibility="Collapsed"
+                                                      MediaEnded="TrailerVideo_MediaEnded" MediaFailed="TrailerVideo_MediaFailed"/>
+                                        <Border x:Name="TrailerPlayIcon" Background="#99000000" CornerRadius="32" Width="64" Height="64"
+                                                HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                                            <TextBlock Text="▶" Foreground="White" FontSize="28"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <!-- « Chargement de l'extrait… » ou « Extrait illisible » : bien visible, pas dans une infobulle -->
+                                        <Border x:Name="TrailerStatus" Background="#CC000000" VerticalAlignment="Bottom"
+                                                Padding="8,4" IsHitTestVisible="False" Visibility="Collapsed">
+                                            <TextBlock x:Name="TrailerStatusText" Foreground="White" TextWrapping="Wrap"/>
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- Les captures : une miniature cliquable chacune -->
+                                    <ItemsControl x:Name="ScreenshotsList">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <!-- La capture elle-même est rangée dans Tag : le code la relit au clic -->
+                                                <Button Padding="0" Margin="0,0,10,0" BorderThickness="0" Cursor="Hand"
+                                                        ToolTip="Agrandir" Tag="{Binding}" Click="ScreenshotButton_Click">
+                                                    <!-- Décodée en 1000 pixels : nette même sur un écran agrandi à 200 %.
+                                                         HighQuality : WPF réduit l'image avec un meilleur lissage. -->
+                                                    <Image Width="392" Height="220" Stretch="UniformToFill"
+                                                           RenderOptions.BitmapScalingMode="HighQuality"
+                                                           local:WebImageLoader.DecodeWidth="1000"
+                                                           local:WebImageLoader.Url="{Binding SmallUrl}"/>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+
+                            <TextBlock Margin="0,6,0,0" FontSize="15">
+                                <Hyperlink Click="SteamPageLink_Click">▶ Voir les bandes-annonces complètes sur Steam</Hyperlink>
+                            </TextBlock>
+                        </StackPanel>
                     </StackPanel>
                 </DockPanel>
             </Border>
 
             <!-- Filtres des offres -->
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Height="32" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" Height="32" Margin="0,0,0,10">
 
                 <!-- Bouton qui ouvre une petite fenêtre flottante (Popup) avec une case par boutique.
                      IsOpen est relié à IsChecked : bouton enfoncé = liste ouverte. StaysOpen="False" la
@@ -190,7 +282,6 @@
                 <TextBlock Text="€" Margin="6,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="DealsList">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -254,6 +345,8 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
+
+            </StackPanel>
             </ScrollViewer>
         </DockPanel>
     </DockPanel>
