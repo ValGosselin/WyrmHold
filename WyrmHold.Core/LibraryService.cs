@@ -30,7 +30,11 @@ public class LibraryService
     private readonly GameDatabase _database = new GameDatabase();
     private readonly CoverCache _covers = new CoverCache();
     private readonly MetadataFetcher _metadata = new MetadataFetcher();
-    private readonly PlaytimeTracker _tracker = new PlaytimeTracker();
+    // Jeux lancés depuis Wyrmhold, pas encore repérés par le détecteur : clé → (jeu, limite d'attente).
+    private readonly Dictionary<string, (Game Game, DateTimeOffset WaitUntil)> _expectedSessions =
+        new Dictionary<string, (Game Game, DateTimeOffset WaitUntil)>();
+
+    // Jeux lancés depuis Wyrmhold et repérés : leur session sera enregistrée à leur fermeture.
     private readonly HashSet<string> _activeSessions = new HashSet<string>();
     private readonly EpicCatalogCache _epicCatalog = new EpicCatalogCache();
     private readonly Dictionary<string, string> _ubisoftCoverUrls = new Dictionary<string, string>();
@@ -66,13 +70,17 @@ public class LibraryService
         _epicAchievements = new EpicAchievementProvider(_epicCatalog);
         _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements, _epicAchievements };
         _database.Initialize();
+
+        Watcher.GameStarted += OnGameStarted;
+        Watcher.GameStopped += OnGameStopped;
+        Watcher.Scanned += OnWatcherScanned;
     }
 
     // ----- Propriétés -----
 
     public string SteamId => _secrets.SteamId;
 
-    public bool HasActiveSessions => _activeSessions.Count > 0;
+    public bool HasActiveSessions => _activeSessions.Count > 0 || _expectedSessions.Count > 0;
 
     public bool IsGogConnected => SecureStore.Exists(GogTokenName);
 
@@ -148,6 +156,9 @@ public class LibraryService
         List<Game> games = _database.LoadGames();
         AttachCollections(games);
         _covers.AttachCovers(games);
+
+        // Le détecteur de jeu reconnaît les jeux par leur dossier d'installation : il lui faut la liste à jour.
+        Watcher.SetGames(games);
         return games;
     }
 
@@ -1397,47 +1408,110 @@ public class LibraryService
         }
     }
 
-    public async Task TrackPlaytimeAsync(Game game)
+    // ----- Jeu en cours et temps de jeu -----
+
+    // Combien de temps on attend qu'un jeu lancé depuis Wyrmhold apparaisse (le lanceur peut être lent).
+    private static readonly TimeSpan LaunchTimeout = TimeSpan.FromMinutes(3);
+
+    // Le détecteur de jeu en cours, partagé par l'overlay et le temps de jeu.
+    public GameWatcher Watcher { get; } = new GameWatcher();
+
+    // Une session vient d'être enregistrée : la fenêtre peut rafraîchir le temps de jeu affiché.
+    public event Action<Game>? PlaySessionRecorded;
+
+    /// <summary>
+    /// Allume ou éteint le détecteur. Il tourne si l'overlay est activé, ou le temps qu'un jeu
+    /// lancé depuis Wyrmhold soit suivi (comme avant l'overlay). Sinon, aucune surveillance.
+    /// À appeler depuis le fil de l'interface.
+    /// </summary>
+    public void UpdateWatcherState()
+    {
+        bool isNeeded = Settings.OverlayEnabled || _expectedSessions.Count > 0 || _activeSessions.Count > 0;
+
+        if (isNeeded)
+        {
+            Watcher.Start();
+        }
+        else
+        {
+            Watcher.Stop();
+        }
+    }
+
+    /// <summary>
+    /// Appelé juste après le lancement d'un jeu depuis Wyrmhold : sa session sera comptée.
+    /// Steam compte déjà le temps de jeu lui-même, on ne le double pas.
+    /// </summary>
+    public void ExpectPlaySession(Game game)
     {
         if (game.Platform == Platform.Steam || !game.IsInstalled || string.IsNullOrEmpty(game.InstallPath))
         {
             return;
         }
 
-        string sessionKey = $"{game.Platform}_{game.PlatformGameId}";
+        string key = GameWatcher.KeyOf(game);
 
-        if (!_activeSessions.Add(sessionKey))
+        if (Watcher.IsRunning(game))
         {
+            // Déjà ouvert (relancé alors qu'il tournait) : la session en cours sera comptée.
+            _activeSessions.Add(key);
+        }
+        else
+        {
+            _expectedSessions[key] = (game, DateTimeOffset.Now + LaunchTimeout);
+        }
+
+        UpdateWatcherState();
+    }
+
+    private void OnGameStarted(RunningGame running)
+    {
+        string key = GameWatcher.KeyOf(running.Game);
+
+        if (_expectedSessions.Remove(key))
+        {
+            _activeSessions.Add(key);
+        }
+    }
+
+    private void OnGameStopped(RunningGame running, DateTimeOffset end)
+    {
+        Game game = running.Game;
+
+        if (!_activeSessions.Remove(GameWatcher.KeyOf(game)))
+        {
+            // Jeu lancé hors de Wyrmhold : rien n'est enregistré (réglage à venir, désactivé par défaut).
             return;
         }
 
-        try
+        int minutes = (int)Math.Round((end - running.Start).TotalMinutes);
+
+        if (minutes > 0)
         {
-            PlaySessionTimes? session = await _tracker.TrackSessionAsync(game.InstallPath);
+            long startedUnix = running.Start.ToUnixTimeSeconds();
 
-            if (session is null)
-            {
-                Logger.Log($"Session de jeu non détectée pour {game.Name}");
-                return;
-            }
-
-            int minutes = (int)Math.Round((session.End - session.Start).TotalMinutes);
-
-            if (minutes == 0)
-            {
-                return;
-            }
-
-            long startedUnix = session.Start.ToUnixTimeSeconds();
-            long endedUnix = session.End.ToUnixTimeSeconds();
-
-            _database.AddPlaySession(game, startedUnix, endedUnix, minutes);
+            _database.AddPlaySession(game, startedUnix, end.ToUnixTimeSeconds(), minutes);
             game.PlaytimeMinutes += minutes;
             game.LastPlayedUnix = startedUnix;
+            PlaySessionRecorded?.Invoke(game);
         }
-        finally
+
+        UpdateWatcherState();
+    }
+
+    private void OnWatcherScanned()
+    {
+        DateTimeOffset now = DateTimeOffset.Now;
+
+        foreach ((string key, (Game game, DateTimeOffset waitUntil)) in _expectedSessions.ToList())
         {
-            _activeSessions.Remove(sessionKey);
+            if (now > waitUntil)
+            {
+                _expectedSessions.Remove(key);
+                Logger.Log($"Session de jeu non détectée pour {game.Name}");
+            }
         }
+
+        UpdateWatcherState();
     }
 }

@@ -1,0 +1,21 @@
+<!-- Petite fenêtre affichée quand on clique sur la croix (si le réglage « À la fermeture » vaut « Demander »). -->
+<Window x:Class="WyrmHold.App.CloseChoiceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Fermer Wyrmhold" SizeToContent="Height" Width="440"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+
+    <StackPanel Margin="16">
+        <TextBlock Text="Que veux-tu faire ?" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource SecondaryTextBrush}"
+                   Text="En arrière-plan, Wyrmhold reste dans la zone de notification (près de l'horloge) pour compter ton temps de jeu. Quitter le ferme complètement."/>
+
+        <CheckBox x:Name="RememberCheck" Content="Se souvenir de mon choix (modifiable dans Réglages)" Margin="0,12,0,0"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="Garder en arrière-plan" Height="32" Padding="12,0" Margin="0,0,8,0"
+                    IsDefault="True" Click="BackgroundButton_Click"/>
+            <Button Content="Quitter" Height="32" Padding="12,0" Click="QuitButton_Click"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

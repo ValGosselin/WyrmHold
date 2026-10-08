@@ -22,6 +22,17 @@ public class AppSettings
     // Onglet Boutiques : les boutiques décochées dans le filtre (ex. « Muve »). Vide = toutes affichées.
     public List<string> HiddenShops { get; set; } = new List<string>();
 
+    // Ce que fait la croix de la fenêtre : CloseActions.Ask (demander), Background (garder en arrière-plan) ou Quit.
+    public string CloseAction { get; set; } = CloseActions.Ask;
+
+    // Overlay en jeu : activé = Wyrmhold repère le jeu en cours (toutes les 5 s) et écoute le raccourci.
+    public bool OverlayEnabled { get; set; } = true;
+
+    // Le raccourci global qui affiche ou cache l'overlay, au format « Ctrl+Shift+W ».
+    public string OverlayHotkey { get; set; } = DefaultOverlayHotkey;
+
+    public const string DefaultOverlayHotkey = "Ctrl+Shift+W";
+
     // Onglet « Pour toi » : critères de qualité des promos recommandées (avis Steam).
     public int RecommendationMinSteamPercent { get; set; } = 80;
     public int RecommendationMinSteamReviews { get; set; } = 2000;
@@ -66,4 +77,15 @@ public class AppSettings
         string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(FilePath, json);
     }
+}
+
+/// <summary>
+/// Les valeurs possibles du réglage CloseAction. Ce sont des textes (pas une énumération)
+/// pour que settings.json reste lisible : « "CloseAction": "background" ».
+/// </summary>
+public static class CloseActions
+{
+    public const string Ask = "ask";
+    public const string Background = "background";
+    public const string Quit = "quit";
 }

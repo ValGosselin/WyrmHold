@@ -18,6 +18,7 @@ public partial class MainWindow : Window
 
     private readonly LibraryService _library = new LibraryService();
     private readonly System.Windows.Forms.NotifyIcon _trayIcon = new System.Windows.Forms.NotifyIcon();
+    private readonly OverlayController _overlay;
 
     private bool _isExiting;
     private bool _trayTipShown;
@@ -56,9 +57,15 @@ public partial class MainWindow : Window
         // avec deux copies, chacune écraserait les changements de l'autre en enregistrant.
         ShopsPanel.Settings = _library.Settings;
 
+        _overlay = new OverlayController(_library);
+
+        // Une session de jeu vient d'être enregistrée : le temps de jeu affiché change.
+        _library.PlaySessionRecorded += game => GamesList.Items.Refresh();
+
         Application.Current.SessionEnding += (sender, e) =>
         {
             _isExiting = true;
+            _overlay.Dispose();
             _trayIcon.Dispose();
         };
     }
@@ -67,6 +74,7 @@ public partial class MainWindow : Window
     {
         UpdateThemeButton();
         LoadSettingsTab();
+        ApplyOverlaySettings();
 
         // Prix des jeux suivis : vérifiés à chaque ouverture, EN PARALLÈLE du chargement de la bibliothèque.
         // « _ = » : on lance la tâche sans l'attendre (elle gère elle-même ses erreurs).
@@ -874,7 +882,102 @@ public partial class MainWindow : Window
                 && _library.Settings.IsAchievementSourceEnabled(platform);
         }
 
+        string closeAction = _library.Settings.CloseAction;
+        CloseBackgroundRadio.IsChecked = closeAction == CloseActions.Background;
+        CloseQuitRadio.IsChecked = closeAction == CloseActions.Quit;
+        CloseAskRadio.IsChecked = closeAction != CloseActions.Background && closeAction != CloseActions.Quit;
+
+        OverlayEnabledCheck.IsChecked = _library.Settings.OverlayEnabled;
+        OverlayHotkeyBox.Text = _library.Settings.OverlayHotkey;
+        OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
+
         _isLoadingSettings = false;
+    }
+
+    // ----- Overlay en jeu -----
+
+    /// <summary>
+    /// Applique les réglages de l'overlay et dit dans Réglages si le raccourci marche.
+    /// </summary>
+    private void ApplyOverlaySettings()
+    {
+        bool isHotkeyAccepted = _overlay.ApplySettings();
+
+        OverlayHotkeyBox.Text = _overlay.CurrentHotkey;
+        OverlayHotkeyStatusText.Text = !_library.Settings.OverlayEnabled
+            ? "Overlay désactivé : aucune surveillance, aucun raccourci."
+            : isHotkeyAccepted
+                ? "Pour changer le raccourci : clique dans la case, puis appuie sur la nouvelle combinaison (avec Ctrl, Alt ou Windows). Échap pour annuler."
+                : $"Le raccourci {_overlay.CurrentHotkey} est déjà utilisé par une autre application : choisis-en un autre.";
+    }
+
+    private void OverlayEnabledCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        _library.Settings.OverlayEnabled = OverlayEnabledCheck.IsChecked == true;
+        SaveSettings();
+
+        OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
+        ApplyOverlaySettings();
+    }
+
+    private void OverlayHotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        // Sinon Windows intercepterait l'ancien raccourci avant qu'il n'arrive dans la case.
+        _overlay.SuspendHotkey();
+        OverlayHotkeyStatusText.Text = "Appuie sur la nouvelle combinaison… (Échap pour annuler)";
+    }
+
+    private void OverlayHotkeyBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        ApplyOverlaySettings();
+    }
+
+    private void OverlayHotkeyBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Aucune touche n'est écrite dans la case : on lit seulement la combinaison.
+        e.Handled = true;
+
+        // Avec Alt, WPF range la vraie touche dans SystemKey.
+        Key key = e.Key == Key.System ? e.SystemKey : e.Key;
+
+        if (key == Key.Escape)
+        {
+            Keyboard.ClearFocus();   // rend l'ancien raccourci (voir LostKeyboardFocus)
+            return;
+        }
+
+        // Ctrl, Maj, Alt ou Windows seuls : on attend la touche principale.
+        if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
+        {
+            return;
+        }
+
+        if (!HotkeyText.TryFormat(Keyboard.Modifiers, key, out string text))
+        {
+            OverlayHotkeyStatusText.Text = "Combinaison refusée : ajoute Ctrl, Alt ou Windows à ta touche. (Échap pour annuler)";
+            return;
+        }
+
+        _library.Settings.OverlayHotkey = text;
+        SaveSettings();
+        Keyboard.ClearFocus();   // enregistre le nouveau raccourci (voir LostKeyboardFocus)
+    }
+
+    private void CloseActionRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings || sender is not RadioButton { Tag: string action })
+        {
+            return;
+        }
+
+        _library.Settings.CloseAction = action;
+        SaveSettings();
     }
 
     private void ThemeRadio_Checked(object sender, RoutedEventArgs e)
@@ -1323,20 +1426,8 @@ public partial class MainWindow : Window
             return;
         }
 
-        _ = TrackPlaytimeAsync(game);
-    }
-
-    private async Task TrackPlaytimeAsync(Game game)
-    {
-        try
-        {
-            await _library.TrackPlaytimeAsync(game);
-            GamesList.Items.Refresh();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Suivi du temps de jeu impossible pour {game.Name} : {ex.Message}");
-        }
+        // Le détecteur de jeu repère sa session ; elle sera enregistrée à sa fermeture.
+        _library.ExpectPlaySession(game);
     }
 
     private void PlayButton_Click(object sender, RoutedEventArgs e)
@@ -1781,7 +1872,44 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Dans tous les cas, on annule d'abord la fermeture : c'est le choix ci-dessous qui décide.
         e.Cancel = true;
+
+        string action = _library.Settings.CloseAction;
+
+        if (action != CloseActions.Background && action != CloseActions.Quit)
+        {
+            var dialog = new CloseChoiceWindow { Owner = this };
+
+            // Fenêtre fermée sans choisir : Wyrmhold reste ouvert, comme si de rien n'était.
+            if (dialog.ShowDialog() != true || dialog.Choice == null)
+            {
+                return;
+            }
+
+            action = dialog.Choice;
+
+            if (dialog.RememberChoice)
+            {
+                _library.Settings.CloseAction = action;
+                SaveSettings();
+                LoadSettingsTab();   // l'onglet Réglages montre le nouveau choix
+            }
+        }
+
+        if (action == CloseActions.Quit)
+        {
+            // On quitte « juste après » : arrêter l'appli pendant qu'elle traite encore
+            // la demande de fermeture de la fenêtre peut poser problème.
+            Dispatcher.InvokeAsync(ExitApplication);
+            return;
+        }
+
+        HideToTray();
+    }
+
+    private void HideToTray()
+    {
         Hide();
 
         if (!_trayTipShown)
@@ -1813,6 +1941,7 @@ public partial class MainWindow : Window
         }
 
         _isExiting = true;
+        _overlay.Dispose();
         _trayIcon.Dispose();
         Application.Current.Shutdown();
     }

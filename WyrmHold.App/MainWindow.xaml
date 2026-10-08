@@ -738,6 +738,35 @@
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
                     <CheckBox x:Name="EpicAchievementsCheck" Content="Epic Games" Tag="Epic"
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+
+                    <!-- Tag = la valeur enregistrée dans settings.json (voir CloseActions) -->
+                    <TextBlock Text="Fermeture" Style="{StaticResource SettingsSection}"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Ce que fait la croix de la fenêtre. En arrière-plan, Wyrmhold reste près de l'horloge (clic droit sur son icône → Quitter)."/>
+                    <RadioButton x:Name="CloseAskRadio" GroupName="CloseAction" Content="Demander à chaque fois"
+                                 Tag="ask" Margin="0,0,0,6" Checked="CloseActionRadio_Checked"/>
+                    <RadioButton x:Name="CloseBackgroundRadio" GroupName="CloseAction" Content="Garder en arrière-plan"
+                                 Tag="background" Margin="0,0,0,6" Checked="CloseActionRadio_Checked"/>
+                    <RadioButton x:Name="CloseQuitRadio" GroupName="CloseAction" Content="Quitter complètement"
+                                 Tag="quit" Checked="CloseActionRadio_Checked"/>
+
+                    <TextBlock Text="Overlay en jeu" Style="{StaticResource SettingsSection}"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Une petite fenêtre en haut à droite, par-dessus le jeu en cours : jeu, temps de session, succès restants et dernière patch note. Elle ne s'affiche qu'au-dessus des jeux en mode fenêtré ou fenêtré sans bordure."/>
+                    <CheckBox x:Name="OverlayEnabledCheck"
+                              Content="Activer l'overlay (Wyrmhold repère le jeu en cours toutes les 5 secondes)"
+                              Margin="0,0,0,8"
+                              Checked="OverlayEnabledCheck_Changed" Unchecked="OverlayEnabledCheck_Changed"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Raccourci pour l'afficher ou le cacher :" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <!-- Lecture seule : on n'écrit pas dedans, on y appuie sur la combinaison voulue. -->
+                        <TextBox x:Name="OverlayHotkeyBox" Width="200" IsReadOnly="True" IsReadOnlyCaretVisible="False"
+                                 PreviewKeyDown="OverlayHotkeyBox_PreviewKeyDown"
+                                 GotKeyboardFocus="OverlayHotkeyBox_GotKeyboardFocus"
+                                 LostKeyboardFocus="OverlayHotkeyBox_LostKeyboardFocus"/>
+                    </StackPanel>
+                    <TextBlock x:Name="OverlayHotkeyStatusText" Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap" Margin="0,4,0,0"/>
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
