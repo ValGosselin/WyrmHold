@@ -52,6 +52,10 @@ public partial class MainWindow : Window
         InitializeComponent();
         SetUpTrayIcon();
 
+        // L'onglet Boutiques utilise le MÊME objet de réglages que le reste de la fenêtre :
+        // avec deux copies, chacune écraserait les changements de l'autre en enregistrant.
+        ShopsPanel.Settings = _library.Settings;
+
         Application.Current.SessionEnding += (sender, e) =>
         {
             _isExiting = true;
@@ -63,6 +67,10 @@ public partial class MainWindow : Window
     {
         UpdateThemeButton();
         LoadSettingsTab();
+
+        // Prix des jeux suivis : vérifiés à chaque ouverture, EN PARALLÈLE du chargement de la bibliothèque.
+        // « _ = » : on lance la tâche sans l'attendre (elle gère elle-même ses erreurs).
+        _ = ShopsPanel.RefreshWatchListAsync();
         BuildSavedViews(null);
         RefreshAccountsTab();
         await LoadGamesAsync();
@@ -180,6 +188,9 @@ public partial class MainWindow : Window
     {
         _allGames = games;
         AssignCopies();
+
+        // L'onglet Boutiques en a besoin pour le badge « Déjà dans ta bibliothèque ».
+        ShopsPanel.SetLibrary(games);
 
         // 1. D'abord les filtres : ils peuvent remettre à zéro un choix devenu impossible
         //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
@@ -1365,6 +1376,22 @@ public partial class MainWindow : Window
         SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected, _library.HasImportedEaGames);
         SetAccountRow(BattleNetStatusText, BattleNetAccountButton, _library.IsBattleNetConnected, _library.HasImportedBattleNetGames);
 
+        // IsThereAnyDeal : facultatif, ne sert qu'à synchroniser la liste de suivi avec ta Waitlist.
+        if (ShopsPanel.IsItadConfigured)
+        {
+            SetAccountRow(ItadStatusText, ItadAccountButton, ShopsPanel.IsItadConnected);
+            ItadStatusText.Text = ShopsPanel.IsItadConnected
+                ? "Connecté : liste de suivi synchronisée avec ta Waitlist"
+                : "Facultatif : synchronise ta liste de suivi avec ta Waitlist";
+            ItadAccountButton.IsEnabled = true;
+        }
+        else
+        {
+            ItadStatusText.Text = "IsThereAnyDealClientId absent de secrets.json";
+            ItadAccountButton.Content = "Se connecter";
+            ItadAccountButton.IsEnabled = false;
+        }
+
     }
     private async void BattleNetAccountButton_Click(object sender, RoutedEventArgs e)
     {
@@ -1519,6 +1546,58 @@ public partial class MainWindow : Window
 
         RefreshAccountsTab();
         await ReloadAfterAccountChangeAsync();
+    }
+
+    private async void ItadAccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (ShopsPanel.IsItadConnected)
+        {
+            // Message à part : contrairement aux lanceurs, aucun jeu ne disparaît de la bibliothèque.
+            MessageBoxResult answer = MessageBox.Show(
+                "Se déconnecter d'IsThereAnyDeal ? Ta liste de suivi reste dans Wyrmhold, "
+                + "mais elle ne sera plus synchronisée avec ta Waitlist.",
+                "Wyrmhold",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            ShopsPanel.DisconnectItad();
+        }
+        else
+        {
+            ItadLoginWindow loginWindow = new ItadLoginWindow { Owner = this };
+
+            if (loginWindow.ShowDialog() != true || loginWindow.LoginCode is null)
+            {
+                return;
+            }
+
+            ItadAccountButton.IsEnabled = false;
+
+            try
+            {
+                await ShopsPanel.ConnectItadAsync(loginWindow.LoginCode, loginWindow.CodeVerifier);
+                MessageBox.Show(
+                    "IsThereAnyDeal connecté. Ta liste de suivi (onglet Boutiques → Suivis) est maintenant "
+                    + "synchronisée avec ta Waitlist.",
+                    "Wyrmhold");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Connexion IsThereAnyDeal impossible : {ex.Message}");
+                MessageBox.Show("La connexion à IsThereAnyDeal a échoué. Les détails sont dans le journal.", "Wyrmhold");
+            }
+            finally
+            {
+                ItadAccountButton.IsEnabled = true;
+            }
+        }
+
+        RefreshAccountsTab();
     }
 
     private async void GogAccountButton_Click(object sender, RoutedEventArgs e)

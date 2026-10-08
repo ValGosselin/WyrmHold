@@ -623,6 +623,12 @@
                 </StackPanel>
             </ScrollViewer>
         </TabItem>
+        <!-- ===================== Onglet Boutiques ===================== -->
+        <!-- Son contenu est dans ShopsView.xaml (un UserControl), pour ne pas alourdir ce fichier. -->
+        <TabItem Header="Boutiques">
+            <local:ShopsView x:Name="ShopsPanel"/>
+        </TabItem>
+
         <!-- ===================== Onglet Comptes ===================== -->
         <TabItem Header="Comptes">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -648,6 +654,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
@@ -683,6 +690,11 @@
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Battle.net" FontWeight="SemiBold"/>
                         <TextBlock Grid.Row="6" Grid.Column="1" x:Name="BattleNetStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="6" Grid.Column="2" x:Name="BattleNetAccountButton" Click="BattleNetAccountButton_Click"/>
+
+                        <!-- Facultatif : synchronise la liste de suivi de l'onglet Boutiques avec ta Waitlist -->
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="IsThereAnyDeal" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="7" Grid.Column="1" x:Name="ItadStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="7" Grid.Column="2" x:Name="ItadAccountButton" Click="ItadAccountButton_Click"/>
                     </Grid>
                 </StackPanel>
             </ScrollViewer>

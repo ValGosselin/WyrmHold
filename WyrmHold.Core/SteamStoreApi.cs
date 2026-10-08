@@ -1,4 +1,5 @@
-﻿using System.Text.Json;
+﻿using System.Net;
+using System.Text.Json;
 
 namespace Wyrmhold.Core;
 
@@ -96,6 +97,18 @@ public static class SteamStoreApi
             ?? new List<StoreItem>();
 
         return items.Where(item => item.Success == 1).ToList();
+    }
+
+    /// <summary>
+    /// La description courte d'un jeu sur la boutique Steam, en français (null si Steam ne la donne pas).
+    /// </summary>
+    public static async Task<string?> GetShortDescriptionAsync(int appId)
+    {
+        List<StoreItem> items = await GetItemsAsync(new[] { appId });
+        string? description = items.FirstOrDefault()?.BasicInfo?.ShortDescription;
+
+        // Steam écrit certains caractères en code HTML (« &quot; » pour un guillemet) : on les remet en clair.
+        return string.IsNullOrWhiteSpace(description) ? null : WebUtility.HtmlDecode(description).Trim();
     }
 
     internal static async Task<Dictionary<int, string>> GetTagNamesAsync()

@@ -19,6 +19,9 @@ public class AppSettings
     // Les plateformes dont on ne lit plus les succès (ex. « Epic »). Vide = toutes actives.
     public List<string> DisabledAchievementSources { get; set; } = new List<string>();
 
+    // Onglet Boutiques : les boutiques décochées dans le filtre (ex. « Muve »). Vide = toutes affichées.
+    public List<string> HiddenShops { get; set; } = new List<string>();
+
     public bool IsAchievementSourceEnabled(Platform platform)
     {
         return !DisabledAchievementSources.Contains(platform.ToString());

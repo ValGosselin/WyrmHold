@@ -94,6 +94,47 @@ public class GameDatabase
             createViews.ExecuteNonQuery();
         }
 
+        // Liste de suivi de l'onglet Boutiques : un jeu IsThereAnyDeal par ligne.
+        // ItadId est la clé primaire : un même jeu ne peut pas être suivi deux fois.
+        using (SqliteCommand createWatchList = connection.CreateCommand())
+        {
+            createWatchList.CommandText = """
+                CREATE TABLE IF NOT EXISTS WatchedGame (
+                    ItadId    TEXT    PRIMARY KEY,
+                    Title     TEXT    NOT NULL,
+                    Type      TEXT    NOT NULL DEFAULT '',
+                    AddedUnix INTEGER NOT NULL
+                );
+                """;
+            createWatchList.ExecuteNonQuery();
+        }
+
+        // Dernier prix connu de chaque jeu suivi (rempli par la vérification à l'ouverture).
+        // Les prix sont gardés en CENTIMES entiers (4899 = 48,99 €) : un nombre à virgule
+        // (REAL) peut stocker 48,99 comme 48,98999999…, un entier jamais.
+        AddColumnIfMissing(connection, "WatchedGame", "BestPriceCents", "INTEGER");
+        AddColumnIfMissing(connection, "WatchedGame", "BestShop", "TEXT");
+        AddColumnIfMissing(connection, "WatchedGame", "BestCut", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "WatchedGame", "HistoryLowCents", "INTEGER");
+        AddColumnIfMissing(connection, "WatchedGame", "Currency", "TEXT NOT NULL DEFAULT ''");
+        AddColumnIfMissing(connection, "WatchedGame", "PricesCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
+
+        // Synchro avec la Waitlist IsThereAnyDeal (facultative) :
+        // SyncedWithItad = 1 si le jeu a déjà été vu sur ta Waitlist lors d'une synchro.
+        AddColumnIfMissing(connection, "WatchedGame", "SyncedWithItad", "INTEGER NOT NULL DEFAULT 0");
+
+        // Jeux retirés ici alors que le site n'a pas pu être prévenu (pas de réseau…) :
+        // on réessaie à la synchro suivante, sinon ils reviendraient depuis la Waitlist.
+        using (SqliteCommand createPendingRemovals = connection.CreateCommand())
+        {
+            createPendingRemovals.CommandText = """
+                CREATE TABLE IF NOT EXISTS WaitlistPendingRemoval (
+                    ItadId TEXT PRIMARY KEY
+                );
+                """;
+            createPendingRemovals.ExecuteNonQuery();
+        }
+
         using SqliteCommand createSessions = connection.CreateCommand();
         createSessions.CommandText = """
         CREATE TABLE IF NOT EXISTS PlaySession (
@@ -280,8 +321,15 @@ public class GameDatabase
     }
     private static void AddColumnIfMissing(SqliteConnection connection, string column, string definition)
     {
+        AddColumnIfMissing(connection, "Game", column, definition);
+    }
+
+    // Même nom, un paramètre de plus (une « surcharge ») : la même méthode sert maintenant
+    // à n'importe quelle table. L'ancienne version ci-dessus l'appelle avec "Game".
+    private static void AddColumnIfMissing(SqliteConnection connection, string table, string column, string definition)
+    {
         using SqliteCommand check = connection.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('Game') WHERE name = $column;";
+        check.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $column;";
         check.Parameters.AddWithValue("$column", column);
 
         if (Convert.ToInt64(check.ExecuteScalar()) > 0)
@@ -290,7 +338,7 @@ public class GameDatabase
         }
 
         using SqliteCommand alter = connection.CreateCommand();
-        alter.CommandText = $"ALTER TABLE Game ADD COLUMN {column} {definition};";
+        alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition};";
         alter.ExecuteNonQuery();
     }
     public List<Game> LoadGames()
@@ -646,6 +694,175 @@ public class GameDatabase
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = "DELETE FROM SavedView WHERE Id = $id;";
         command.Parameters.AddWithValue("$id", viewId);
+        command.ExecuteNonQuery();
+    }
+
+    // ----- Liste de suivi (onglet Boutiques) -----
+
+    public List<WatchedGame> LoadWatchedGames()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT ItadId, Title, Type, AddedUnix,
+                   BestPriceCents, BestShop, BestCut, HistoryLowCents, Currency, PricesCheckedUnix,
+                   SyncedWithItad
+            FROM WatchedGame
+            ORDER BY Title COLLATE NOCASE;
+            """;
+
+        List<WatchedGame> games = new List<WatchedGame>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            games.Add(new WatchedGame
+            {
+                ItadId = reader.GetString(0),
+                Title = reader.GetString(1),
+                Type = reader.GetString(2),
+                AddedUnix = reader.GetInt64(3),
+                BestPrice = reader.IsDBNull(4) ? null : reader.GetInt64(4) / 100m,
+                BestShop = reader.IsDBNull(5) ? null : reader.GetString(5),
+                BestCut = reader.GetInt32(6),
+                HistoryLow = reader.IsDBNull(7) ? null : reader.GetInt64(7) / 100m,
+                Currency = reader.GetString(8),
+                PricesCheckedUnix = reader.GetInt64(9),
+                SyncedWithItad = reader.GetInt64(10) == 1
+            });
+        }
+
+        return games;
+    }
+
+    public void AddWatchedGame(WatchedGame game)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // INSERT OR IGNORE : si le jeu est déjà suivi (même ItadId), SQLite ne fait rien au lieu de planter.
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT OR IGNORE INTO WatchedGame (ItadId, Title, Type, AddedUnix, SyncedWithItad)
+            VALUES ($id, $title, $type, $added, $synced);
+            """;
+        command.Parameters.AddWithValue("$id", game.ItadId);
+        command.Parameters.AddWithValue("$title", game.Title);
+        command.Parameters.AddWithValue("$type", game.Type);
+        command.Parameters.AddWithValue("$added", game.AddedUnix);
+        command.Parameters.AddWithValue("$synced", game.SyncedWithItad ? 1 : 0);
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Marque des jeux suivis comme présents (ou non) sur la Waitlist IsThereAnyDeal.</summary>
+    public void SetWatchedGamesSynced(IEnumerable<string> itadIds, bool isSynced)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (string itadId in itadIds)
+        {
+            using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE WatchedGame SET SyncedWithItad = $synced WHERE ItadId = $id;";
+            command.Parameters.AddWithValue("$synced", isSynced ? 1 : 0);
+            command.Parameters.AddWithValue("$id", itadId);
+            command.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public List<string> LoadPendingWaitlistRemovals()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT ItadId FROM WaitlistPendingRemoval;";
+
+        List<string> ids = new List<string>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            ids.Add(reader.GetString(0));
+        }
+
+        return ids;
+    }
+
+    public void AddPendingWaitlistRemoval(string itadId)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "INSERT OR IGNORE INTO WaitlistPendingRemoval (ItadId) VALUES ($id);";
+        command.Parameters.AddWithValue("$id", itadId);
+        command.ExecuteNonQuery();
+    }
+
+    public void ClearPendingWaitlistRemovals()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM WaitlistPendingRemoval;";
+        command.ExecuteNonQuery();
+    }
+
+    /// <summary>Enregistre les derniers prix connus des jeux suivis, en une seule transaction.</summary>
+    public void SaveWatchedPrices(IEnumerable<WatchedGame> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        // Une transaction regroupe toutes les mises à jour : c'est beaucoup plus rapide,
+        // et en cas d'erreur, rien n'est enregistré à moitié.
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (WatchedGame game in games)
+        {
+            using SqliteCommand command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = """
+                UPDATE WatchedGame
+                SET BestPriceCents = $best, BestShop = $shop, BestCut = $cut,
+                    HistoryLowCents = $low, Currency = $currency, PricesCheckedUnix = $checked
+                WHERE ItadId = $id;
+                """;
+            // DBNull.Value = « pas de valeur » en SQL (NULL) : un jeu sans aucune offre en ce moment.
+            command.Parameters.AddWithValue("$best", ToCents(game.BestPrice) ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$shop", game.BestShop ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$cut", game.BestCut);
+            command.Parameters.AddWithValue("$low", ToCents(game.HistoryLow) ?? (object)DBNull.Value);
+            command.Parameters.AddWithValue("$currency", game.Currency);
+            command.Parameters.AddWithValue("$checked", game.PricesCheckedUnix);
+            command.Parameters.AddWithValue("$id", game.ItadId);
+            command.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    private static long? ToCents(decimal? amount)
+    {
+        return amount == null ? null : (long)Math.Round(amount.Value * 100);
+    }
+
+    public void RemoveWatchedGame(string itadId)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM WatchedGame WHERE ItadId = $id;";
+        command.Parameters.AddWithValue("$id", itadId);
         command.ExecuteNonQuery();
     }
 }

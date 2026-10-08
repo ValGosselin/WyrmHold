@@ -1,0 +1,260 @@
+<!-- Onglet « Boutiques » : chercher n'importe quel jeu (possédé ou non) et comparer ses prix.
+     C'est un UserControl : un morceau d'interface rangé dans son propre fichier,
+     que MainWindow.xaml place dans un onglet avec <local:ShopsView/>. -->
+<UserControl x:Class="WyrmHold.App.ShopsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <UserControl.Resources>
+        <!-- Transforme true/false en Visible/Collapsed : sert à cacher le badge de réduction
+             et le prix barré quand le jeu n'est pas en promo. -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+    </UserControl.Resources>
+
+    <DockPanel Margin="10">
+
+        <!-- Barre de recherche -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Height="32" Margin="0,0,0,10">
+            <Grid Width="320" Margin="0,0,10,0">
+                <TextBox x:Name="ShopSearchBox" Padding="6,0" VerticalContentAlignment="Center"
+                         KeyDown="ShopSearchBox_KeyDown"/>
+                <TextBlock Text="Chercher un jeu dans les boutiques…" Foreground="{DynamicResource SecondaryTextBrush}"
+                           Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=ShopSearchBox}" Value="">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+            <Button x:Name="ShopSearchButton" Content="Rechercher" Width="110" Click="ShopSearchButton_Click"/>
+            <CheckBox x:Name="GamesOnlyCheck" Content="Jeux et éditions seulement (sans DLC ni bande-son)"
+                      Margin="16,0,0,0" VerticalAlignment="Center"
+                      Checked="GamesOnlyCheck_Changed" Unchecked="GamesOnlyCheck_Changed"/>
+            <TextBlock x:Name="ShopStatusText" VerticalAlignment="Center" Margin="16,0,0,0"
+                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+        </StackPanel>
+
+        <!-- Mention demandée par IsThereAnyDeal -->
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,10,0,0" Foreground="{DynamicResource SecondaryTextBrush}">
+            Prix fournis par
+            <Hyperlink NavigateUri="https://isthereanydeal.com/" RequestNavigate="Hyperlink_RequestNavigate">IsThereAnyDeal</Hyperlink>
+        </TextBlock>
+
+        <!-- À gauche : les résultats de la recherche, la liste de suivi, ou les meilleures promos -->
+        <DockPanel DockPanel.Dock="Left" Width="320" Margin="0,0,10,0">
+
+            <!-- Trois RadioButton habillés en boutons à bascule (style ToggleButton) :
+                 un seul peut être enfoncé à la fois, comme des onglets.
+                 WrapPanel : passe à la ligne si les libellés ne tiennent pas sur 320 pixels. -->
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <RadioButton x:Name="ResultsTabButton" Content="Résultats" IsChecked="True" Padding="12,4" Margin="0,0,6,4"
+                             Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
+                <RadioButton x:Name="WatchListTabButton" Content="★ Suivis" Padding="12,4" Margin="0,0,6,4"
+                             Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
+                <RadioButton x:Name="PromosTabButton" Content="🔥 Promos" Padding="12,4" Margin="0,0,6,4"
+                             Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
+                <Button x:Name="RefreshPricesButton" Content="↻" Padding="10,4" Margin="0,0,0,4"
+                        ToolTip="Mettre à jour : jeux suivis (synchro Waitlist et prix) ou liste des promos, selon l'onglet"
+                        Click="RefreshPricesButton_Click"/>
+            </WrapPanel>
+
+            <!-- Options de l'onglet Promos (cachées dans les autres onglets) -->
+            <StackPanel x:Name="PromosOptionsPanel" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+                <ComboBox x:Name="PromosSortMode" Height="32" VerticalContentAlignment="Center" SelectedIndex="0"
+                          SelectionChanged="PromosSortMode_SelectionChanged">
+                    <ComboBoxItem Content="Classement IsThereAnyDeal" Tag=""/>
+                    <ComboBoxItem Content="Plus forte réduction" Tag="-cut"/>
+                    <ComboBoxItem Content="Prix le plus bas" Tag="price"/>
+                </ComboBox>
+                <CheckBox x:Name="HideOwnedCheck" Content="Masquer les jeux que je possède" Margin="0,6,0,0"
+                          Checked="PromosFilter_Changed" Unchecked="PromosFilter_Changed"/>
+            </StackPanel>
+
+            <!-- En bas, dans l'onglet Promos seulement : charger la page suivante -->
+            <Button x:Name="LoadMorePromosButton" DockPanel.Dock="Bottom" Content="Charger 50 promos de plus"
+                    Margin="0,6,0,0" Height="32" Visibility="Collapsed" Click="LoadMorePromosButton_Click"/>
+
+            <ListBox x:Name="SearchResultsList"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     SelectionChanged="SearchResultsList_SelectionChanged">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,2">
+                            <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding Type}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <!-- Affiché seulement si le jeu est dans ta bibliothèque -->
+                            <TextBlock Text="{Binding OwnedBadgeText}" FontSize="11" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource SuccessTextBrush}"
+                                       Visibility="{Binding IsOwned, Converter={StaticResource BoolToVisibility}}"/>
+                            <!-- Affiché seulement si le jeu est dans ta liste de suivi -->
+                            <TextBlock Text="★ Suivi" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource CompleteTextBrush}"
+                                       Visibility="{Binding IsWatched, Converter={StaticResource BoolToVisibility}}"/>
+                            <!-- Dans l'onglet Suivis seulement : le dernier meilleur prix connu -->
+                            <TextBlock Text="{Binding PriceLine}" FontSize="12" TextWrapping="Wrap"
+                                       Visibility="{Binding HasPriceLine, Converter={StaticResource BoolToVisibility}}"/>
+
+                            <!-- Badges des jeux suivis. WrapPanel : passe à la ligne s'il n'y a pas la place. -->
+                            <WrapPanel Margin="0,3,0,0">
+                                <Border Background="#2E7D32" CornerRadius="4" Padding="6,1" Margin="0,0,6,2"
+                                        Visibility="{Binding IsOnSale, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="{Binding SaleText}" FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                                </Border>
+                                <Border Background="#B8860B" CornerRadius="4" Padding="6,1" Margin="0,0,6,2"
+                                        ToolTip="Le meilleur prix actuel égale le plus bas jamais vu, toutes boutiques confondues."
+                                        Visibility="{Binding IsAtHistoricalLow, Converter={StaticResource BoolToVisibility}}">
+                                    <TextBlock Text="Plus bas historique" FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                                </Border>
+                            </WrapPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- À droite : les offres du jeu choisi, une ligne par boutique -->
+        <DockPanel>
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                <!-- Tri des offres. Tag = le nom interne du tri, lu par le code (comme SortMode dans la Bibliothèque). -->
+                <ComboBox x:Name="DealsSortMode" DockPanel.Dock="Right" Width="230" Height="32"
+                          VerticalAlignment="Bottom" VerticalContentAlignment="Center" SelectedIndex="0"
+                          SelectionChanged="DealsSortMode_SelectionChanged">
+                    <ComboBoxItem Content="Prix : moins cher d'abord" Tag="price"/>
+                    <ComboBoxItem Content="Réduction : plus forte d'abord" Tag="cut"/>
+                    <ComboBoxItem Content="Boutique : de A à Z" Tag="shop"/>
+                </ComboBox>
+
+                <!-- Ajoute ou retire le jeu affiché de la liste de suivi. Caché tant qu'aucun jeu n'est choisi. -->
+                <Button x:Name="FollowButton" DockPanel.Dock="Right" Height="32" Padding="12,0" Margin="0,0,10,0"
+                        VerticalAlignment="Bottom" Visibility="Collapsed" Click="FollowButton_Click"/>
+
+                <StackPanel>
+                    <TextBlock x:Name="SelectedGameTitle" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="OwnedText" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,2,0,2"
+                               Foreground="{DynamicResource SuccessTextBrush}" Visibility="Collapsed"/>
+                    <TextBlock x:Name="DealsStatusText" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+
+                    <!-- Plus bas historique (toutes boutiques) et comparaison avec le meilleur prix actuel -->
+                    <TextBlock x:Name="HistoryLowText" Margin="0,6,0,0" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                    <TextBlock x:Name="HistoryCompareText" TextWrapping="Wrap"/>
+                </StackPanel>
+            </DockPanel>
+
+            <!-- Présentation du jeu choisi : jaquette, studio et date, genres, note Steam, description.
+                 Cachée tant qu'elle n'est pas chargée (ou si IsThereAnyDeal ne connaît pas le jeu). -->
+            <Border x:Name="PresentationPanel" DockPanel.Dock="Top" Background="{DynamicResource CardBrush}"
+                    CornerRadius="6" Padding="12" Margin="0,0,0,10" Visibility="Collapsed">
+                <DockPanel>
+                    <!-- L'image est chargée par le code (WebImageLoader), qui la garde aussi en cache sur le disque -->
+                    <Image x:Name="PresentationCover" DockPanel.Dock="Left" Width="96" Margin="0,0,14,0"
+                           VerticalAlignment="Top" Stretch="Uniform"/>
+                    <StackPanel>
+                        <TextBlock x:Name="PresentationInfo" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PresentationTags" Margin="0,2,0,0" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PresentationReviews" Margin="0,2,0,0" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource SuccessTextBrush}"/>
+                        <TextBlock x:Name="PresentationDescription" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- Filtres des offres -->
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Height="32" Margin="0,0,0,10">
+
+                <!-- Bouton qui ouvre une petite fenêtre flottante (Popup) avec une case par boutique.
+                     IsOpen est relié à IsChecked : bouton enfoncé = liste ouverte. StaysOpen="False" la
+                     referme quand on clique ailleurs, et la liaison relâche alors le bouton. -->
+                <ToggleButton x:Name="ShopFilterButton" Content="Boutiques ▾" Padding="12,0"/>
+                <Popup IsOpen="{Binding IsChecked, ElementName=ShopFilterButton}" StaysOpen="False"
+                       PlacementTarget="{Binding ElementName=ShopFilterButton}" Placement="Bottom">
+                    <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource PanelBorderBrush}"
+                            BorderThickness="1" CornerRadius="6" Padding="12,8">
+                        <ScrollViewer MaxHeight="350" VerticalScrollBarVisibility="Auto">
+                            <StackPanel x:Name="ShopFilterPanel" MinWidth="200"/>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
+
+                <CheckBox x:Name="OnlyDealsCheck" Content="En promo seulement" Margin="16,0,0,0" VerticalAlignment="Center"
+                          Checked="DealsFilter_Changed" Unchecked="DealsFilter_Changed"/>
+
+                <TextBlock Text="Prix max :" Margin="16,0,6,0" VerticalAlignment="Center"/>
+                <TextBox x:Name="MaxPriceBox" Width="70" VerticalContentAlignment="Center" Padding="6,0"
+                         TextChanged="DealsFilter_Changed"/>
+                <TextBlock Text="€" Margin="6,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="DealsList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="12,8" Margin="0,0,0,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>     <!-- boutique -->
+                                        <ColumnDefinition Width="80"/>    <!-- réduction -->
+                                        <ColumnDefinition Width="100"/>   <!-- prix normal barré -->
+                                        <ColumnDefinition Width="100"/>   <!-- prix actuel -->
+                                        <ColumnDefinition Width="Auto"/>  <!-- bouton -->
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- Nom de la boutique + badge « Officiel » ou « Revendeur agréé » -->
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding ShopName}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Border x:Name="TrustBadge" Margin="10,0,0,0" Padding="6,1" CornerRadius="4"
+                                                BorderThickness="1" BorderBrush="{DynamicResource SecondaryTextBrush}"
+                                                VerticalAlignment="Center" ToolTip="{Binding TrustTooltip}">
+                                            <TextBlock x:Name="TrustText" Text="{Binding TrustText}" FontSize="11"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        </Border>
+
+                                        <!-- Badge doré quand ce prix égale le plus bas jamais vu -->
+                                        <Border Margin="6,0,0,0" Padding="6,1" CornerRadius="4" Background="#B8860B"
+                                                VerticalAlignment="Center"
+                                                ToolTip="Ce prix égale le plus bas jamais vu, toutes boutiques confondues."
+                                                Visibility="{Binding IsHistoricalLow, Converter={StaticResource BoolToVisibility}}">
+                                            <TextBlock Text="Plus bas historique" FontSize="11" Foreground="White" FontWeight="SemiBold"/>
+                                        </Border>
+                                    </StackPanel>
+
+                                    <Border Grid.Column="1" Background="#2E7D32" CornerRadius="4" Padding="6,2"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            Visibility="{Binding HasCut, Converter={StaticResource BoolToVisibility}}">
+                                        <TextBlock Text="{Binding CutText}" Foreground="White" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <TextBlock Grid.Column="2" Text="{Binding RegularPriceText}" TextDecorations="Strikethrough"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"
+                                               Visibility="{Binding HasCut, Converter={StaticResource BoolToVisibility}}"/>
+
+                                    <TextBlock Grid.Column="3" Text="{Binding PriceText}" FontSize="16" FontWeight="Bold"
+                                               HorizontalAlignment="Right" VerticalAlignment="Center"/>
+
+                                    <!-- Le lien de l'offre est rangé dans Tag : le code le relit au clic. -->
+                                    <Button Grid.Column="4" Content="Voir l'offre" Margin="16,0,0,0" Padding="12,4"
+                                            Tag="{Binding Url}" Click="OpenDealButton_Click"/>
+                                </Grid>
+                            </Border>
+
+                            <!-- Boutique officielle : badge bleu plein, pour qu'il se distingue au premier coup d'œil -->
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding IsOfficialShop}" Value="True">
+                                    <Setter TargetName="TrustBadge" Property="Background" Value="#1E5AA8"/>
+                                    <Setter TargetName="TrustBadge" Property="BorderBrush" Value="#1E5AA8"/>
+                                    <Setter TargetName="TrustText" Property="Foreground" Value="White"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </DockPanel>
+    </DockPanel>
+</UserControl>

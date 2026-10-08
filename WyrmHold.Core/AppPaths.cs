@@ -15,6 +15,13 @@ public static class AppPaths
     }
     public static string GetWebViewFolder(Platform platform)
     {
-        return Path.Combine(DataFolder, "WebView2", platform.ToString());
+        return GetWebViewFolder(platform.ToString());
+    }
+
+    // Pour un site qui n'est pas une plateforme de jeux (ex. « IsThereAnyDeal ») :
+    // chaque site a son propre dossier, donc ses propres cookies de connexion.
+    public static string GetWebViewFolder(string name)
+    {
+        return Path.Combine(DataFolder, "WebView2", name);
     }
 }
