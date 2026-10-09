@@ -33,7 +33,10 @@ dotnet tool restore
 if ($LASTEXITCODE -ne 0) { throw "Impossible d'installer l'outil vpk." }
 
 # --- 3. Compiler l'appli, avec .NET inclus : rien d'autre à installer chez le testeur. ---
+# On repart de dossiers vides : un ancien essai (-LocalOnly) avec le même numéro de version
+# ferait échouer la fabrication de l'installateur.
 if (Test-Path "publish") { Remove-Item -Recurse -Force "publish" }
+if (Test-Path "Releases") { Remove-Item -Recurse -Force "Releases" }
 dotnet publish "WyrmHold.App\WyrmHold.App.csproj" -c Release --self-contained -r win-x64 -o "publish"
 if ($LASTEXITCODE -ne 0) { throw "La compilation a échoué." }
 
