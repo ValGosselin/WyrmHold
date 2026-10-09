@@ -39,18 +39,23 @@ public class UbisoftPageCapture
     {
         string uri = e.Request.Uri;
 
-        if (!uri.StartsWith(ApiServer, StringComparison.OrdinalIgnoreCase))
+        // Seules les vraies réponses (GET réussi) ont un contenu à lire. Les autres (requêtes OPTIONS que le
+        // navigateur envoie avant chaque appel à un autre site, erreurs, redirections) n'en ont pas :
+        // les lire remplissait le journal de « Lecture d'une réponse web impossible » (9 octobre 2026).
+        if (!uri.StartsWith(ApiServer, StringComparison.OrdinalIgnoreCase)
+            || e.Request.Method != "GET"
+            || e.Response.StatusCode != 200)
         {
             return;
         }
 
         if (uri.Contains("/gamesplayed", StringComparison.OrdinalIgnoreCase))
         {
-            _capture.GamesPlayedJson = await WebViewHelpers.ReadContentAsync(e.Response);
+            _capture.GamesPlayedJson = await WebViewHelpers.ReadContentAsync(e.Response, uri);
         }
         else if (uri.Contains("/catalog?", StringComparison.OrdinalIgnoreCase))
         {
-            string? json = await WebViewHelpers.ReadContentAsync(e.Response);
+            string? json = await WebViewHelpers.ReadContentAsync(e.Response, uri);
 
             if (json is not null)
             {
@@ -61,7 +66,7 @@ public class UbisoftPageCapture
         else if (uri.Contains("/stats?", StringComparison.OrdinalIgnoreCase))
         {
             string? spaceId = HttpUtility.ParseQueryString(new Uri(uri).Query)["spaceId"];
-            string? json = await WebViewHelpers.ReadContentAsync(e.Response);
+            string? json = await WebViewHelpers.ReadContentAsync(e.Response, uri);
 
             if (spaceId is not null && json is not null)
             {

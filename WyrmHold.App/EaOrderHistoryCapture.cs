@@ -32,7 +32,7 @@ public class EaOrderHistoryCapture
             return;
         }
 
-        string? json = await WebViewHelpers.ReadContentAsync(e.Response);
+        string? json = await WebViewHelpers.ReadContentAsync(e.Response, e.Request.Uri);
 
         if (json is not null && (json.TrimStart().StartsWith('[') || json.TrimStart().StartsWith('{')))
         {

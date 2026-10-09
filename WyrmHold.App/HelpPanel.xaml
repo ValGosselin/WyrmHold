@@ -1,0 +1,115 @@
+<!-- L'aide d'un jeu : recherche, liens rapides et guides Steam à gauche, navigateur intégré à droite.
+     Un panneau et pas une fenêtre : il sert dans la fenêtre « Aide » (fiche du jeu) ET dans l'onglet « Aide » de l'overlay.
+     Le navigateur est ajouté par le code (BrowserHost) : l'overlay a besoin d'une version spéciale (voir HelpPanel.xaml.cs). -->
+<UserControl x:Class="WyrmHold.App.HelpPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="340"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- À gauche : recherche, liens rapides et guides Steam -->
+        <DockPanel Grid.Column="0" Margin="0,0,14,0">
+            <StackPanel DockPanel.Dock="Top">
+                <TextBlock x:Name="GameNameText" FontSize="20" FontWeight="Bold" TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+                <!-- Les succès du jeu (caché si le jeu n'en a pas) -->
+                <Button x:Name="AchievementsButton" HorizontalAlignment="Left" Padding="10,4"
+                        Click="AchievementsButton_Click"/>
+
+                <!-- Recherche libre : le nom du jeu est ajouté tout seul devant les mots tapés -->
+                <TextBlock Text="Chercher de l'aide (succès, boss, bug…)" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                <Grid Height="32">
+                    <TextBox x:Name="SearchBox" Padding="6,0" VerticalContentAlignment="Center" KeyDown="SearchBox_KeyDown"/>
+                    <TextBlock Text="Ex. : sauvegarde corrompue, Malenia…" Foreground="{DynamicResource SecondaryTextBrush}" Margin="10,0,0,0"
+                               VerticalAlignment="Center" IsHitTestVisible="False">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Text, ElementName=SearchBox}" Value="">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Grid>
+
+                <!-- Où chercher : Entrée dans la case = Google -->
+                <UniformGrid Columns="4" Margin="0,6,0,0" Height="30">
+                    <Button Content="Google" Margin="0,0,4,0" Click="SearchGoogle_Click"/>
+                    <Button Content="YouTube" Margin="2,0" Click="SearchYouTube_Click"/>
+                    <Button x:Name="SearchSteamForumButton" Content="Forums Steam" Margin="2,0" Click="SearchSteamForum_Click"/>
+                    <Button Content="Reddit" Margin="4,0,0,0" Click="SearchReddit_Click"/>
+                </UniformGrid>
+
+                <!-- Liens rapides, sans rien taper -->
+                <TextBlock Text="Pages du jeu" FontWeight="SemiBold" Margin="0,14,0,4"/>
+                <UniformGrid Columns="3" Height="30">
+                    <Button x:Name="SteamForumButton" Content="💬 Forums Steam" Margin="0,0,4,0" Click="SteamForum_Click"/>
+                    <Button Content="Reddit" Margin="2,0" Click="Reddit_Click"/>
+                    <Button Content="📖 Wiki" Margin="4,0,0,0" Click="Wiki_Click"/>
+                </UniformGrid>
+
+                <!-- Guides Steam -->
+                <TextBlock Text="Guides Steam (français et anglais)" FontWeight="SemiBold" Margin="0,14,0,4"/>
+                <StackPanel Orientation="Horizontal" Height="30">
+                    <ComboBox x:Name="GuidesFilter" Width="150" SelectedIndex="0" VerticalContentAlignment="Center"
+                              SelectionChanged="GuidesFilter_SelectionChanged">
+                        <ComboBoxItem Content="Tous les guides" Tag="all"/>
+                        <ComboBoxItem Content="Guides de succès" Tag="achievements"/>
+                        <ComboBoxItem Content="En français" Tag="french"/>
+                    </ComboBox>
+                    <ComboBox x:Name="GuidesSort" Width="150" Margin="8,0,0,0" SelectedIndex="0" VerticalContentAlignment="Center"
+                              SelectionChanged="GuidesSort_SelectionChanged">
+                        <ComboBoxItem Content="Les mieux notés" Tag="top"/>
+                        <ComboBoxItem Content="Les plus récents" Tag="newest"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <TextBlock x:Name="GuidesStatusText" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            </StackPanel>
+
+            <!-- Un clic sur un guide l'ouvre à droite -->
+            <ListBox x:Name="GuidesList" Margin="0,6,0,0"
+                     HorizontalContentAlignment="Stretch"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     VirtualizingPanel.ScrollUnit="Pixel"
+                     SelectionChanged="GuidesList_SelectionChanged">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="2,4">
+                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{Binding InfoText}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,2,0,0"/>
+                            <TextBlock Text="{Binding ShortDescription}" Foreground="{DynamicResource DescriptionTextBrush}" FontSize="12"
+                                       TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="34" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- À droite : le navigateur intégré -->
+        <DockPanel Grid.Column="1">
+            <DockPanel DockPanel.Dock="Top" Height="32" Margin="0,0,0,6">
+                <Button DockPanel.Dock="Left" Content="←" Width="36" ToolTip="Page précédente" Click="Back_Click"/>
+                <Button DockPanel.Dock="Left" Content="→" Width="36" Margin="4,0,0,0" ToolTip="Page suivante" Click="Forward_Click"/>
+                <Button DockPanel.Dock="Left" Content="↻" Width="36" Margin="4,0,0,0" ToolTip="Recharger" Click="Reload_Click"/>
+                <Button DockPanel.Dock="Right" Content="Ouvrir dans mon navigateur" Padding="10,0" Margin="8,0,0,0" Click="OpenExternal_Click"/>
+                <TextBlock x:Name="AddressText" Foreground="{DynamicResource SecondaryTextBrush}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Margin="10,0,0,0"/>
+            </DockPanel>
+
+            <!-- Le navigateur est ajouté ici par le code -->
+            <Grid x:Name="BrowserHost">
+                <TextBlock x:Name="BrowserPlaceholder" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" MaxWidth="420"
+                           Text="Choisis un guide à gauche, ou lance une recherche : la page s'affichera ici."/>
+            </Grid>
+        </DockPanel>
+    </Grid>
+</UserControl>

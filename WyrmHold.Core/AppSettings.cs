@@ -36,10 +36,11 @@ public class AppSettings
 
     public const string DefaultOverlayHotkey = "Ctrl+Shift+W";
 
-    // Le raccourci global qui ouvre ou ferme la fenêtre Aide du jeu en cours (actif avec l'overlay).
-    public string HelpHotkey { get; set; } = DefaultHelpHotkey;
+    // (Le raccourci de l'aide, « HelpHotkey », a été retiré le 9 octobre 2026 : l'aide est un onglet de l'overlay.
+    //  Une ancienne valeur dans settings.json est simplement ignorée.)
 
-    public const string DefaultHelpHotkey = "Ctrl+Shift+G";
+    // L'état de la fenêtre au moment où l'on a quitté (taille, onglet, filtres, tri…), remis au démarrage.
+    public UiState Ui { get; set; } = new UiState();
 
     // Pas de notification Wyrmhold pour un succès Steam : Steam affiche déjà les siens (en bas à droite).
     // Les succès Steam restent suivis (base, badges, overlay).

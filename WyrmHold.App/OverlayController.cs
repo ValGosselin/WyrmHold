@@ -6,37 +6,28 @@ using Wyrmhold.Core;
 namespace WyrmHold.App;
 
 /// <summary>
-/// Fait le lien entre le détecteur de jeu (GameWatcher), le raccourci global et la fenêtre overlay.
+/// Fait le lien entre le détecteur de jeu (GameWatcher), le raccourci global et l'overlay façon Steam
+/// (OverlayHubWindow, une fenêtre par partie).
 /// Overlay désactivé dans les réglages = pas de raccourci, et pas de surveillance (sauf le temps
 /// qu'un jeu lancé depuis Wyrmhold soit suivi pour son temps de jeu, comme avant).
 /// </summary>
 public sealed class OverlayController : IDisposable
 {
     private readonly LibraryService _library;
-    private readonly OverlayWindow _window = new OverlayWindow();
 
-    // Met à jour le temps de session chaque seconde, seulement quand l'overlay est visible.
-    private readonly DispatcherTimer _clock = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+    // L'overlay de la partie en cours (null = pas encore ouvert pendant cette partie).
+    private OverlayHubWindow? _hub;
 
+    // Le raccourci : ouvre ou ferme l'overlay (sur l'onglet de la dernière fois).
     private GlobalHotkey? _hotkey;
     private string _hotkeyText = AppSettings.DefaultOverlayHotkey;
-
-    // ----- Aide en jeu -----
-
-    // Le second raccourci : ouvre ou ferme la fenêtre Aide du jeu en cours.
-    private GlobalHotkey? _helpHotkey;
-    private string _helpHotkeyText = AppSettings.DefaultHelpHotkey;
-
-    // La fenêtre Aide ouverte par le raccourci (null = fermée).
-    private HelpWindow? _helpWindow;
 
     // ----- Notifications de succès -----
 
     // Combien de temps une notification reste affichée.
     private static readonly TimeSpan ToastDuration = TimeSpan.FromSeconds(4);
 
-    // Écart entre l'overlay et une notification posée en dessous, et avec le haut de l'écran.
-    private const double ToastGap = 8;
+    // Écart avec le haut de l'écran.
     private const double ScreenMargin = 16;
 
     private record ToastContent(string Title, string Name, string Description, string? IconUrl, bool IsGold);
@@ -51,9 +42,14 @@ public sealed class OverlayController : IDisposable
     {
         _library = library;
 
-        // Un jeu démarre ou se ferme pendant que l'overlay est affiché : on le redessine.
-        _library.Watcher.GameStarted += running => RefreshIfVisible();
-        _library.Watcher.GameStopped += (running, end) => RefreshIfVisible();
+        // Le jeu se ferme : son overlay aussi (le prochain jeu aura le sien).
+        _library.Watcher.GameStopped += (running, end) =>
+        {
+            if (_hub?.Running == running)
+            {
+                CloseHub();
+            }
+        };
 
         _library.LiveAchievements.AchievementUnlocked += OnAchievementUnlocked;
         _library.LiveAchievements.GameCompleted += OnGameCompleted;
@@ -65,67 +61,39 @@ public sealed class OverlayController : IDisposable
             _toast.Hide();
             ShowNextToast();
         };
-
-        _clock.Tick += (sender, e) =>
-        {
-            // Le jeu est passé en plein écran exclusif pendant que l'overlay était affiché : on se retire.
-            if (FullScreenDetector.IsExclusiveFullScreen())
-            {
-                Hide();
-                return;
-            }
-
-            if (_library.Watcher.Current is RunningGame running)
-            {
-                _window.UpdateSessionTime(running);
-            }
-        };
     }
 
-    // Les raccourcis réellement utilisés (ceux des réglages, ou ceux par défaut s'ils étaient illisibles).
+    // Le raccourci réellement utilisé (celui des réglages, ou celui par défaut s'il était illisible).
     public string CurrentHotkey => _hotkeyText;
-    public string CurrentHelpHotkey => _helpHotkeyText;
 
     // false = Windows a refusé le raccourci (déjà utilisé par une autre application).
     public bool IsHotkeyAccepted { get; private set; } = true;
-    public bool IsHelpHotkeyAccepted { get; private set; } = true;
 
     /// <summary>
-    /// Applique les réglages de l'overlay et de l'aide en jeu. Renvoie false si un des deux raccourcis
-    /// est refusé par Windows (IsHotkeyAccepted / IsHelpHotkeyAccepted disent lequel).
+    /// Applique les réglages de l'overlay. Renvoie false si Windows refuse le raccourci.
     /// </summary>
     public bool ApplySettings()
     {
         AppSettings settings = _library.Settings;
         _library.UpdateWatcherState();
 
-        // L'aide en jeu a besoin du détecteur de jeu : elle suit donc l'overlay.
         if (!settings.OverlayEnabled)
         {
             _hotkey?.Dispose();
             _hotkey = null;
-            _helpHotkey?.Dispose();
-            _helpHotkey = null;
             IsHotkeyAccepted = true;
-            IsHelpHotkeyAccepted = true;
-            Hide();
+            CloseHub();
             return true;
         }
 
-        _hotkey ??= CreateHotkey(Toggle);
-        _helpHotkey ??= CreateHotkey(ToggleHelp);
+        if (_hotkey is null)
+        {
+            _hotkey = new GlobalHotkey();
+            _hotkey.Pressed += Toggle;
+        }
 
         IsHotkeyAccepted = Register(_hotkey, settings.OverlayHotkey, AppSettings.DefaultOverlayHotkey, "de l'overlay", out _hotkeyText);
-        IsHelpHotkeyAccepted = Register(_helpHotkey, settings.HelpHotkey, AppSettings.DefaultHelpHotkey, "de l'aide", out _helpHotkeyText);
-
-        return IsHotkeyAccepted && IsHelpHotkeyAccepted;
-    }
-
-    private static GlobalHotkey CreateHotkey(Action pressed)
-    {
-        GlobalHotkey hotkey = new GlobalHotkey();
-        hotkey.Pressed += pressed;
-        return hotkey;
+        return IsHotkeyAccepted;
     }
 
     /// <summary>
@@ -155,29 +123,33 @@ public sealed class OverlayController : IDisposable
     }
 
     /// <summary>
-    /// Libère les raccourcis pendant qu'on en tape un nouveau dans les réglages
-    /// (sinon Windows l'intercepterait avant la case de saisie). ApplySettings les remet.
+    /// Libère le raccourci pendant qu'on en tape un nouveau dans les réglages
+    /// (sinon Windows l'intercepterait avant la case de saisie). ApplySettings le remet.
     /// </summary>
     public void SuspendHotkey()
     {
         _hotkey?.Unregister();
-        _helpHotkey?.Unregister();
     }
 
-    /// <summary>
-    /// Le raccourci de l'aide : ouvre la fenêtre Aide du jeu en cours, ou la ferme si elle est ouverte.
-    /// Contrairement à l'overlay, elle prend le clavier et la souris (il faut pouvoir cliquer dedans) ;
-    /// en la fermant, Windows rend la main au jeu.
-    /// </summary>
-    public void ToggleHelp()
+    /// <summary>Le raccourci : ouvre l'overlay (onglet de la dernière fois) ou le referme.</summary>
+    public void Toggle()
     {
-        if (_helpWindow is not null)
+        if (_hub is { IsVisible: true })
         {
-            _helpWindow.Close();   // Closed remet _helpWindow à null
+            _hub.HideHub();
             return;
         }
 
-        // En plein écran exclusif, une fenêtre par-dessus ferait sortir le jeu du plein écran.
+        OpenHub();
+    }
+
+    /// <summary>
+    /// Ouvre l'overlay du jeu en cours. Il prend le clavier et la souris (on clique et on tape dedans) ;
+    /// en le cachant, Windows rend la main au jeu.
+    /// </summary>
+    private void OpenHub()
+    {
+        // En plein écran exclusif, une fenêtre par-dessus ferait sortir le jeu du plein écran : on ne fait rien.
         if (FullScreenDetector.IsExclusiveFullScreen())
         {
             return;
@@ -185,30 +157,37 @@ public sealed class OverlayController : IDisposable
 
         if (_library.Watcher.Current is not RunningGame running)
         {
-            EnqueueToast(new ToastContent("AIDE", "Aucun jeu en cours", "Lance un jeu, puis rappuie sur " + _helpHotkeyText + ".", null, false));
+            EnqueueToast(new ToastContent("OVERLAY", "Aucun jeu en cours", $"Lance un jeu installé, puis rappuie sur {_hotkeyText}.", null, false));
             return;
         }
 
-        // L'overlay se range : il serait par-dessus la fenêtre Aide.
-        Hide();
+        // L'overlay gardé appartient à une autre partie (autre jeu, ou jeu relancé) : on en refait un.
+        if (_hub is not null && _hub.Running != running)
+        {
+            CloseHub();
+        }
 
-        // Topmost : la fenêtre passe devant le jeu (en fenêtré sans bordure, il est lui-même tout devant).
-        _helpWindow = new HelpWindow(_library, running.Game) { Topmost = true, WindowStartupLocation = WindowStartupLocation.CenterScreen };
-        _helpWindow.Closed += (sender, e) => _helpWindow = null;
-        _helpWindow.Show();
-        _helpWindow.Activate();
+        if (_hub is null)
+        {
+            OverlayHubWindow hub = new OverlayHubWindow(_library, running);
+            hub.Closed += (sender, e) =>
+            {
+                if (_hub == hub)
+                {
+                    _hub = null;
+                }
+            };
+            _hub = hub;
+        }
+
+        _hub.Open(_hotkeyText);
     }
 
-    public void Toggle()
+    private void CloseHub()
     {
-        if (_window.IsVisible)
-        {
-            Hide();
-        }
-        else
-        {
-            Show();
-        }
+        OverlayHubWindow? hub = _hub;
+        _hub = null;
+        hub?.Close();
     }
 
     /// <summary>
@@ -234,20 +213,16 @@ public sealed class OverlayController : IDisposable
 
     public void Dispose()
     {
-        _clock.Stop();
         _toastTimer.Stop();
         _hotkey?.Dispose();
         _hotkey = null;
-        _helpHotkey?.Dispose();
-        _helpHotkey = null;
-        _helpWindow?.Close();
-        _window.Close();
+        CloseHub();
         _toast.Close();
     }
 
     private void OnAchievementUnlocked(Game game, AchievementDetail achievement)
     {
-        RefreshIfVisible();   // « 25 restants » devient « 24 restants »
+        _hub?.RefreshAchievements();   // la liste et l'accueil de l'overlay, s'il est affiché
 
         // Steam affiche déjà ses propres notifications : pas de doublon (réglage coché par défaut).
         if (game.Platform == Platform.Steam && _library.Settings.MuteSteamAchievementNotifications)
@@ -261,7 +236,6 @@ public sealed class OverlayController : IDisposable
 
     private void OnGameCompleted(Game game)
     {
-        RefreshIfVisible();
 
         // Affichée même pour Steam : Steam, lui, ne fête pas le 100 %.
         EnqueueToast(new ToastContent(
@@ -293,10 +267,8 @@ public sealed class OverlayController : IDisposable
                 continue;
             }
 
-            // Juste sous l'overlay s'il est affiché, sinon tout en haut à droite.
-            double top = _window.IsVisible
-                ? _window.Bottom + ToastGap
-                : SystemParameters.WorkArea.Top + ScreenMargin;
+            // Tout en haut à droite (par-dessus l'overlay s'il est ouvert : elle s'affiche après lui).
+            double top = SystemParameters.WorkArea.Top + ScreenMargin;
 
             _toast.ShowToast(content.Title, content.Name, content.Description, content.IconUrl, content.IsGold, top);
             _toastTimer.Start();
@@ -316,35 +288,4 @@ public sealed class OverlayController : IDisposable
         }
     }
 
-    private void Show()
-    {
-        // En plein écran exclusif, s'afficher ferait sortir le jeu du plein écran : on ne fait rien.
-        if (FullScreenDetector.IsExclusiveFullScreen())
-        {
-            return;
-        }
-
-        Refresh();
-        _window.Show();
-        _clock.Start();
-    }
-
-    private void Hide()
-    {
-        _clock.Stop();
-        _window.Hide();
-    }
-
-    private void RefreshIfVisible()
-    {
-        if (_window.IsVisible)
-        {
-            Refresh();
-        }
-    }
-
-    private void Refresh()
-    {
-        _window.ShowGame(_library.Watcher.Current, _hotkeyText);
-    }
 }

@@ -6,7 +6,7 @@ namespace WyrmHold.App;
 
 /// <summary>
 /// Rend une fenêtre « fantôme » : on la voit, mais la souris et le clavier vont toujours au jeu,
-/// qui ne se met donc ni en pause ni en arrière-plan. Sert à l'overlay et aux notifications de succès.
+/// qui ne se met donc ni en pause ni en arrière-plan. Sert aux notifications de succès.
 /// À appeler dans OnSourceInitialized : c'est là que Windows a créé la vraie fenêtre (son « handle »).
 /// </summary>
 public static class GhostWindow
@@ -21,6 +21,17 @@ public static class GhostWindow
         IntPtr handle = new WindowInteropHelper(window).Handle;
         int style = GetWindowLong(handle, GwlExStyle);
         SetWindowLong(handle, GwlExStyle, style | WsExTransparent | WsExToolWindow | WsExNoActivate);
+    }
+
+    /// <summary>
+    /// Retire seulement la fenêtre d'Alt+Tab, sans la rendre fantôme : elle garde le clavier et la souris
+    /// (l'overlay façon Steam, où l'on clique et l'on tape).
+    /// </summary>
+    public static void HideFromAltTab(Window window)
+    {
+        IntPtr handle = new WindowInteropHelper(window).Handle;
+        int style = GetWindowLong(handle, GwlExStyle);
+        SetWindowLong(handle, GwlExStyle, style | WsExToolWindow);
     }
 
     [DllImport("user32.dll", SetLastError = true)]

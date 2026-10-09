@@ -147,6 +147,56 @@ public class GameDatabase
         CREATE INDEX IF NOT EXISTS IX_PlaySession_GameId ON PlaySession(GameId);
         """;
         createSessions.ExecuteNonQuery();
+
+        // Bloc-notes de l'overlay : un texte libre par jeu (plateforme + identifiant, comme les collections).
+        using SqliteCommand createNotes = connection.CreateCommand();
+        createNotes.CommandText = """
+        CREATE TABLE IF NOT EXISTS GameNote (
+            Platform       TEXT    NOT NULL,
+            PlatformGameId TEXT    NOT NULL,
+            Text           TEXT    NOT NULL,
+            UpdatedUnix    INTEGER NOT NULL,
+            PRIMARY KEY (Platform, PlatformGameId)
+        );
+        """;
+        createNotes.ExecuteNonQuery();
+    }
+
+    // ----- Bloc-notes par jeu -----
+
+    /// <summary>Les notes d'un jeu ("" s'il n'en a pas).</summary>
+    public string LoadGameNote(Game game)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Text FROM GameNote WHERE Platform = $platform AND PlatformGameId = $gameId;";
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+
+        return command.ExecuteScalar() as string ?? "";
+    }
+
+    /// <summary>Enregistre les notes d'un jeu ; un texte vide efface la ligne.</summary>
+    public void SaveGameNote(Game game, string text)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = string.IsNullOrWhiteSpace(text)
+            ? "DELETE FROM GameNote WHERE Platform = $platform AND PlatformGameId = $gameId;"
+            : """
+              INSERT INTO GameNote (Platform, PlatformGameId, Text, UpdatedUnix)
+              VALUES ($platform, $gameId, $text, $now)
+              ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET Text = $text, UpdatedUnix = $now;
+              """;
+        command.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        command.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        command.Parameters.AddWithValue("$text", text);
+        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        command.ExecuteNonQuery();
     }
     // ----- Collections -----
 

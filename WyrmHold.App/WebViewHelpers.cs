@@ -6,7 +6,8 @@ namespace WyrmHold.App;
 
 public static class WebViewHelpers
 {
-    public static async Task<string?> ReadContentAsync(CoreWebView2WebResourceResponseView response)
+    // uri : l'adresse de la requête, notée dans le journal si la lecture échoue.
+    public static async Task<string?> ReadContentAsync(CoreWebView2WebResourceResponseView response, string? uri = null)
     {
         try
         {
@@ -22,8 +23,16 @@ public static class WebViewHelpers
         }
         catch (Exception ex)
         {
-            Logger.Log($"Lecture d'une réponse web impossible : {ex.Message}");
+            // L'adresse (sans ses paramètres, qui peuvent contenir des identifiants) dit d'où vient l'erreur.
+            Logger.Log($"Lecture d'une réponse web impossible ({response.StatusCode}{(uri is null ? "" : ", " + StripQuery(uri))}) : {ex.Message}");
             return null;
         }
+    }
+
+    // « https://site/chemin?id=…&token=… » → « https://site/chemin » : les paramètres restent hors du journal.
+    private static string StripQuery(string uri)
+    {
+        int question = uri.IndexOf('?');
+        return question < 0 ? uri : uri[..question];
     }
 }

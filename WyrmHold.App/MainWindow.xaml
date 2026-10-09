@@ -267,8 +267,6 @@
                                         </Button.Style>
                                     </Button>
 
-                                    <!-- Guides Steam, forums, Reddit, wiki, recherche : pour tous les jeux -->
-                                    <Button Margin="0,0,8,4" Padding="10,4" Content="🧭 Aide" Click="HelpButton_Click"/>
                                 </WrapPanel>
 
                                 <Grid Margin="0,12,0,0">
@@ -777,38 +775,19 @@
 
                     <TextBlock Text="Overlay en jeu" Style="{StaticResource SettingsSection}"/>
                     <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
-                               Text="Une petite fenêtre en haut à droite, par-dessus le jeu en cours : jeu, temps de session et succès restants. Elle ne s'affiche qu'au-dessus des jeux en mode fenêtré ou fenêtré sans bordure."/>
+                               Text="Un écran tout en un par-dessus le jeu en cours, comme celui de Steam : succès, session, aide et guides, bloc-notes, processeur et mémoire. Tant qu'il est ouvert, il prend le clavier et la souris ; Échap rend la main au jeu. Il ne s'affiche qu'au-dessus des jeux en mode fenêtré ou fenêtré sans bordure."/>
                     <CheckBox x:Name="OverlayEnabledCheck"
                               Content="Activer l'overlay (Wyrmhold repère le jeu en cours toutes les 5 secondes)"
                               Margin="0,0,0,8"
                               Checked="OverlayEnabledCheck_Changed" Unchecked="OverlayEnabledCheck_Changed"/>
-                    <!-- Lecture seule : on n'écrit pas dedans, on y appuie sur la combinaison voulue.
-                         Tag = le raccourci des réglages que la case modifie. -->
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Text="Raccourci pour afficher ou cacher l'overlay :" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                        <TextBox x:Name="OverlayHotkeyBox" Grid.Column="1" Width="200" IsReadOnly="True" IsReadOnlyCaretVisible="False"
-                                 Tag="overlay"
+                    <!-- Lecture seule : on n'écrit pas dedans, on y appuie sur la combinaison voulue. -->
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Raccourci pour ouvrir ou fermer l'overlay :" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBox x:Name="OverlayHotkeyBox" Width="200" IsReadOnly="True" IsReadOnlyCaretVisible="False"
                                  PreviewKeyDown="HotkeyBox_PreviewKeyDown"
                                  GotKeyboardFocus="HotkeyBox_GotKeyboardFocus"
                                  LostKeyboardFocus="HotkeyBox_LostKeyboardFocus"/>
-
-                        <TextBlock Grid.Row="1" Text="Raccourci pour ouvrir l'aide du jeu en cours :" VerticalAlignment="Center" Margin="0,6,10,0"/>
-                        <TextBox x:Name="HelpHotkeyBox" Grid.Row="1" Grid.Column="1" Width="200" Margin="0,6,0,0"
-                                 IsReadOnly="True" IsReadOnlyCaretVisible="False"
-                                 Tag="help"
-                                 PreviewKeyDown="HotkeyBox_PreviewKeyDown"
-                                 GotKeyboardFocus="HotkeyBox_GotKeyboardFocus"
-                                 LostKeyboardFocus="HotkeyBox_LostKeyboardFocus"/>
-                    </Grid>
+                    </StackPanel>
                     <TextBlock x:Name="OverlayHotkeyStatusText" Foreground="{DynamicResource SecondaryTextBrush}"
                                TextWrapping="Wrap" Margin="0,4,0,0"/>
 

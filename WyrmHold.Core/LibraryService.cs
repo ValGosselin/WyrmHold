@@ -1602,6 +1602,11 @@ public class LibraryService
     // Une session vient d'être enregistrée : la fenêtre peut rafraîchir le temps de jeu affiché.
     public event Action<Game>? PlaySessionRecorded;
 
+    // Le bloc-notes de l'overlay (un texte par jeu, gardé dans la base).
+    public string GetGameNote(Game game) => _database.LoadGameNote(game);
+
+    public void SaveGameNote(Game game, string text) => _database.SaveGameNote(game, text);
+
     /// <summary>
     /// Allume ou éteint le détecteur. Il tourne si l'overlay est activé, ou le temps qu'un jeu
     /// lancé depuis Wyrmhold soit suivi (comme avant l'overlay). Sinon, aucune surveillance.

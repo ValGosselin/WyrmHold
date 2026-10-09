@@ -57,6 +57,11 @@ public partial class MainWindow : Window
         // avec deux copies, chacune écraserait les changements de l'autre en enregistrant.
         ShopsPanel.Settings = _library.Settings;
 
+        // La même config que la dernière fois : taille de la fenêtre, puis l'onglet Boutiques.
+        // (Bibliothèque et onglet ouvert : après le 1er chargement des jeux, voir RestoreLibraryState.)
+        RestoreWindowPlacement();
+        ShopsPanel.RestoreState(_library.Settings.Ui);
+
         _overlay = new OverlayController(_library);
 
         // Une session de jeu vient d'être enregistrée : le temps de jeu affiché change.
@@ -64,6 +69,7 @@ public partial class MainWindow : Window
 
         Application.Current.SessionEnding += (sender, e) =>
         {
+            SaveUiState();
             _isExiting = true;
             _overlay.Dispose();
             _trayIcon.Dispose();
@@ -108,6 +114,7 @@ public partial class MainWindow : Window
 
         List<Game> games = await _library.ScanAllAsync();
         ShowGames(games);
+        RestoreLibraryState();
 
         // Chaque synchronisation est sautée si son lanceur est désactivé dans Réglages.
         if (_library.IsLauncherEnabled(Platform.Steam) && _library.IsSteamFamilyConnected)
@@ -748,18 +755,6 @@ public partial class MainWindow : Window
         }
     }
 
-    private void HelpButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (CurrentGame is not Game game)
-        {
-            return;
-        }
-
-        // Show (pas ShowDialog) : tu peux garder l'aide ouverte et continuer à utiliser la bibliothèque.
-        HelpWindow window = new HelpWindow(_library, game) { Owner = this };
-        window.Show();
-    }
-
     private void PatchNotesLinkButton_Click(object sender, RoutedEventArgs e)
     {
         OpenInBrowser(_patchNotesLinkUrl);
@@ -924,8 +919,6 @@ public partial class MainWindow : Window
         OverlayEnabledCheck.IsChecked = _library.Settings.OverlayEnabled;
         OverlayHotkeyBox.Text = _library.Settings.OverlayHotkey;
         OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
-        HelpHotkeyBox.Text = _library.Settings.HelpHotkey;
-        HelpHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
         MuteSteamAchievementsCheck.IsChecked = _library.Settings.MuteSteamAchievementNotifications;
         AchievementSoundCheck.IsChecked = _library.Settings.AchievementSoundEnabled;
 
@@ -974,18 +967,12 @@ public partial class MainWindow : Window
         _overlay.ApplySettings();
 
         OverlayHotkeyBox.Text = _overlay.CurrentHotkey;
-        HelpHotkeyBox.Text = _overlay.CurrentHelpHotkey;
-
-        // Un raccourci refusé par Windows : on dit lequel (le même pour les deux cases = le 2e est refusé).
-        List<string> refused = new List<string>();
-        if (!_overlay.IsHotkeyAccepted) refused.Add(_overlay.CurrentHotkey);
-        if (!_overlay.IsHelpHotkeyAccepted) refused.Add(_overlay.CurrentHelpHotkey);
 
         OverlayHotkeyStatusText.Text = !_library.Settings.OverlayEnabled
-            ? "Overlay désactivé : aucune surveillance, aucun raccourci (ni overlay ni aide en jeu)."
-            : refused.Count == 0
-                ? "Pour changer un raccourci : clique dans sa case, puis appuie sur la nouvelle combinaison (avec Ctrl, Alt ou Windows). Échap pour annuler."
-                : $"Raccourci déjà utilisé (par une autre application ou par l'autre case) : {string.Join(", ", refused.Distinct())}. Choisis-en un autre.";
+            ? "Overlay désactivé : aucune surveillance, aucun raccourci."
+            : _overlay.IsHotkeyAccepted
+                ? "Pour changer le raccourci : clique dans la case, puis appuie sur la nouvelle combinaison (avec Ctrl, Alt ou Windows). Échap pour annuler."
+                : $"Raccourci déjà utilisé par une autre application : {_overlay.CurrentHotkey}. Choisis-en un autre.";
     }
 
     private void OverlayEnabledCheck_Changed(object sender, RoutedEventArgs e)
@@ -999,11 +986,10 @@ public partial class MainWindow : Window
         SaveSettings();
 
         OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
-        HelpHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
         ApplyOverlaySettings();
     }
 
-    // Les deux cases de raccourci (overlay et aide) partagent ces trois fonctions : leur Tag dit laquelle est visée.
+    // La case du raccourci de l'overlay.
     private void HotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         // Sinon Windows intercepterait l'ancien raccourci avant qu'il n'arrive dans la case.
@@ -1043,15 +1029,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        if ((sender as FrameworkElement)?.Tag as string == "help")
-        {
-            _library.Settings.HelpHotkey = text;
-        }
-        else
-        {
-            _library.Settings.OverlayHotkey = text;
-        }
-
+        _library.Settings.OverlayHotkey = text;
         SaveSettings();
         Keyboard.ClearFocus();   // enregistre le nouveau raccourci (voir LostKeyboardFocus)
     }
@@ -2046,6 +2024,8 @@ public partial class MainWindow : Window
 
     private void HideToTray()
     {
+        // Wyrmhold peut ensuite être arrêté avec Windows sans repasser par ici : on enregistre maintenant.
+        SaveUiState();
         Hide();
 
         if (!_trayTipShown)
@@ -2076,10 +2056,133 @@ public partial class MainWindow : Window
             }
         }
 
+        SaveUiState();
         _isExiting = true;
         _overlay.Dispose();
         _trayIcon.Dispose();
         Application.Current.Shutdown();
+    }
+
+    // ===================== Même config au prochain lancement =====================
+
+    // La bibliothèque n'est remise qu'une fois (au 1er chargement), pas à chaque actualisation.
+    private bool _isLibraryStateRestored;
+
+    /// <summary>
+    /// Note l'état de la fenêtre (taille, onglet, filtres, tri, jeu choisi, Boutiques) dans settings.json.
+    /// </summary>
+    private void SaveUiState()
+    {
+        try
+        {
+            UiState state = _library.Settings.Ui;
+
+            // RestoreBounds = la taille « normale », même si la fenêtre est agrandie ou réduite.
+            Rect bounds = WindowState == WindowState.Normal ? new Rect(Left, Top, ActualWidth, ActualHeight) : RestoreBounds;
+            if (!bounds.IsEmpty && bounds.Width > 0 && bounds.Height > 0)
+            {
+                state.WindowLeft = bounds.Left;
+                state.WindowTop = bounds.Top;
+                state.WindowWidth = bounds.Width;
+                state.WindowHeight = bounds.Height;
+            }
+            state.WindowMaximized = WindowState == WindowState.Maximized;
+
+            state.MainTab = MainTabs.SelectedIndex;
+
+            // Avant le 1er chargement des jeux, les filtres affichés ne sont pas encore les tiens : on garde les anciens.
+            if (_isLibraryStateRestored)
+            {
+                SavedViewFilters filters = CaptureFilters();
+                filters.SearchText = "";
+                state.LibraryFilters = filters;
+                state.SelectedGameKey = CurrentGame is Game game ? GameWatcher.KeyOf(game) : null;
+            }
+
+            ShopsPanel.CaptureState(state);
+            SaveSettings();
+        }
+        catch (Exception ex)
+        {
+            // Ne jamais empêcher de quitter pour ça.
+            Logger.Log($"État de la fenêtre impossible à enregistrer : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Remet la taille et la position de la fenêtre, si elles sont encore visibles sur un des écrans
+    /// (un écran débranché depuis ne doit pas faire ouvrir Wyrmhold hors de vue).
+    /// </summary>
+    private void RestoreWindowPlacement()
+    {
+        UiState state = _library.Settings.Ui;
+
+        if (state.WindowLeft is double left && state.WindowTop is double top
+            && state.WindowWidth is double width && state.WindowHeight is double height)
+        {
+            Rect saved = new Rect(left, top, Math.Max(width, MinWidth), Math.Max(height, MinHeight));
+            Rect screens = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+
+            // Au moins 100 × 100 pixels de la fenêtre sur un écran.
+            Rect visible = Rect.Intersect(saved, screens);
+            if (!visible.IsEmpty && visible.Width >= 100 && visible.Height >= 100)
+            {
+                WindowStartupLocation = WindowStartupLocation.Manual;
+                Left = saved.Left;
+                Top = saved.Top;
+                Width = saved.Width;
+                Height = saved.Height;
+            }
+        }
+
+        if (state.WindowMaximized)
+        {
+            WindowState = WindowState.Maximized;
+        }
+    }
+
+    /// <summary>
+    /// Après le 1er chargement des jeux (les listes de plateformes, genres et collections existent) :
+    /// filtres, tri, jeu sélectionné et onglet ouvert de la dernière fois.
+    /// </summary>
+    private void RestoreLibraryState()
+    {
+        if (_isLibraryStateRestored)
+        {
+            return;
+        }
+
+        _isLibraryStateRestored = true;
+        UiState state = _library.Settings.Ui;
+
+        try
+        {
+            if (state.LibraryFilters is SavedViewFilters filters)
+            {
+                ApplyView(filters);
+            }
+
+            if (state.SelectedGameKey is string key)
+            {
+                Game? tile = _visibleGames.FirstOrDefault(g => g.CopiesOrSelf.Any(copy => GameWatcher.KeyOf(copy) == key));
+
+                if (tile is not null)
+                {
+                    GamesList.SelectedItem = tile;
+                    GamesList.ScrollIntoView(tile);
+                }
+            }
+
+            if (state.MainTab > 0 && state.MainTab < MainTabs.Items.Count)
+            {
+                MainTabs.SelectedIndex = state.MainTab;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"État de la fenêtre impossible à remettre : {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -2148,6 +2251,7 @@ public partial class MainWindow : Window
             {
                 // Même rangement qu'en quittant (overlay, icône près de l'horloge), puis Velopack
                 // ferme Wyrmhold, installe la nouvelle version et la relance.
+                SaveUiState();
                 _isExiting = true;
                 _overlay.Dispose();
                 _trayIcon.Dispose();

@@ -125,6 +125,81 @@ public partial class ShopsView : UserControl
         UpdateWatchListTab();
     }
 
+    // ===================== État gardé d'une fois sur l'autre =====================
+
+    // La liste de gauche à rouvrir, en attendant que l'onglet Boutiques soit affiché
+    // (Promos et Pour toi se chargent sur internet : inutile de le faire si tu ne viens pas ici).
+    private string? _pendingLeftTab;
+
+    /// <summary>Note l'état de l'onglet (listes, tris, cases) dans state, avant de quitter.</summary>
+    public void CaptureState(UiState state)
+    {
+        state.ShopsLeftTab = _pendingLeftTab ?? _leftMode switch
+        {
+            LeftListMode.WatchList => "watchlist",
+            LeftListMode.Promos => "promos",
+            LeftListMode.ForYou => "foryou",
+            _ => "results"
+        };
+        state.PromosSort = GetSelectedTag(PromosSortMode);
+        state.ForYouSort = GetSelectedTag(ForYouSortMode);
+        state.DealsSort = GetSelectedTag(DealsSortMode);
+        state.GamesOnly = GamesOnlyCheck.IsChecked == true;
+        state.HideOwned = HideOwnedCheck.IsChecked == true;
+        state.OnlyDeals = OnlyDealsCheck.IsChecked == true;
+    }
+
+    /// <summary>Remet l'état enregistré. La liste de gauche attend que l'onglet soit affiché.</summary>
+    public void RestoreState(UiState state)
+    {
+        // Les tris d'abord : les listes ne sont pas encore chargées, rien ne part sur internet.
+        SelectByTag(PromosSortMode, state.PromosSort);
+        SelectByTag(ForYouSortMode, state.ForYouSort);
+        SelectByTag(DealsSortMode, state.DealsSort);
+        GamesOnlyCheck.IsChecked = state.GamesOnly;
+        HideOwnedCheck.IsChecked = state.HideOwned;
+        OnlyDealsCheck.IsChecked = state.OnlyDeals;
+
+        if (state.ShopsLeftTab != "results")
+        {
+            _pendingLeftTab = state.ShopsLeftTab;
+            IsVisibleChanged += ApplyPendingLeftTab;
+        }
+    }
+
+    private void ApplyPendingLeftTab(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (!IsVisible || _pendingLeftTab is null)
+        {
+            return;
+        }
+
+        IsVisibleChanged -= ApplyPendingLeftTab;
+        string tab = _pendingLeftTab;
+        _pendingLeftTab = null;
+
+        // Cocher le bouton déclenche LeftTab_Checked, qui charge la liste si besoin.
+        RadioButton button = tab switch
+        {
+            "watchlist" => WatchListTabButton,
+            "promos" => PromosTabButton,
+            "foryou" => ForYouTabButton,
+            _ => ResultsTabButton
+        };
+        button.IsChecked = true;
+    }
+
+    // Sélectionne l'élément dont le Tag vaut tag (s'il n'existe pas, on ne change rien).
+    private static void SelectByTag(ComboBox comboBox, string tag)
+    {
+        ComboBoxItem? match = comboBox.Items.OfType<ComboBoxItem>().FirstOrDefault(item => Equals(item.Tag, tag));
+
+        if (match is not null)
+        {
+            comboBox.SelectedItem = match;
+        }
+    }
+
     // Sans clé IsThereAnyDeal, la recherche est bloquée avec un message qui dit où l'ajouter.
     private void UpdateKeyStatus()
     {
