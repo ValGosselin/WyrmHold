@@ -109,9 +109,12 @@ public class LibraryService
 
     // ----- Scan et chargement -----
 
+    public bool IsLauncherEnabled(Platform platform) => Settings.IsLauncherEnabled(platform);
+
     public async Task<List<Game>> ScanAllAsync()
     {
-        foreach (ILibraryProvider provider in _providers)
+        // Un lanceur désactivé dans Réglages n'est pas lu du tout.
+        foreach (ILibraryProvider provider in _providers.Where(p => IsLauncherEnabled(p.Platform)))
         {
             try
             {
@@ -130,18 +133,21 @@ public class LibraryService
             }
         }
 
-        try
+        if (IsLauncherEnabled(Platform.Gog))
         {
-            await SyncGogAsync();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Synchronisation GOG impossible : {ex.Message}");
+            try
+            {
+                await SyncGogAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Synchronisation GOG impossible : {ex.Message}");
+            }
         }
 
         // Si le compte Ubisoft est connecté, la synchronisation silencieuse
         // fait l'import complet (cache local + site) juste après.
-        if (!IsUbisoftConnected)
+        if (IsLauncherEnabled(Platform.Ubisoft) && !IsUbisoftConnected)
         {
             try
             {
@@ -158,7 +164,11 @@ public class LibraryService
 
     public List<Game> LoadGames()
     {
-        List<Game> games = _database.LoadGames();
+        // Les jeux d'un lanceur désactivé restent en base (temps de jeu, succès, collections),
+        // mais ne sont montrés nulle part : bibliothèque, statistiques, « Pour toi », détecteur de jeu.
+        List<Game> games = _database.LoadGames()
+            .Where(game => IsLauncherEnabled(game.Platform))
+            .ToList();
         AttachCollections(games);
         _covers.AttachCovers(games);
 

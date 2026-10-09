@@ -1,0 +1,79 @@
+<Window x:Class="WyrmHold.App.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="À propos de Wyrmhold"
+        Height="560" Width="560" MinHeight="420" MinWidth="460"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <Style x:Key="Section" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,16,0,6"/>
+        </Style>
+        <Style x:Key="Body" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Image Source="/Assets/logo-256.png" Width="72" Height="72" Margin="0,0,16,0"/>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Wyrmhold" FontSize="24" FontWeight="Bold"/>
+                        <TextBlock x:Name="VersionText" Style="{StaticResource Body}"/>
+                        <!-- Un lien cliquable : Hyperlink ouvre l'adresse dans le navigateur (voir Link_RequestNavigate). -->
+                        <TextBlock Margin="0,4,0,0">
+                            <Hyperlink x:Name="RepositoryLink" RequestNavigate="Link_RequestNavigate">
+                                <Run x:Name="RepositoryLinkText"/>
+                            </Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Style="{StaticResource Section}" Text="Ce que fait Wyrmhold"/>
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Tous tes jeux PC (Steam, Epic, GOG, Ubisoft, EA, Battle.net) dans une seule bibliothèque, lancés d'un clic. Les lanceurs restent installés : ils s'occupent toujours de l'installation et des mises à jour des jeux."/>
+
+                <TextBlock Style="{StaticResource Section}" Text="Marques"/>
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Wyrmhold n'est pas affilié à Valve, Epic Games, GOG, Electronic Arts, Ubisoft ni Blizzard Entertainment, ni approuvé par eux. Les noms des plateformes et des jeux appartiennent à leurs propriétaires."/>
+
+                <TextBlock Style="{StaticResource Section}" Text="Sources des données"/>
+                <TextBlock Style="{StaticResource Body}">
+                    <Run Text="• Prix et promos : "/>
+                    <Hyperlink NavigateUri="https://isthereanydeal.com/" RequestNavigate="Link_RequestNavigate">IsThereAnyDeal</Hyperlink>
+                    <LineBreak/>
+                    <Run Text="• Jaquettes : "/>
+                    <Hyperlink NavigateUri="https://www.steamgriddb.com/" RequestNavigate="Link_RequestNavigate">SteamGridDB</Hyperlink>
+                    <LineBreak/>
+                    <Run Text="• Bibliothèque, succès, patch notes et guides Steam : "/>
+                    <Hyperlink NavigateUri="https://steamcommunity.com/dev" RequestNavigate="Link_RequestNavigate">Steam Web API</Hyperlink>
+                    <Run Text=" (ce produit n'est pas approuvé par Valve)"/>
+                </TextBlock>
+
+                <TextBlock Style="{StaticResource Section}" Text="Tes données"/>
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Tout reste sur ce PC : pas de serveur Wyrmhold, pas de compte à créer. Tes clés et tes jetons sont chiffrés ; aucun mot de passe n'est enregistré."/>
+
+                <TextBlock Style="{StaticResource Section}" Text="Licence"/>
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Wyrmhold est un logiciel libre (licence GPL). Le texte de la licence et la liste des bibliothèques utilisées, avec leurs licences, arrivent avec la prochaine version."/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button Content="🐞 Signaler un bug" Height="32" Padding="12,0" Margin="0,0,8,0" Click="ReportBugButton_Click"/>
+            <!-- Ouverte avec ShowDialog : IsCancel suffit à fermer (et Échap aussi). -->
+            <Button Content="Fermer" Width="90" Height="32" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

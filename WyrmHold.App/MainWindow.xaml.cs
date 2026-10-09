@@ -109,7 +109,8 @@ public partial class MainWindow : Window
         List<Game> games = await _library.ScanAllAsync();
         ShowGames(games);
 
-        if (_library.IsSteamFamilyConnected)
+        // Chaque synchronisation est sautée si son lanceur est désactivé dans Réglages.
+        if (_library.IsLauncherEnabled(Platform.Steam) && _library.IsSteamFamilyConnected)
         {
             Title = $"{_summary} — synchronisation de la famille Steam…";
 
@@ -120,7 +121,7 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_library.IsEpicConnected)
+        if (_library.IsLauncherEnabled(Platform.Epic) && _library.IsEpicConnected)
         {
             Title = $"{_summary} — synchronisation d'Epic Games…";
 
@@ -131,7 +132,7 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_library.IsUbisoftConnected)
+        if (_library.IsLauncherEnabled(Platform.Ubisoft) && _library.IsUbisoftConnected)
         {
             Title = $"{_summary} — synchronisation d'Ubisoft Connect…";
 
@@ -141,7 +142,7 @@ public partial class MainWindow : Window
                 ShowGames(games);
             }
         }
-        if (_library.IsEaConnected)
+        if (_library.IsLauncherEnabled(Platform.Ea) && _library.IsEaConnected)
         {
             Title = $"{_summary} — synchronisation d'EA…";
 
@@ -151,7 +152,7 @@ public partial class MainWindow : Window
                 ShowGames(games);
             }
         }
-        if (_library.IsBattleNetConnected)
+        if (_library.IsLauncherEnabled(Platform.BattleNet) && _library.IsBattleNetConnected)
         {
             Title = $"{_summary} — synchronisation de Battle.net…";
 
@@ -908,6 +909,13 @@ public partial class MainWindow : Window
                 && _library.Settings.IsAchievementSourceEnabled(platform);
         }
 
+        foreach (CheckBox checkBox in LauncherChecks.Children.OfType<CheckBox>())
+        {
+            checkBox.IsChecked = checkBox.Tag is string name
+                && Enum.TryParse(name, out Platform platform)
+                && _library.Settings.IsLauncherEnabled(platform);
+        }
+
         string closeAction = _library.Settings.CloseAction;
         CloseBackgroundRadio.IsChecked = closeAction == CloseActions.Background;
         CloseQuitRadio.IsChecked = closeAction == CloseActions.Quit;
@@ -1094,6 +1102,31 @@ public partial class MainWindow : Window
 
         _library.Settings.SetAchievementSourceEnabled(platform, checkBox.IsChecked == true);
         SaveSettings();
+    }
+
+    private async void LauncherCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings || sender is not CheckBox { Tag: string name } checkBox
+            || !Enum.TryParse(name, out Platform platform))
+        {
+            return;
+        }
+
+        bool isEnabled = checkBox.IsChecked == true;
+        _library.Settings.SetLauncherEnabled(platform, isEnabled);
+        SaveSettings();
+        RefreshAccountsTab();
+
+        // Réactivé : on relit ce lanceur (nouveaux jeux installés entre-temps…), sauf si une lecture est en cours.
+        // Désactivé : ses jeux disparaissent tout de suite de l'affichage, sans rien relire.
+        if (isEnabled && RefreshButton.IsEnabled)
+        {
+            await LoadGamesAsync();
+        }
+        else
+        {
+            ShowGames(_library.LoadGames());
+        }
     }
 
     private void SaveSettings()
@@ -1546,6 +1579,15 @@ public partial class MainWindow : Window
         SetAccountRow(EaStatusText, EaAccountButton, _library.IsEaConnected, _library.HasImportedEaGames);
         SetAccountRow(BattleNetStatusText, BattleNetAccountButton, _library.IsBattleNetConnected, _library.HasImportedBattleNetGames);
 
+        // Un lanceur désactivé dans Réglages : sa ligne est grisée (la connexion reste gardée pour plus tard).
+        ApplyLauncherState(Platform.Steam, SteamStatusText, null);
+        ApplyLauncherState(Platform.Steam, SteamFamilyStatusText, SteamFamilyButton);
+        ApplyLauncherState(Platform.Gog, GogStatusText, GogAccountButton);
+        ApplyLauncherState(Platform.Epic, EpicStatusText, EpicAccountButton);
+        ApplyLauncherState(Platform.Ubisoft, UbisoftStatusText, UbisoftAccountButton);
+        ApplyLauncherState(Platform.Ea, EaStatusText, EaAccountButton);
+        ApplyLauncherState(Platform.BattleNet, BattleNetStatusText, BattleNetAccountButton);
+
         // IsThereAnyDeal : facultatif, ne sert qu'à synchroniser la liste de suivi avec ta Waitlist.
         if (ShopsPanel.IsItadConfigured)
         {
@@ -1650,6 +1692,21 @@ public partial class MainWindow : Window
         {
             statusText.Text = "Non connecté";
             button.Content = "Se connecter";
+        }
+    }
+
+    private void ApplyLauncherState(Platform platform, TextBlock statusText, Button? button)
+    {
+        bool isEnabled = _library.IsLauncherEnabled(platform);
+
+        if (!isEnabled)
+        {
+            statusText.Text = "Lanceur désactivé (Réglages → Lanceurs)";
+        }
+
+        if (button != null)
+        {
+            button.IsEnabled = isEnabled;
         }
     }
 
@@ -2163,6 +2220,11 @@ public partial class MainWindow : Window
     private void ReportBugButton_Click(object sender, RoutedEventArgs e)
     {
         new BugReportWindow(_library.Settings) { Owner = this }.Show();
+    }
+
+    private void AboutButton_Click(object sender, RoutedEventArgs e)
+    {
+        new AboutWindow(_library.Settings) { Owner = this }.ShowDialog();
     }
 
     // Version Debug seulement : une erreur volontaire, pour vérifier tout le parcours du plantage.

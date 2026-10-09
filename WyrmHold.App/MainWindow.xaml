@@ -734,6 +734,19 @@
                     <Button Content="Modifier les clés…" Height="32" Padding="12,0" HorizontalAlignment="Left"
                             Click="EditApiKeysButton_Click"/>
 
+                    <!-- Tag = le nom de la plateforme (énumération Platform), enregistré dans settings.json. -->
+                    <TextBlock Text="Lanceurs" Style="{StaticResource SettingsSection}"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
+                               Text="Décoche un lanceur que tu n'utilises pas : Wyrmhold ne le lit plus et masque ses jeux. Rien n'est supprimé : recoche-le pour tout retrouver (temps de jeu, succès, collections)."/>
+                    <WrapPanel x:Name="LauncherChecks">
+                        <CheckBox Content="Steam" Tag="Steam" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Epic Games" Tag="Epic" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Ubisoft Connect" Tag="Ubisoft" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="GOG" Tag="Gog" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="EA app" Tag="Ea" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Battle.net" Tag="BattleNet" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                    </WrapPanel>
+
                     <TextBlock Text="Bibliothèque" Style="{StaticResource SettingsSection}"/>
                     <CheckBox x:Name="MergeDuplicatesCheck"
                               Content="Regrouper un même jeu possédé sur plusieurs plateformes"
@@ -828,6 +841,7 @@
                         <Image Source="/Assets/logo-256.png" Width="24" Height="24" Margin="0,0,6,0" VerticalAlignment="Center"/>
                         <TextBlock x:Name="VersionText" VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Content="À propos" Height="32" Padding="12,0" Margin="12,0,0,0" Click="AboutButton_Click"/>
                     </StackPanel>
                 </StackPanel>
             </ScrollViewer>

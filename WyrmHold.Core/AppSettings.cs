@@ -55,6 +55,24 @@ public class AppSettings
     // Onglet « Pour toi » : les genres décochés (nom anglais, ex. « Roguelike »), écartés du calcul.
     public List<string> ExcludedRecommendationGenres { get; set; } = new List<string>();
 
+    // Les lanceurs désactivés (ex. « Ea ») : plus lus, et leurs jeux masqués (pas supprimés). Vide = tous actifs.
+    public List<string> DisabledLaunchers { get; set; } = new List<string>();
+
+    public bool IsLauncherEnabled(Platform platform)
+    {
+        return !DisabledLaunchers.Contains(platform.ToString());
+    }
+
+    public void SetLauncherEnabled(Platform platform, bool isEnabled)
+    {
+        DisabledLaunchers.Remove(platform.ToString());
+
+        if (!isEnabled)
+        {
+            DisabledLaunchers.Add(platform.ToString());
+        }
+    }
+
     public bool IsAchievementSourceEnabled(Platform platform)
     {
         return !DisabledAchievementSources.Contains(platform.ToString());
