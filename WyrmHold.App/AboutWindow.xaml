@@ -64,9 +64,23 @@
                 <TextBlock Style="{StaticResource Body}"
                            Text="Tout reste sur ce PC : pas de serveur Wyrmhold, pas de compte à créer. Tes clés et tes jetons sont chiffrés ; aucun mot de passe n'est enregistré."/>
 
+                <TextBlock Style="{StaticResource Section}" Text="Connexions aux comptes"/>
+                <TextBlock Style="{StaticResource Body}"
+                           Text="Les connexions à Epic Games, GOG, Ubisoft, EA et Battle.net passent par les pages officielles de ces sites, mais ne sont pas des méthodes officielles (ce sont les mêmes que celles de lanceurs libres connus). Elles peuvent cesser de marcher si un site change. Aucun mot de passe n'est enregistré."/>
+
                 <TextBlock Style="{StaticResource Section}" Text="Licence"/>
                 <TextBlock Style="{StaticResource Body}"
-                           Text="Wyrmhold est un logiciel libre (licence GPL). Le texte de la licence et la liste des bibliothèques utilisées, avec leurs licences, arrivent avec la prochaine version."/>
+                           Text="Copyright © 2026 ValGosselin. Wyrmhold est un logiciel libre : tu peux le redistribuer et le modifier selon les termes de la licence GNU GPL version 3 ou ultérieure. Il est fourni sans aucune garantie. Il utilise des bibliothèques libres (MIT, BSD, Apache 2.0), toutes compatibles."/>
+                <TextBlock Style="{StaticResource Body}" Margin="0,6,0,0"
+                           Text="Conditions supplémentaires : une version modifiée doit afficher « Basé sur Wyrmhold, par ValGosselin », ne pas se faire passer pour l'originale, et porter un autre nom et un autre logo."/>
+                <WrapPanel Margin="0,8,0,0">
+                    <Button Content="Conditions de la licence" Height="30" Padding="10,0" Margin="0,0,8,6"
+                            Tag="NOTICE.txt" Click="OpenFileButton_Click"/>
+                    <Button Content="Lire la licence (GPL)" Height="30" Padding="10,0" Margin="0,0,8,6"
+                            Tag="LICENSE.txt" Click="OpenFileButton_Click"/>
+                    <Button Content="Bibliothèques utilisées" Height="30" Padding="10,0" Margin="0,0,0,6"
+                            Tag="THIRD-PARTY-NOTICES.txt" Click="OpenFileButton_Click"/>
+                </WrapPanel>
             </StackPanel>
         </ScrollViewer>
 

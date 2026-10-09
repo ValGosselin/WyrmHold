@@ -26,6 +26,12 @@
     <Page Include="App.xaml" />
 
     <Resource Include="Assets\logo-256.png" />
+
+    <!-- Livrés à côté du programme (la GPL demande que la licence accompagne le logiciel) ;
+         la fenêtre « À propos » les ouvre. -->
+    <None Include="..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\NOTICE.md" Link="NOTICE.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

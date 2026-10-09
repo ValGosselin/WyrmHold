@@ -37,6 +37,27 @@ public partial class AboutWindow : Window
         e.Handled = true;
     }
 
+    // Les fichiers livrés à côté du programme (voir le .csproj), ouverts dans le Bloc-notes.
+    private void OpenFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.Button { Tag: string fileName })
+        {
+            return;
+        }
+
+        string path = System.IO.Path.Combine(AppContext.BaseDirectory, fileName);
+
+        try
+        {
+            Process.Start(new ProcessStartInfo("notepad.exe", $"\"{path}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Ouverture de {path} impossible : {ex.Message}");
+            MessageBox.Show($"Fichier introuvable. Il est aussi sur {AppInfo.RepositoryUrl}.", "Wyrmhold");
+        }
+    }
+
     private void ReportBugButton_Click(object sender, RoutedEventArgs e)
     {
         // « À propos » se ferme d'abord : sinon le rapport s'ouvrirait derrière elle.
