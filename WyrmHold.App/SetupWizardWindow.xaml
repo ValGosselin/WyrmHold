@@ -40,6 +40,7 @@
             <Grid>
                 <!-- ===== 1. Bienvenue ===== -->
                 <StackPanel x:Name="WelcomePage">
+                    <Image Source="/Assets/logo-256.png" Width="96" Height="96" HorizontalAlignment="Left" Margin="0,0,0,12"/>
                     <TextBlock Style="{StaticResource PageTitle}" Text="Bienvenue 👋"/>
                     <TextBlock Style="{StaticResource Explanation}"
                                Text="Wyrmhold rassemble les jeux de Steam, Epic, GOG, Ubisoft, EA et Battle.net, et les lance d'un clic."/>

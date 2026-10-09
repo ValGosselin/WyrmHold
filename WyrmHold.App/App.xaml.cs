@@ -1,12 +1,28 @@
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using Velopack;
 using Wyrmhold.Core;
 
 namespace WyrmHold.App
 {
     public partial class App : Application
     {
+        // Le point de départ du programme. [STAThread] : obligatoire pour une interface WPF.
+        [STAThread]
+        public static void Main(string[] args)
+        {
+            // En tout premier : pendant une installation, une mise à jour ou une désinstallation,
+            // Velopack lance le programme avec des arguments spéciaux ; Run() fait alors son travail
+            // et ferme le programme avant même qu'une fenêtre s'ouvre. Le reste du temps, il ne fait rien
+            // (sauf installer une mise à jour déjà téléchargée).
+            VelopackApp.Build().Run();
+
+            var app = new App();
+            app.InitializeComponent();   // lit App.xaml (dont StartupUri = MainWindow)
+            app.Run();
+        }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             // Les plantages sont enregistrés dès le départ, avant même la première fenêtre.

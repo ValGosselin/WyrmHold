@@ -92,8 +92,9 @@ public static class ApiKeyTester
 
         try
         {
-            List<ItadSearchResult> results = await new IsThereAnyDealApi(new Secrets { IsThereAnyDealApiKey = apiKey }).SearchAsync("Portal");
-            return new KeyTestResult(true, $"✔ Clé valide ({results.Count} résultats pour « Portal »).");
+            // Une recherche quelconque sert juste à vérifier que la clé est acceptée : son résultat ne compte pas.
+            await new IsThereAnyDealApi(new Secrets { IsThereAnyDealApiKey = apiKey }).SearchAsync("Portal");
+            return new KeyTestResult(true, "✔ Clé valide.");
         }
         catch (HttpRequestException ex) when (ex.Message.Contains(" 401 ") || ex.Message.Contains(" 403 "))
         {

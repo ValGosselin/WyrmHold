@@ -10,10 +10,27 @@
     <!-- WPF0001 : Application.ThemeMode (thème Fluent clair/sombre) est encore marqué « expérimental »
          dans .NET 10. On l'utilise quand même, en sachant que Microsoft peut encore le modifier. -->
     <NoWarn>$(NoWarn);WPF0001</NoWarn>
+
+    <!-- Le logo (fabriqué par tools\make-logo.ps1) : icône du programme, donc aussi des fenêtres,
+         de la barre des tâches et de l'icône près de l'horloge. -->
+    <ApplicationIcon>Assets\wyrmhold.ico</ApplicationIcon>
+
+    <!-- Velopack (installateur et mises à jour) doit passer en tout premier au démarrage :
+         on écrit nous-mêmes la méthode Main (dans App.xaml.cs) au lieu de laisser WPF la générer. -->
+    <StartupObject>WyrmHold.App.App</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- App.xaml compilé comme une page normale : sinon WPF génère sa propre méthode Main. -->
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+
+    <Resource Include="Assets\logo-256.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <PackageReference Include="Velopack" Version="1.2.158" />
     <PackageReference Include="VirtualizingWrapPanel" Version="2.5.4" />
   </ItemGroup>
 

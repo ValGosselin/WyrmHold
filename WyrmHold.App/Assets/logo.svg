@@ -1,0 +1,8 @@
+<!-- Logo de Wyrmhold : « l'œil du wyrm » (choisi le 9 octobre 2026). Dessin d'origine, grille 64 × 64.
+     Les images utilisées par l'appli sont fabriquées par tools\make-logo.ps1. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#2C2C2A"/>
+  <path d="M8 32 C18 16 46 16 56 32 C46 48 18 48 8 32 Z" fill="#BA7517"/>
+  <path d="M32 19 C25 26 25 38 32 45 C39 38 39 26 32 19 Z" fill="#2C2C2A"/>
+  <path d="M14 18 L22 23 M50 18 L42 23" stroke="#FAC775" stroke-width="3" stroke-linecap="round"/>
+</svg>
