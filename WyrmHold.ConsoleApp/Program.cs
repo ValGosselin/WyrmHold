@@ -12,6 +12,13 @@ if (args.Length > 0 && args[0] == "7")
     return;
 }
 
+// 9 = succès Steam lus sur le disque, comparés à la Steam Web API : « dotnet run -- 9 4294490 ».
+if (args.Length > 1 && args[0] == "9")
+{
+    await CompareLocalAchievementsAsync(args[1]);
+    return;
+}
+
 // 8 = clés API : import de l'ancien secrets.json, puis essai de chaque clé enregistrée (affichées masquées).
 if (args.Length > 0 && args[0] == "8")
 {
@@ -371,6 +378,42 @@ static async Task TestApiKeysAsync()
     Console.WriteLine($"Fausse clé Steam : {(await ApiKeyTester.TestSteamAsync(new string('0', 32), keys.SteamId)).Message}");
     Console.WriteLine($"Fausse clé SGDB  : {(await ApiKeyTester.TestSteamGridDbAsync("faussecle")).Message}");
     Console.WriteLine($"Fausse clé ITAD  : {(await ApiKeyTester.TestIsThereAnyDealAsync("faussecle")).Message}");
+}
+
+// Les succès d'un jeu lus dans les fichiers de Steam, puis la même liste demandée à la Web API :
+// les deux doivent dire la même chose (sauf un succès tout juste débloqué, que la Web API voit en retard).
+static async Task CompareLocalAchievementsAsync(string appId)
+{
+    Secrets keys = Secrets.Current;
+    SteamLocalAchievements? local = SteamLocalAchievements.FromRegistry();
+
+    if (local is null || !keys.HasSteam)
+    {
+        Console.WriteLine("Steam introuvable ou clé Steam absente.");
+        return;
+    }
+
+    List<LocalAchievement>? fromDisk = local.Read(keys.SteamId, appId);
+
+    if (fromDisk is null)
+    {
+        Console.WriteLine($"Fichiers absents dans {local.StatsFolder}.");
+        return;
+    }
+
+    Console.WriteLine($"Disque : {fromDisk.Count(a => a.IsUnlocked)}/{fromDisk.Count} débloqués");
+
+    foreach (LocalAchievement achievement in fromDisk.Where(a => a.IsUnlocked).OrderByDescending(a => a.UnlockedUnix).Take(3))
+    {
+        Console.WriteLine($"  {DateTimeOffset.FromUnixTimeSeconds(achievement.UnlockedUnix).LocalDateTime:dd/MM HH:mm:ss}  {achievement.Name} ({achievement.Id})");
+    }
+
+    HashSet<string> fromApi = await new SteamWebApi(keys).GetUnlockedAchievementIdsAsync(appId);
+    HashSet<string> diskIds = fromDisk.Where(a => a.IsUnlocked).Select(a => a.Id).ToHashSet();
+
+    Console.WriteLine($"Web API : {fromApi.Count} débloqués");
+    Console.WriteLine($"Seulement sur le disque : {string.Join(", ", diskIds.Except(fromApi))}");
+    Console.WriteLine($"Seulement dans la Web API : {string.Join(", ", fromApi.Except(diskIds))}");
 }
 
 static string ReadOrDefault(string defaultValue)

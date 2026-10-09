@@ -1268,6 +1268,13 @@ public class LibraryService
 
         List<AchievementDetail> details = await provider.GetAchievementsAsync(game);
 
+        // Steam : la Web API voit un succès plusieurs minutes après son déblocage, le fichier local tout de suite.
+        // Sans ça, la fenêtre des succès montrerait un succès « à faire » et le compteur reculerait.
+        if (game.Platform == Platform.Steam)
+        {
+            details = AddLocalSteamUnlocks(game, details);
+        }
+
         AchievementProgress progress = new AchievementProgress(details.Count(d => d.IsUnlocked), details.Count);
         game.ApplyAchievementProgress(progress, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
         _database.SaveAchievements(new List<Game> { game });
@@ -1280,6 +1287,55 @@ public class LibraryService
     /// ou null si sa plateforme n'a pas de source, si elle est décochée dans les réglages, ou si ce jeu
     /// ne peut pas avoir de succès.
     /// </summary>
+    /// <summary>
+    /// Marque comme débloqués les succès que le fichier local de Steam connaît déjà et que la Web API
+    /// ne voit pas encore (icône en couleur et date comprises). En cas de souci avec le fichier : liste inchangée.
+    /// </summary>
+    private List<AchievementDetail> AddLocalSteamUnlocks(Game game, List<AchievementDetail> details)
+    {
+        try
+        {
+            List<LocalAchievement>? local = SteamLocalStats?.Read(SteamId, game.PlatformGameId);
+
+            if (local is null)
+            {
+                return details;
+            }
+
+            Dictionary<string, LocalAchievement> unlockedLocally = local
+                .Where(a => a.IsUnlocked)
+                .ToDictionary(a => a.Id);
+
+            return details
+                .Select(detail => !detail.IsUnlocked && unlockedLocally.TryGetValue(detail.Id, out LocalAchievement? mine)
+                    ? new AchievementDetail
+                    {
+                        Id = detail.Id,
+                        Name = detail.Name,
+                        Description = detail.Description.Length > 0 ? detail.Description : mine.Description,
+                        IsUnlocked = true,
+                        UnlockedUnix = mine.UnlockedUnix,
+                        IsHidden = detail.IsHidden,
+                        IconUrl = mine.IconUrl ?? detail.IconUrl,
+                        RarityPercent = detail.RarityPercent,
+                        Order = detail.Order,
+                        ProgressValue = detail.ProgressValue,
+                        ProgressMax = detail.ProgressMax,
+                        ProgressIsPercent = detail.ProgressIsPercent
+                    }
+                    : detail)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Succès locaux de Steam illisibles pour {game.Name} : {ex.Message}");
+            return details;
+        }
+    }
+
+    // Les succès Steam lus sur le disque (null si Steam n'est pas installé) : voir LiveAchievementTracker.
+    internal SteamLocalAchievements? SteamLocalStats { get; } = SteamLocalAchievements.FromRegistry();
+
     internal async Task<IAchievementProvider?> PrepareAchievementSourceAsync(Game game)
     {
         IAchievementProvider? provider = _achievementProviders.FirstOrDefault(p => p.Platform == game.Platform);

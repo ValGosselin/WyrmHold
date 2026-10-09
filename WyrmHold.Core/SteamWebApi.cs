@@ -401,7 +401,8 @@ public class SteamWebApi
             : null;
     }
 
-    private static string? BuildIconUrl(string appId, string? icon)
+    // internal : réutilisé par SteamLocalAchievements (succès lus sur le disque).
+    internal static string? BuildIconUrl(string appId, string? icon)
     {
         if (string.IsNullOrEmpty(icon))
         {

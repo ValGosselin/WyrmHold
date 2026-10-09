@@ -252,6 +252,7 @@ public sealed class OverlayController : IDisposable
         // Steam affiche déjà ses propres notifications : pas de doublon (réglage coché par défaut).
         if (game.Platform == Platform.Steam && _library.Settings.MuteSteamAchievementNotifications)
         {
+            Logger.Log("Notification non affichée : succès Steam (réglage « Ne pas notifier les succès Steam »).");
             return;
         }
 
