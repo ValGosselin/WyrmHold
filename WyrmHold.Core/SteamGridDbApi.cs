@@ -11,14 +11,33 @@ public class SteamGridDbApi
 
     private static readonly HttpClient Http = new HttpClient();
 
-    private readonly string _apiKey;
+    // La clé est relue à chaque appel : une clé changée dans Réglages sert tout de suite.
+    private readonly Secrets _secrets;
+    private string ApiKey => _secrets.SteamGridDbApiKey;
 
-    public SteamGridDbApi(string apiKey)
+    public SteamGridDbApi(Secrets secrets)
     {
-        _apiKey = apiKey;
+        _secrets = secrets;
     }
 
-    public bool IsConfigured => !string.IsNullOrEmpty(_apiKey);
+    public bool IsConfigured => !string.IsNullOrEmpty(ApiKey);
+
+    /// <summary>
+    /// Vérifie la clé (assistant et Réglages) : la fiche d'un jeu connu (9022 = Portal).
+    /// Lance une erreur si la clé est refusée.
+    /// Essai du 9 octobre 2026 : la recherche (search/autocomplete) répond même avec une fausse clé,
+    /// games/id répond 401 : c'est donc lui qui sert de test. Autre piège : une réponse déjà demandée
+    /// avec une bonne clé est gardée par le cache de Cloudflare (« cf-cache-status: HIT ») et renvoyée
+    /// même avec une fausse clé. Un paramètre « _ » différent à chaque fois oblige à vraiment vérifier.
+    /// </summary>
+    public async Task TestAsync()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}games/id/9022?_={DateTime.UtcNow.Ticks}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        response.EnsureSuccessStatusCode();
+    }
 
     public async Task<string?> FindCoverUrlAsync(Game game)
     {
@@ -57,7 +76,7 @@ public class SteamGridDbApi
     private async Task<T?> GetAsync<T>(string path)
     {
         using HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + path);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
 
         using HttpResponseMessage response = await Http.SendAsync(request);
 

@@ -1,0 +1,7 @@
+<Project>
+  <!-- Réglages communs à tous les projets de la solution (lus automatiquement par dotnet build).
+       Version : à augmenter à chaque version donnée aux testeurs (0.9.0, 0.9.1…). -->
+  <PropertyGroup>
+    <Version>0.9.0</Version>
+  </PropertyGroup>
+</Project>

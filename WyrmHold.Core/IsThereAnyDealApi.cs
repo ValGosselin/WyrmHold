@@ -1,4 +1,4 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 
@@ -6,7 +6,7 @@ namespace Wyrmhold.Core;
 
 /// <summary>
 /// Accès à IsThereAnyDeal (API v2) : recherche d'un jeu, puis ses prix dans un pays donné.
-/// Demande une clé API (secrets.json → IsThereAnyDealApiKey).
+/// Demande une clé API (Réglages → Clés API → IsThereAnyDeal).
 /// Limite affichée sur ton compte : 100 requêtes par tranche de 5 minutes.
 /// </summary>
 public class IsThereAnyDealApi
@@ -15,14 +15,16 @@ public class IsThereAnyDealApi
 
     private static readonly HttpClient Http = CreateHttpClient();
 
-    private readonly string _apiKey;
+    // La clé est relue à chaque appel : une clé changée dans Réglages sert tout de suite.
+    private readonly Secrets _secrets;
+    private string ApiKey => _secrets.IsThereAnyDealApiKey;
 
-    public IsThereAnyDealApi(string apiKey)
+    public IsThereAnyDealApi(Secrets secrets)
     {
-        _apiKey = apiKey;
+        _secrets = secrets;
     }
 
-    public bool IsConfigured => !string.IsNullOrEmpty(_apiKey);
+    public bool IsConfigured => !string.IsNullOrEmpty(ApiKey);
 
     private static HttpClient CreateHttpClient()
     {
@@ -195,7 +197,7 @@ public class IsThereAnyDealApi
     {
         // La clé part dans un en-tête plutôt que dans l'adresse (?key=…) :
         // une adresse peut finir dans un journal ou un message d'erreur, pas un en-tête.
-        request.Headers.Add("ITAD-API-Key", _apiKey);
+        request.Headers.Add("ITAD-API-Key", ApiKey);
         return ReadResponseAsync(request);
     }
 

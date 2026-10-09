@@ -30,7 +30,7 @@ public partial class ItadLoginWindow : Window
 
         if (string.IsNullOrEmpty(clientId))
         {
-            MessageBox.Show("IsThereAnyDealClientId est absent de secrets.json.", "Wyrmhold");
+            MessageBox.Show("Ajoute d'abord le client ID IsThereAnyDeal dans Réglages → Clés API.", "Wyrmhold");
             Close();
             return;
         }

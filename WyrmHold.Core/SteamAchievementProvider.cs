@@ -45,4 +45,10 @@ public class SteamAchievementProvider : IAchievementProvider
     {
         return _api.GetAchievementDetailsAsync(game.PlatformGameId, cancellationToken);
     }
+
+    // Plus léger que la version par défaut : la liste complète demande 4 à 5 appels à Steam, ceci un seul.
+    public Task<HashSet<string>> GetUnlockedIdsAsync(Game game, CancellationToken cancellationToken = default)
+    {
+        return _api.GetUnlockedAchievementIdsAsync(game.PlatformGameId, cancellationToken);
+    }
 }

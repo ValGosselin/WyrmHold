@@ -4,7 +4,7 @@ namespace Wyrmhold.Core;
 
 /// <summary>
 /// Les réglages de Wyrmhold, enregistrés dans settings.json (à côté de la base).
-/// Les clés API restent dans secrets.json : ce fichier-ci ne contient rien de secret.
+/// Les clés API sont ailleurs, chiffrées (voir Secrets) : ce fichier-ci ne contient rien de secret.
 /// </summary>
 public class AppSettings
 {
@@ -12,6 +12,9 @@ public class AppSettings
 
     // L'identifiant du thème choisi (« light », « dark »… et plus tard ceux de la boutique de thèmes).
     public string Theme { get; set; } = "light";
+
+    // L'assistant des clés API a déjà été proposé (terminé ou fermé) : on ne le rouvre plus tout seul.
+    public bool SetupWizardDone { get; set; }
 
     // Regrouper un même jeu possédé sur plusieurs plateformes en une seule tuile.
     public bool MergeDuplicates { get; set; } = true;
@@ -32,6 +35,18 @@ public class AppSettings
     public string OverlayHotkey { get; set; } = DefaultOverlayHotkey;
 
     public const string DefaultOverlayHotkey = "Ctrl+Shift+W";
+
+    // Le raccourci global qui ouvre ou ferme la fenêtre Aide du jeu en cours (actif avec l'overlay).
+    public string HelpHotkey { get; set; } = DefaultHelpHotkey;
+
+    public const string DefaultHelpHotkey = "Ctrl+Shift+G";
+
+    // Pas de notification Wyrmhold pour un succès Steam : Steam affiche déjà les siens (en bas à droite).
+    // Les succès Steam restent suivis (base, badges, overlay).
+    public bool MuteSteamAchievementNotifications { get; set; } = true;
+
+    // Un petit son avec chaque notification de succès (et un plus festif pour le 100 %).
+    public bool AchievementSoundEnabled { get; set; } = true;
 
     // Onglet « Pour toi » : critères de qualité des promos recommandées (avis Steam).
     public int RecommendationMinSteamPercent { get; set; } = 80;

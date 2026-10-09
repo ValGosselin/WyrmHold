@@ -1,0 +1,171 @@
+<Window x:Class="WyrmHold.App.SetupWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bienvenue dans Wyrmhold"
+        Height="620" Width="680" MinHeight="520" MinWidth="560"
+        WindowStartupLocation="CenterOwner">
+
+    <Window.Resources>
+        <Style x:Key="PageTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="20"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+        <Style x:Key="Explanation" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        <Style x:Key="Note" TargetType="TextBlock" BasedOn="{StaticResource Explanation}">
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+        </Style>
+        <Style x:Key="KeyBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="6,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FontFamily" Value="Consolas"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock x:Name="StepText" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,8"/>
+
+        <!-- Une page par étape : une seule est visible à la fois (voir ShowPage). -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <Grid>
+                <!-- ===== 1. Bienvenue ===== -->
+                <StackPanel x:Name="WelcomePage">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Bienvenue 👋"/>
+                    <TextBlock Style="{StaticResource Explanation}"
+                               Text="Wyrmhold rassemble les jeux de Steam, Epic, GOG, Ubisoft, EA et Battle.net, et les lance d'un clic."/>
+                    <TextBlock Style="{StaticResource Explanation}"
+                               Text="Pour aller plus loin que les jeux installés (bibliothèque complète, temps de jeu, succès, jaquettes, prix), Wyrmhold a besoin de « clés API » : des sortes de mots de passe pour programmes, que tu crées gratuitement sur chaque site. Ça prend quelques minutes, et chaque étape est facultative."/>
+                    <TextBlock Style="{StaticResource Note}"
+                               Text="Tes clés restent sur ce PC, chiffrées : seul ton compte Windows peut les relire. Wyrmhold ne les envoie qu'au site concerné."/>
+                    <TextBlock Style="{StaticResource Note}"
+                               Text="Tu pourras tout changer plus tard dans Réglages → Clés API."/>
+                </StackPanel>
+
+                <!-- ===== 2. Steam ===== -->
+                <StackPanel x:Name="SteamPage" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="Steam"/>
+                    <TextBlock Style="{StaticResource Explanation}"
+                               Text="Avec ta clé : tous tes jeux Steam (même non installés), ton temps de jeu, tes succès et les guides. Sans clé : seulement tes jeux Steam installés."/>
+
+                    <TextBlock Style="{StaticResource Explanation}" FontWeight="SemiBold" Text="1. Ton identifiant Steam"/>
+                    <Grid Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SteamIdBox" Style="{StaticResource KeyBox}" TextChanged="KeyBox_TextChanged"
+                                 ToolTip="SteamID64 : 17 chiffres, rempli tout seul par la connexion"/>
+                        <Button Grid.Column="1" Content="Se connecter à Steam" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Click="SteamLoginButton_Click"/>
+                    </Grid>
+
+                    <TextBlock Style="{StaticResource Explanation}" FontWeight="SemiBold" Text="2. Ta clé Steam Web API"/>
+                    <TextBlock Style="{StaticResource Explanation}">
+                        <Run Text="• Clique sur « Ouvrir la page Steam » et connecte-toi."/><LineBreak/>
+                        <Run Text="• « Nom de domaine » : écris ce que tu veux, par exemple localhost (Wyrmhold ne s'en sert pas)."/><LineBreak/>
+                        <Run Text="• Accepte les conditions et valide (Steam peut demander une confirmation dans son appli mobile)."/><LineBreak/>
+                        <Run Text="• Copie la « Clé » (32 caractères) et colle-la ci-dessous."/>
+                    </TextBlock>
+                    <TextBlock Style="{StaticResource Note}"
+                               Text="Steam demande Steam Guard sur mobile, et un compte « non limité » (au moins l'équivalent de 5 $ dépensés sur Steam). Sinon, passe cette étape."/>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SteamKeyBox" Style="{StaticResource KeyBox}" TextChanged="KeyBox_TextChanged"/>
+                        <Button Grid.Column="1" Content="Ouvrir la page Steam" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Tag="https://steamcommunity.com/dev/apikey" Click="OpenLinkButton_Click"/>
+                        <Button Grid.Column="2" Content="Tester" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Click="TestSteamButton_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="SteamTestText" Style="{StaticResource Explanation}" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <!-- ===== 3. SteamGridDB ===== -->
+                <StackPanel x:Name="SteamGridDbPage" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="SteamGridDB (jaquettes)"/>
+                    <TextBlock Style="{StaticResource Explanation}"
+                               Text="Facultatif. De belles jaquettes faites par la communauté, surtout pour les jeux qui ne sont pas sur Steam. Sans clé, ces jeux gardent une tuile sans image."/>
+                    <TextBlock Style="{StaticResource Explanation}">
+                        <Run Text="• Clique sur « Ouvrir la page SteamGridDB » et connecte-toi (avec ton compte Steam, par exemple)."/><LineBreak/>
+                        <Run Text="• Crée une clé API, copie-la et colle-la ci-dessous."/>
+                    </TextBlock>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="SteamGridDbKeyBox" Style="{StaticResource KeyBox}" TextChanged="KeyBox_TextChanged"/>
+                        <Button Grid.Column="1" Content="Ouvrir la page SteamGridDB" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Tag="https://www.steamgriddb.com/profile/preferences/api" Click="OpenLinkButton_Click"/>
+                        <Button Grid.Column="2" Content="Tester" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Click="TestSteamGridDbButton_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="SteamGridDbTestText" Style="{StaticResource Explanation}" Margin="0,8,0,0"/>
+                </StackPanel>
+
+                <!-- ===== 4. IsThereAnyDeal ===== -->
+                <StackPanel x:Name="ItadPage" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="IsThereAnyDeal (prix et promos)"/>
+                    <TextBlock Style="{StaticResource Explanation}"
+                               Text="Facultatif. Pour l'onglet Boutiques : le prix d'un jeu dans toutes les boutiques, les promos et les jeux suivis. Sans clé, l'onglet Boutiques reste vide."/>
+                    <TextBlock Style="{StaticResource Explanation}">
+                        <Run Text="• Clique sur « Ouvrir la page IsThereAnyDeal » et connecte-toi (ou crée un compte gratuit)."/><LineBreak/>
+                        <Run Text="• Enregistre une appli (nom : Wyrmhold, par exemple)."/><LineBreak/>
+                        <Run Text="• Copie sa « API Key » et colle-la ci-dessous."/>
+                    </TextBlock>
+                    <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="ItadKeyBox" Style="{StaticResource KeyBox}" TextChanged="KeyBox_TextChanged"/>
+                        <Button Grid.Column="1" Content="Ouvrir la page IsThereAnyDeal" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Tag="https://isthereanydeal.com/apps/my/" Click="OpenLinkButton_Click"/>
+                        <Button Grid.Column="2" Content="Tester" Height="32" Padding="12,0" Margin="8,0,0,0"
+                                Click="TestItadButton_Click"/>
+                    </Grid>
+                    <TextBlock x:Name="ItadTestText" Style="{StaticResource Explanation}" Margin="0,8,0,0"/>
+
+                    <Expander Header="Avancé : relier ton compte IsThereAnyDeal (Waitlist)" Margin="0,12,0,0">
+                        <StackPanel Margin="0,8,0,0">
+                            <TextBlock Style="{StaticResource Note}"
+                                       Text="Pour synchroniser ta liste de suivi avec ta Waitlist : colle le « Client ID » de la même appli, puis connecte-toi dans l'onglet Comptes."/>
+                            <TextBox x:Name="ItadClientIdBox" Style="{StaticResource KeyBox}"/>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+
+                <!-- ===== 5. Fini ===== -->
+                <StackPanel x:Name="DonePage" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource PageTitle}" Text="C'est prêt ✔"/>
+                    <TextBlock x:Name="SummaryText" Style="{StaticResource Explanation}" FontFamily="Consolas"/>
+                    <TextBlock Style="{StaticResource Explanation}" Margin="0,8,0,8"
+                               Text="Dernière étape, quand tu veux : connecte tes autres comptes (Epic, GOG, Ubisoft, EA, Battle.net, famille Steam) dans l'onglet « Comptes », pour voir aussi les jeux que tu n'as pas installés."/>
+                    <TextBlock Style="{StaticResource Note}" Text="Clique sur « Terminer » pour enregistrer."/>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+
+        <Grid Grid.Row="2" Margin="0,14,0,0">
+            <Button x:Name="BackButton" Content="← Retour" Width="110" Height="32" HorizontalAlignment="Left"
+                    Click="BackButton_Click"/>
+            <Button x:Name="NextButton" Content="Suivant →" Width="130" Height="32" HorizontalAlignment="Right"
+                    IsDefault="True" Click="NextButton_Click"/>
+        </Grid>
+    </Grid>
+</Window>

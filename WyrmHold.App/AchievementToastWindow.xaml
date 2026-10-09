@@ -1,0 +1,35 @@
+<!-- La notification « Succès débloqué », en haut à droite, même quand l'overlay est caché.
+     Même allure et même comportement « fantôme » que l'overlay (voir OverlayWindow.xaml et GhostWindow). -->
+<Window x:Class="WyrmHold.App.AchievementToastWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:WyrmHold.App"
+        Style="{x:Null}"
+        Title="Wyrmhold — succès"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False" ShowActivated="False" Focusable="False"
+        ResizeMode="NoResize" SizeToContent="WidthAndHeight"
+        SizeChanged="Window_SizeChanged">
+
+    <Border Width="240" Padding="10,8" CornerRadius="8"
+            Background="#B3181A20" BorderBrush="#26FFFFFF" BorderThickness="1">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Icône du succès (en couleur), téléchargée puis gardée en cache par WebImageLoader. -->
+            <Image x:Name="IconImage" Width="40" Height="40" Margin="0,0,10,0" VerticalAlignment="Top"
+                   local:WebImageLoader.DecodeWidth="64"/>
+
+            <StackPanel Grid.Column="1">
+                <TextBlock x:Name="TitleText" FontSize="10" FontWeight="SemiBold" Foreground="#B3FFFFFF"/>
+                <TextBlock x:Name="NameText" FontSize="13" FontWeight="SemiBold" Foreground="White"
+                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="36"/>
+                <TextBlock x:Name="DescriptionText" FontSize="11" Foreground="#B3FFFFFF"
+                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis" MaxHeight="30"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

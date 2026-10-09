@@ -11,13 +11,11 @@ namespace WyrmHold.App;
 /// </summary>
 public partial class ShopsView : UserControl
 {
-    // secrets.json n'est lu qu'une fois (static : partagé, initialisé avant les champs ci-dessous).
-    private static readonly Secrets AppSecrets = Secrets.Load();
-
-    private readonly IsThereAnyDealApi _itad = new IsThereAnyDealApi(AppSecrets.IsThereAnyDealApiKey);
+    // Les clés partagées par toute l'appli : _itad relit la sienne à chaque appel (voir Secrets.Current).
+    private readonly IsThereAnyDealApi _itad = new IsThereAnyDealApi(Secrets.Current);
 
     // Ton compte IsThereAnyDeal, s'il est relié (facultatif) : sert à synchroniser la Waitlist.
-    private readonly ItadAccount _itadAccount = new ItadAccount(AppSecrets.IsThereAnyDealClientId);
+    private readonly ItadAccount _itadAccount = new ItadAccount(Secrets.Current);
 
     // Numéro de la dernière demande de prix (même principe que pour les patch notes) :
     // si on clique sur un autre jeu avant la réponse, l'ancienne réponse est ignorée.
@@ -108,11 +106,11 @@ public partial class ShopsView : UserControl
         InitializeComponent();
         _presentations = new GamePresentationService(_itad);
 
-        if (!_itad.IsConfigured)
-        {
-            ShopStatusText.Text = "Clé IsThereAnyDealApiKey absente de secrets.json.";
-            ShopSearchButton.IsEnabled = false;
-        }
+        UpdateKeyStatus();
+
+        // Une clé ajoutée ou changée dans Réglages (ou l'assistant) : l'onglet se débloque sans redémarrer.
+        // Dispatcher : l'événement peut venir d'un autre fil ; on revient sur celui de l'interface.
+        Secrets.Changed += () => Dispatcher.Invoke(UpdateKeyStatus);
 
         try
         {
@@ -125,6 +123,21 @@ public partial class ShopsView : UserControl
         }
 
         UpdateWatchListTab();
+    }
+
+    // Sans clé IsThereAnyDeal, la recherche est bloquée avec un message qui dit où l'ajouter.
+    private void UpdateKeyStatus()
+    {
+        ShopSearchButton.IsEnabled = _itad.IsConfigured;
+
+        if (!_itad.IsConfigured)
+        {
+            ShopStatusText.Text = "Pour chercher des prix, ajoute ta clé IsThereAnyDeal dans Réglages → Clés API.";
+        }
+        else if (!_hasSearched)
+        {
+            ShopStatusText.Text = "";
+        }
     }
 
     // ===================== Bibliothèque =====================
@@ -710,7 +723,7 @@ public partial class ShopsView : UserControl
                 .ToList();
 
             // Avant toute recherche, on ne touche pas au texte d'état
-            // (il peut contenir « Clé IsThereAnyDealApiKey absente… »).
+            // (il peut contenir « … ajoute ta clé IsThereAnyDeal dans Réglages… »).
             if (_hasSearched)
             {
                 int hiddenCount = _searchResults.Count - shown.Count;

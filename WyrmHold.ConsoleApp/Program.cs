@@ -5,14 +5,28 @@ using Wyrmhold.Core;
 // 2 = promos filtrées par tags (préparation des recommandations par genre)
 // (Le premier essai avec CheapShark reste disponible dans CheapSharkApi.)
 
+// 7 = rapport de bug : nettoyage des données personnelles (pas besoin de clé IsThereAnyDeal).
+if (args.Length > 0 && args[0] == "7")
+{
+    TestBugReport();
+    return;
+}
+
+// 8 = clés API : import de l'ancien secrets.json, puis essai de chaque clé enregistrée (affichées masquées).
+if (args.Length > 0 && args[0] == "8")
+{
+    await TestApiKeysAsync();
+    return;
+}
+
 try
 {
     Secrets secrets = Secrets.Load();
-    var itad = new IsThereAnyDealApi(secrets.IsThereAnyDealApiKey);
+    var itad = new IsThereAnyDealApi(secrets);
 
     if (!itad.IsConfigured)
     {
-        Console.WriteLine("Clé IsThereAnyDealApiKey absente de secrets.json.");
+        Console.WriteLine("Clé IsThereAnyDeal absente : ajoute-la dans Wyrmhold (Réglages → Clés API).");
         return;
     }
 
@@ -288,6 +302,75 @@ static async Task ShowPresentationAsync(IsThereAnyDealApi itad, string title)
     Console.WriteLine($"  image     : {media?.Trailers.FirstOrDefault()?.ThumbnailUrl}");
     Console.WriteLine($"  teaser    : {media?.Trailers.FirstOrDefault()?.MicrotrailerUrl}");
     Console.WriteLine($"Page Steam  : {media?.StoreUrl}");
+}
+
+// Phase 9.1 : d'abord des exemples inventés (chaque ligne doit ressortir masquée),
+// puis un vrai rapport construit avec TON journal, vérifié avant d'être affiché.
+static void TestBugReport()
+{
+    string[] samples =
+    {
+        @"at Wyrmhold.Core.SteamProvider.GetInstalledGames() in C:\Users\jdupont\source\repos\WyrmHold\SteamProvider.cs:line 11",
+        "GET https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/?key=0123456789ABCDEF0123456789ABCDEF&steamid=76561198000000000",
+        "Authorization: Bearer abcDEF123.456-xyz",
+        "Jeton : eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl",
+        "Compte : jean.dupont@example.com",
+        "Clé secrète maison : MaCleSecrete2026",
+        "Le dossier de jdupont est introuvable (mais « jdupontel » doit rester)",
+    };
+
+    Console.WriteLine("=== Exemples (secret connu : MaCleSecrete2026, compte Windows : jdupont) ===");
+
+    foreach (string sample in samples)
+    {
+        Console.WriteLine($"avant : {sample}");
+        Console.WriteLine($"après : {ReportSanitizer.Clean(sample, new[] { "MaCleSecrete2026" }, "jdupont")}");
+        Console.WriteLine();
+    }
+
+    BugReport report = BugReport.Create(AppSettings.Load(), CrashReporter.GetPendingCrashFile());
+    report.Description = "Essai du rapport depuis la console (mode 7).";
+
+    string text = report.ToText();
+    string url = report.GetGitHubUrl();
+    int leaks = ReportSanitizer.CountRemainingSecrets(text) + ReportSanitizer.CountRemainingSecrets(Uri.UnescapeDataString(url));
+
+    Console.WriteLine("=== Vrai rapport ===");
+
+    if (leaks > 0)
+    {
+        // Sécurité : on n'affiche pas un rapport qui contient encore un secret.
+        Console.WriteLine($"ÉCHEC : {leaks} secret(s) connu(s) encore présent(s). Rapport non affiché.");
+        return;
+    }
+
+    Console.WriteLine(text);
+    Console.WriteLine();
+    Console.WriteLine($"Secrets connus restants : 0. Nom du compte Windows présent : {text.Contains(Environment.UserName, StringComparison.OrdinalIgnoreCase)}");
+    Console.WriteLine($"Lien GitHub : {url.Length} caractères (maximum 4000)");
+}
+
+// Phase 9.2 : la première lecture importe secrets.json (chiffré, puis supprimé), ensuite on essaie chaque clé.
+static async Task TestApiKeysAsync()
+{
+    string legacy = Path.Combine(AppPaths.DataFolder, "secrets.json");
+    Console.WriteLine($"secrets.json avant : {(File.Exists(legacy) ? "présent" : "absent")}");
+
+    Secrets keys = Secrets.Current;
+
+    Console.WriteLine($"secrets.json après : {(File.Exists(legacy) ? "présent" : "absent")}");
+    Console.WriteLine($"Fichier chiffré    : {(SecureStore.Exists("api-keys") ? "présent" : "absent")}");
+    Console.WriteLine();
+    Console.WriteLine($"Steam        {ApiKeyTester.Mask(keys.SteamApiKey),-14} {(await ApiKeyTester.TestSteamAsync(keys.SteamApiKey, keys.SteamId)).Message}");
+    Console.WriteLine($"SteamGridDB  {ApiKeyTester.Mask(keys.SteamGridDbApiKey),-14} {(await ApiKeyTester.TestSteamGridDbAsync(keys.SteamGridDbApiKey)).Message}");
+    Console.WriteLine($"ITAD         {ApiKeyTester.Mask(keys.IsThereAnyDealApiKey),-14} {(await ApiKeyTester.TestIsThereAnyDealAsync(keys.IsThereAnyDealApiKey)).Message}");
+    Console.WriteLine($"ITAD client  {ApiKeyTester.Mask(keys.IsThereAnyDealClientId)}");
+
+    // Une mauvaise clé doit être reconnue comme telle (et pas comme « pas de réseau »).
+    Console.WriteLine();
+    Console.WriteLine($"Fausse clé Steam : {(await ApiKeyTester.TestSteamAsync(new string('0', 32), keys.SteamId)).Message}");
+    Console.WriteLine($"Fausse clé SGDB  : {(await ApiKeyTester.TestSteamGridDbAsync("faussecle")).Message}");
+    Console.WriteLine($"Fausse clé ITAD  : {(await ApiKeyTester.TestIsThereAnyDealAsync("faussecle")).Message}");
 }
 
 static string ReadOrDefault(string defaultValue)

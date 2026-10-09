@@ -23,6 +23,16 @@ public interface IAchievementProvider
     /// La liste complète des succès du jeu, débloqués ou non (plus lent : appelé à l'ouverture de la liste).
     /// </summary>
     Task<List<AchievementDetail>> GetAchievementsAsync(Game game, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Les identifiants des succès débloqués, pour le suivi en direct (relu toutes les 60 s).
+    /// Par défaut, on lit la liste complète ; une source peut proposer plus léger (Steam : un seul appel).
+    /// </summary>
+    async Task<HashSet<string>> GetUnlockedIdsAsync(Game game, CancellationToken cancellationToken = default)
+    {
+        List<AchievementDetail> achievements = await GetAchievementsAsync(game, cancellationToken);
+        return achievements.Where(a => a.IsUnlocked).Select(a => a.Id).ToHashSet();
+    }
 }
 
 public record AchievementProgress(int Unlocked, int Total);

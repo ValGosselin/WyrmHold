@@ -152,6 +152,44 @@ public partial class AchievementsWindow : Window
         ShowAchievements();
     }
 
+    private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ShowAchievements();
+    }
+
+    /// <summary>
+    /// « Comment l'obtenir ? » : ouvre la fenêtre Aide avec « nom du succès + succès » déjà cherché sur Google
+    /// (les boutons YouTube, forums Steam et Reddit reprennent les mêmes mots).
+    /// </summary>
+    private void HowToGet_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not AchievementRow row)
+        {
+            return;
+        }
+
+        string words = $"{row.Name} succès";
+
+        // Une aide est déjà reliée : la recherche s'y fait, sans ouvrir de 2e fenêtre.
+        if (LinkedHelp is not null)
+        {
+            LinkedHelp.SearchFor(words);
+            return;
+        }
+
+        // Pas d'Owner (voir HelpWindow.AchievementsButton_Click) ; l'aide se ferme avec cette fenêtre.
+        HelpWindow window = new HelpWindow(_library, _game, words)
+        {
+            Topmost = Topmost,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen
+        };
+        HelpWindow.Link(window, this, opener: this);
+        window.Show();
+    }
+
+    // La fenêtre Aide reliée (au plus une), voir HelpWindow.Link.
+    public HelpWindow? LinkedHelp { get; set; }
+
     /// <summary>
     /// Filtre, trie, puis transforme chaque succès en ligne à afficher.
     /// </summary>
@@ -185,9 +223,19 @@ public partial class AchievementsWindow : Window
         };
 
         List<AchievementRow> rows = shown.Select(a => new AchievementRow(a, revealHidden)).ToList();
+
+        // On cherche dans le texte affiché : un succès caché ne se trahit pas par sa vraie description.
+        // Normalize retire espaces, ponctuation et majuscules, comme la recherche de la bibliothèque.
+        string searchKey = NameTools.Normalize(SearchBox.Text);
+        if (searchKey.Length > 0)
+        {
+            rows = rows.Where(row => NameTools.Normalize(row.SearchText).Contains(searchKey)).ToList();
+        }
+
         AchievementsList.ItemsSource = rows;
 
         StatusText.Text = rows.Count > 0 ? ""
+            : searchKey.Length > 0 ? "Aucun succès ne correspond à ta recherche."
             : show == "todo" ? "Tout est débloqué : bravo !"
             : "Aucun succès débloqué pour l'instant.";
     }
@@ -253,11 +301,21 @@ public class AchievementRow : INotifyPropertyChanged
             ? _achievement.Description
             : "Pas de description fournie pour ce succès.";
 
+    // Texte où la recherche regarde : le vrai nom et la vraie description, sans les messages d'aide.
+    // Un succès gardé secret ne trouve rien : sa description ne doit pas se deviner.
+    public string SearchText => KeepSecret ? "" : _achievement.Name + " " + _achievement.Description;
+
     public string? IconUrl => _achievement.IconUrl;
     public string RarityText => _achievement.RarityText;
     public string UnlockedText => _achievement.UnlockedText;
 
     public Visibility ProgressVisibility => _achievement.HasProgress && !_achievement.IsUnlocked
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    // « Comment l'obtenir ? » : seulement pour un succès à faire, et jamais pour un succès gardé secret
+    // (la recherche dévoilerait ce qu'il cache).
+    public Visibility HowToGetVisibility => !_achievement.IsUnlocked && !KeepSecret
         ? Visibility.Visible
         : Visibility.Collapsed;
 

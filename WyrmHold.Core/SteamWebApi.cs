@@ -101,6 +101,19 @@ public class SteamWebApi
     }
 
     /// <summary>
+    /// Les identifiants (apiname) des succès débloqués : un seul appel, pour le suivi en direct.
+    /// </summary>
+    public async Task<HashSet<string>> GetUnlockedAchievementIdsAsync(string appId, CancellationToken cancellationToken = default)
+    {
+        List<SteamPlayerAchievement> achievements = await GetPlayerAchievementsAsync(appId, null, cancellationToken);
+
+        return achievements
+            .Where(a => a.Achieved == 1 && !string.IsNullOrEmpty(a.ApiName))
+            .Select(a => a.ApiName!)
+            .ToHashSet();
+    }
+
+    /// <summary>
     /// La liste complète des succès, en combinant plusieurs réponses de Steam :
     /// 1. tes succès (débloqué ou non, et quand) ;
     /// 2. GetGameAchievements : nom, description même pour les cachés, rareté ;

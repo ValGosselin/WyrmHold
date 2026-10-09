@@ -39,6 +39,25 @@ public static class SecureStore
         }
     }
 
+    // Toutes les valeurs enregistrées (déchiffrées) : sert seulement à les masquer dans un rapport de bug.
+    public static IEnumerable<string> LoadAll()
+    {
+        if (!Directory.Exists(Folder))
+        {
+            yield break;
+        }
+
+        foreach (string path in Directory.GetFiles(Folder, "*.bin"))
+        {
+            string? value = Load(Path.GetFileNameWithoutExtension(path));
+
+            if (!string.IsNullOrEmpty(value))
+            {
+                yield return value;
+            }
+        }
+    }
+
     public static bool Exists(string name)
     {
         return File.Exists(GetPath(name));

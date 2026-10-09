@@ -75,6 +75,17 @@ public partial class MainWindow : Window
         UpdateThemeButton();
         LoadSettingsTab();
         ApplyOverlaySettings();
+        VersionText.Text = $"Wyrmhold {AppInfo.Version}";
+#if DEBUG
+        TestCrashButton.Visibility = Visibility.Visible;
+#endif
+
+        // Plantage lors de la dernière utilisation : on propose de le signaler (rien n'est envoyé sans accord).
+        OfferCrashReport();
+
+        // Premier lancement : l'assistant des clés API, AVANT de lire la bibliothèque (pour qu'elle soit complète).
+        OfferSetupWizard();
+        UpdateApiKeysSummary();
 
         // Prix des jeux suivis : vérifiés à chaque ouverture, EN PARALLÈLE du chargement de la bibliothèque.
         // « _ = » : on lance la tâche sans l'attendre (elle gère elle-même ses erreurs).
@@ -733,6 +744,18 @@ public partial class MainWindow : Window
         }
     }
 
+    private void HelpButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (CurrentGame is not Game game)
+        {
+            return;
+        }
+
+        // Show (pas ShowDialog) : tu peux garder l'aide ouverte et continuer à utiliser la bibliothèque.
+        HelpWindow window = new HelpWindow(_library, game) { Owner = this };
+        window.Show();
+    }
+
     private void PatchNotesLinkButton_Click(object sender, RoutedEventArgs e)
     {
         OpenInBrowser(_patchNotesLinkUrl);
@@ -890,8 +913,44 @@ public partial class MainWindow : Window
         OverlayEnabledCheck.IsChecked = _library.Settings.OverlayEnabled;
         OverlayHotkeyBox.Text = _library.Settings.OverlayHotkey;
         OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
+        HelpHotkeyBox.Text = _library.Settings.HelpHotkey;
+        HelpHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
+        MuteSteamAchievementsCheck.IsChecked = _library.Settings.MuteSteamAchievementNotifications;
+        AchievementSoundCheck.IsChecked = _library.Settings.AchievementSoundEnabled;
 
         _isLoadingSettings = false;
+    }
+
+    private void MuteSteamAchievementsCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        _library.Settings.MuteSteamAchievementNotifications = MuteSteamAchievementsCheck.IsChecked == true;
+        SaveSettings();
+    }
+
+    private void AchievementSoundCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        _library.Settings.AchievementSoundEnabled = AchievementSoundCheck.IsChecked == true;
+        SaveSettings();
+    }
+
+    private void TestToastButton_Click(object sender, RoutedEventArgs e)
+    {
+        _overlay.ShowTestToast();
+    }
+
+    private void TestCompletedToastButton_Click(object sender, RoutedEventArgs e)
+    {
+        _overlay.ShowTestCompletedToast();
     }
 
     // ----- Overlay en jeu -----
@@ -901,14 +960,21 @@ public partial class MainWindow : Window
     /// </summary>
     private void ApplyOverlaySettings()
     {
-        bool isHotkeyAccepted = _overlay.ApplySettings();
+        _overlay.ApplySettings();
 
         OverlayHotkeyBox.Text = _overlay.CurrentHotkey;
+        HelpHotkeyBox.Text = _overlay.CurrentHelpHotkey;
+
+        // Un raccourci refusé par Windows : on dit lequel (le même pour les deux cases = le 2e est refusé).
+        List<string> refused = new List<string>();
+        if (!_overlay.IsHotkeyAccepted) refused.Add(_overlay.CurrentHotkey);
+        if (!_overlay.IsHelpHotkeyAccepted) refused.Add(_overlay.CurrentHelpHotkey);
+
         OverlayHotkeyStatusText.Text = !_library.Settings.OverlayEnabled
-            ? "Overlay désactivé : aucune surveillance, aucun raccourci."
-            : isHotkeyAccepted
-                ? "Pour changer le raccourci : clique dans la case, puis appuie sur la nouvelle combinaison (avec Ctrl, Alt ou Windows). Échap pour annuler."
-                : $"Le raccourci {_overlay.CurrentHotkey} est déjà utilisé par une autre application : choisis-en un autre.";
+            ? "Overlay désactivé : aucune surveillance, aucun raccourci (ni overlay ni aide en jeu)."
+            : refused.Count == 0
+                ? "Pour changer un raccourci : clique dans sa case, puis appuie sur la nouvelle combinaison (avec Ctrl, Alt ou Windows). Échap pour annuler."
+                : $"Raccourci déjà utilisé (par une autre application ou par l'autre case) : {string.Join(", ", refused.Distinct())}. Choisis-en un autre.";
     }
 
     private void OverlayEnabledCheck_Changed(object sender, RoutedEventArgs e)
@@ -922,22 +988,24 @@ public partial class MainWindow : Window
         SaveSettings();
 
         OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
+        HelpHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
         ApplyOverlaySettings();
     }
 
-    private void OverlayHotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    // Les deux cases de raccourci (overlay et aide) partagent ces trois fonctions : leur Tag dit laquelle est visée.
+    private void HotkeyBox_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         // Sinon Windows intercepterait l'ancien raccourci avant qu'il n'arrive dans la case.
         _overlay.SuspendHotkey();
         OverlayHotkeyStatusText.Text = "Appuie sur la nouvelle combinaison… (Échap pour annuler)";
     }
 
-    private void OverlayHotkeyBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    private void HotkeyBox_LostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         ApplyOverlaySettings();
     }
 
-    private void OverlayHotkeyBox_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void HotkeyBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         // Aucune touche n'est écrite dans la case : on lit seulement la combinaison.
         e.Handled = true;
@@ -964,7 +1032,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        _library.Settings.OverlayHotkey = text;
+        if ((sender as FrameworkElement)?.Tag as string == "help")
+        {
+            _library.Settings.HelpHotkey = text;
+        }
+        else
+        {
+            _library.Settings.OverlayHotkey = text;
+        }
+
         SaveSettings();
         Keyboard.ClearFocus();   // enregistre le nouveau raccourci (voir LostKeyboardFocus)
     }
@@ -1458,7 +1534,7 @@ public partial class MainWindow : Window
     {
         SteamStatusText.Text = _library.IsSteamApiConfigured
             ? "Bibliothèque synchronisée avec ta clé API"
-            : "Clé API absente de secrets.json";
+            : "Clé API manquante : Réglages → Clés API";
 
         SetAccountRow(SteamFamilyStatusText, SteamFamilyButton, _library.IsSteamFamilyConnected);
         SetAccountRow(GogStatusText, GogAccountButton, _library.IsGogConnected);
@@ -1478,7 +1554,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            ItadStatusText.Text = "IsThereAnyDealClientId absent de secrets.json";
+            ItadStatusText.Text = "Client ID manquant : Réglages → Clés API (facultatif)";
             ItadAccountButton.Content = "Se connecter";
             ItadAccountButton.IsEnabled = false;
         }
@@ -1944,6 +2020,120 @@ public partial class MainWindow : Window
         _overlay.Dispose();
         _trayIcon.Dispose();
         Application.Current.Shutdown();
+    }
+
+    /// <summary>
+    /// Après un plantage (voir App.xaml.cs) : on quitte sans rien demander, en retirant quand même
+    /// l'icône de la barre des tâches (sinon elle resterait affichée jusqu'au survol de la souris).
+    /// </summary>
+    public void ExitAfterCrash()
+    {
+        _isExiting = true;
+
+        try
+        {
+            _overlay.Dispose();
+            _trayIcon.Dispose();
+        }
+        catch
+        {
+            // L'appli est déjà dans un état bancal : on ferme quand même.
+        }
+
+        Application.Current.Shutdown();
+    }
+
+    // ===================== Clés API =====================
+
+    private void OfferSetupWizard()
+    {
+        if (_library.Settings.SetupWizardDone)
+        {
+            return;
+        }
+
+        // Quelqu'un qui a déjà des clés (ex. importées de l'ancien secrets.json) n'a pas besoin de l'assistant.
+        if (!Secrets.Current.HasAnyKey)
+        {
+            new SetupWizardWindow { Owner = this }.ShowDialog();
+        }
+
+        // Proposé une seule fois, qu'il soit terminé ou fermé : la suite se fait dans Réglages.
+        _library.Settings.SetupWizardDone = true;
+        _library.SaveSettings();
+    }
+
+    private async void EditApiKeysButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (new SetupWizardWindow(fromSettings: true) { Owner = this }.ShowDialog() != true)
+        {
+            return;
+        }
+
+        UpdateApiKeysSummary();
+        RefreshAccountsTab();
+
+        // Les nouvelles clés servent tout de suite : on relit la bibliothèque (jeux Steam non installés,
+        // jaquettes…). Si une lecture est déjà en cours (bouton Actualiser bloqué), elle s'en chargera.
+        if (RefreshButton.IsEnabled)
+        {
+            await LoadGamesAsync();
+            RefreshAccountsTab();
+        }
+    }
+
+    private void UpdateApiKeysSummary()
+    {
+        Secrets keys = Secrets.Current;
+
+        string Line(string name, string value) =>
+            $"{name,-15} {(value.Length > 0 ? "✔ " + ApiKeyTester.Mask(value) : "— non renseignée")}";
+
+        ApiKeysSummaryText.Text = string.Join("\n",
+            Line("Steam", keys.SteamApiKey),
+            Line("SteamID", keys.SteamId),
+            Line("SteamGridDB", keys.SteamGridDbApiKey),
+            Line("IsThereAnyDeal", keys.IsThereAnyDealApiKey),
+            Line("ITAD client ID", keys.IsThereAnyDealClientId));
+    }
+
+    // ===================== Signaler un bug =====================
+
+    private void ReportBugButton_Click(object sender, RoutedEventArgs e)
+    {
+        new BugReportWindow(_library.Settings) { Owner = this }.Show();
+    }
+
+    // Version Debug seulement : une erreur volontaire, pour vérifier tout le parcours du plantage.
+    private void TestCrashButton_Click(object sender, RoutedEventArgs e)
+    {
+        throw new InvalidOperationException(
+            $"Plantage de test (fichier {System.IO.Path.Combine(AppPaths.DataFolder, "test.txt")}).");
+    }
+
+    private void OfferCrashReport()
+    {
+        string? crashFile = CrashReporter.GetPendingCrashFile();
+
+        if (crashFile == null)
+        {
+            return;
+        }
+
+        MessageBoxResult answer = MessageBox.Show(
+            "Wyrmhold s'est fermé de façon inattendue la dernière fois. Veux-tu signaler ce plantage ?\n\n"
+            + "Tu verras le rapport avant de l'envoyer.",
+            "Wyrmhold",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        // La fenêtre lit le fichier dès sa création : on peut le supprimer juste après.
+        if (answer == MessageBoxResult.Yes)
+        {
+            new BugReportWindow(_library.Settings, crashFile) { Owner = this }.Show();
+        }
+
+        CrashReporter.ClearPending();
     }
 
     // ===================== Vues enregistrées =====================

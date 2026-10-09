@@ -42,6 +42,7 @@ public class LibraryService
     private readonly Secrets _secrets;
     private readonly SteamWebApi _steamApi;
     private readonly SteamGridDbApi _steamGridDb;
+    private readonly SteamGuidesApi _steamGuides;
 
     // Succès : une source par plateforme. Pour en ajouter une, il suffira de l'ajouter à cette liste.
     private readonly SteamAchievementProvider _steamAchievements;
@@ -63,9 +64,11 @@ public class LibraryService
 
     public LibraryService()
     {
-        _secrets = Secrets.Load();
+        // L'objet partagé (Secrets.Current) : une clé changée dans Réglages sert tout de suite partout.
+        _secrets = Secrets.Current;
         _steamApi = new SteamWebApi(_secrets);
-        _steamGridDb = new SteamGridDbApi(_secrets.SteamGridDbApiKey);
+        _steamGridDb = new SteamGridDbApi(_secrets);
+        _steamGuides = new SteamGuidesApi(_secrets);
         _steamAchievements = new SteamAchievementProvider(_steamApi);
         _epicAchievements = new EpicAchievementProvider(_epicCatalog);
         _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements, _epicAchievements };
@@ -74,6 +77,8 @@ public class LibraryService
         Watcher.GameStarted += OnGameStarted;
         Watcher.GameStopped += OnGameStopped;
         Watcher.Scanned += OnWatcherScanned;
+
+        LiveAchievements = new LiveAchievementTracker(this);
     }
 
     // ----- Propriétés -----
@@ -1031,6 +1036,80 @@ public class LibraryService
         };
     }
 
+    // ----- Guides et discussions -----
+
+    // Guides déjà lus pendant cette session, par appid et par tri (évite de rappeler Steam à chaque clic).
+    private readonly Dictionary<string, List<SteamGuide>> _guidesCache = new Dictionary<string, List<SteamGuide>>();
+
+    /// <summary>
+    /// L'appid Steam qui sert aux guides et aux forums (null = jeu introuvable sur Steam).
+    /// </summary>
+    public Task<string?> GetSteamAppIdAsync(Game game)
+    {
+        return FindSteamAppIdAsync(game);
+    }
+
+    /// <summary>
+    /// Les guides Steam du jeu (français ou anglais). Message vide = tout va bien.
+    /// Une erreur de Steam ne remonte pas : elle est notée dans le journal et expliquée dans le message.
+    /// </summary>
+    public async Task<GuidesResult> GetGuidesAsync(Game game, bool newestFirst)
+    {
+        string? steamAppId;
+
+        try
+        {
+            steamAppId = await FindSteamAppIdAsync(game);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Recherche de l'appid Steam impossible pour {game.Name} : {ex.Message}");
+            return new GuidesResult { Message = "Steam ne répond pas pour le moment. Les détails sont dans le journal." };
+        }
+
+        if (steamAppId is null)
+        {
+            return new GuidesResult { Message = "Ce jeu n'a pas été trouvé sur Steam : pas de guides Steam." };
+        }
+
+        // Le forum Steam marche sans clé : on renvoie quand même l'appid.
+        if (!_steamGuides.IsConfigured)
+        {
+            return new GuidesResult
+            {
+                SteamAppId = steamAppId,
+                Message = "Les guides Steam demandent une clé Steam Web API (voir l'onglet Comptes)."
+            };
+        }
+
+        string cacheKey = $"{steamAppId}|{newestFirst}";
+
+        if (!_guidesCache.TryGetValue(cacheKey, out List<SteamGuide>? guides))
+        {
+            try
+            {
+                guides = await _steamGuides.GetGuidesAsync(steamAppId, newestFirst);
+                _guidesCache[cacheKey] = guides;
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Guides Steam impossibles à lire pour {game.Name} : {ex.Message}");
+                return new GuidesResult
+                {
+                    SteamAppId = steamAppId,
+                    Message = "Impossible de lire les guides pour le moment. Les détails sont dans le journal."
+                };
+            }
+        }
+
+        return new GuidesResult
+        {
+            SteamAppId = steamAppId,
+            Guides = guides,
+            Message = guides.Count == 0 ? "Aucun guide en français ou en anglais pour ce jeu." : ""
+        };
+    }
+
     /// <summary>
     /// L'appid Steam d'un jeu : le sien pour un jeu Steam, sinon celui du même jeu trouvé par son nom.
     /// La recherche est faite une seule fois puis enregistrée en base (même quand elle ne trouve rien).
@@ -1184,6 +1263,41 @@ public class LibraryService
         _database.SaveAchievements(new List<Game> { game });
 
         return details;
+    }
+
+    /// <summary>
+    /// Pour le suivi en direct : la source de succès d'un jeu, prête à être interrogée (jeton à jour),
+    /// ou null si sa plateforme n'a pas de source, si elle est décochée dans les réglages, ou si ce jeu
+    /// ne peut pas avoir de succès.
+    /// </summary>
+    internal async Task<IAchievementProvider?> PrepareAchievementSourceAsync(Game game)
+    {
+        IAchievementProvider? provider = _achievementProviders.FirstOrDefault(p => p.Platform == game.Platform);
+
+        if (provider is null || !Settings.IsAchievementSourceEnabled(game.Platform))
+        {
+            return null;
+        }
+
+        if (game.Platform == Platform.Gog)
+        {
+            await EnsureFreshGogTokensAsync();
+        }
+        else if (game.Platform == Platform.Epic)
+        {
+            await EnsureFreshEpicSessionAsync();
+        }
+
+        return provider.CanHaveAchievements(game) ? provider : null;
+    }
+
+    /// <summary>
+    /// Enregistre une progression lue en direct : base, badges (« 100 % », « Succès ajoutés ») et tuile.
+    /// </summary>
+    internal void SaveAchievementProgress(Game game, AchievementProgress progress)
+    {
+        game.ApplyAchievementProgress(progress, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        _database.SaveAchievements(new List<Game> { game });
     }
 
     /// <summary>
@@ -1415,6 +1529,9 @@ public class LibraryService
 
     // Le détecteur de jeu en cours, partagé par l'overlay et le temps de jeu.
     public GameWatcher Watcher { get; } = new GameWatcher();
+
+    // Les succès du jeu en cours, relus toutes les 60 s (overlay activé seulement).
+    public LiveAchievementTracker LiveAchievements { get; }
 
     // Une session vient d'être enregistrée : la fenêtre peut rafraîchir le temps de jeu affiché.
     public event Action<Game>? PlaySessionRecorded;

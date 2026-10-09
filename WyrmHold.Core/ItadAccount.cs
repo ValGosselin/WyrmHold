@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 
 namespace Wyrmhold.Core;
 
@@ -11,22 +11,24 @@ public class ItadAccount
 {
     private const string StoreName = "itad";
 
-    private readonly string _clientId;
+    // Relu à chaque fois : un client ID ajouté dans Réglages sert tout de suite.
+    private readonly Secrets _secrets;
+    private string ClientId => _secrets.IsThereAnyDealClientId;
 
-    public ItadAccount(string clientId)
+    public ItadAccount(Secrets secrets)
     {
-        _clientId = clientId;
+        _secrets = secrets;
     }
 
-    // Le client ID est dans secrets.json : sans lui, impossible de se connecter.
-    public bool IsConfigured => !string.IsNullOrEmpty(_clientId);
+    // Le client ID est dans les clés API (Réglages) : sans lui, impossible de se connecter.
+    public bool IsConfigured => !string.IsNullOrEmpty(ClientId);
 
     public bool IsConnected => SecureStore.Exists(StoreName);
 
     /// <summary>Termine la connexion : échange le code reçu contre des jetons et les enregistre.</summary>
     public async Task ConnectAsync(string code, string codeVerifier)
     {
-        ItadTokens tokens = await ItadAuth.ExchangeCodeAsync(_clientId, code, codeVerifier);
+        ItadTokens tokens = await ItadAuth.ExchangeCodeAsync(ClientId, code, codeVerifier);
         Save(tokens);
     }
 
@@ -56,7 +58,7 @@ public class ItadAccount
             throw new InvalidOperationException("Session IsThereAnyDeal expirée : reconnecte-toi dans l'onglet Comptes.");
         }
 
-        ItadTokens fresh = await ItadAuth.RefreshAsync(_clientId, tokens.RefreshToken);
+        ItadTokens fresh = await ItadAuth.RefreshAsync(ClientId, tokens.RefreshToken);
 
         // Si le site ne renvoie pas de nouveau jeton de renouvellement, on garde l'ancien.
         // « with » crée une copie du record avec seulement cette valeur changée.
