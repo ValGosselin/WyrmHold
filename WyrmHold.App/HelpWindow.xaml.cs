@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Input;
 using Wyrmhold.Core;
 
@@ -24,7 +24,7 @@ public partial class HelpWindow : Window
 
         Title = $"Aide — {game.Name}";
 
-        _panel = new HelpPanel(library, game, initialSearch, forTransparentWindow: false);
+        _panel = new HelpPanel(library, game, initialSearch);
         _panel.AchievementsRequested += OpenAchievements;
         PanelHost.Content = _panel;
 

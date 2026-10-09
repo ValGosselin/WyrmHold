@@ -1,4 +1,4 @@
-<!-- L'overlay en jeu, façon Steam : un voile sombre sur tout l'écran, une barre en haut (jeu, session, heure, PC),
+﻿<!-- L'overlay en jeu, façon Steam : un voile sombre sur tout l'écran, une barre en haut (jeu, session, heure, PC),
      trois onglets au milieu (Accueil, Succès, Aide) et une barre de boutons en bas.
      Contrairement à l'ancien petit overlay, il PREND le clavier et la souris tant qu'il est ouvert (comme Maj+Tab
      dans Steam) : Échap, le bouton « Retour au jeu » ou le raccourci le referment et rendent la main au jeu.
@@ -236,10 +236,10 @@
             </Grid>
 
             <!-- Onglet Succès : le même panneau que la fenêtre « Voir les succès » (ajouté par le code) -->
-            <Border x:Name="AchievementsTab" Style="{StaticResource HubCard}" Visibility="Collapsed"/>
+            <Border x:Name="AchievementsTab" Style="{StaticResource HubCard}" Visibility="Hidden"/>
 
             <!-- Onglet Aide : le même panneau que la fenêtre Aide (ajouté par le code à la 1re visite) -->
-            <Border x:Name="HelpTab" Style="{StaticResource HubCard}" Visibility="Collapsed"/>
+            <Border x:Name="HelpTab" Style="{StaticResource HubCard}" Visibility="Hidden"/>
         </Grid>
 
         <!-- ===== Barre du bas : les onglets et le retour au jeu ===== -->

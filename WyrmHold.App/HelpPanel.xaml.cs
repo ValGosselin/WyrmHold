@@ -18,13 +18,12 @@ public partial class HelpPanel : UserControl
     private readonly LibraryService _library;
     private readonly Game _game;
 
-    // Le navigateur : deux versions possibles, mêmes commandes (IWebView2).
-    // - WebView2 (normal) : une vraie fenêtre Windows posée dans la nôtre. Rapide, mais INVISIBLE
-    //   dans une fenêtre transparente (AllowsTransparency), comme l'overlay.
-    // - WebView2CompositionControl : la page est dessinée par WPF lui-même. Un peu moins rapide,
-    //   mais elle s'affiche aussi dans une fenêtre transparente. C'est celle de l'overlay.
-    private readonly IWebView2 _browser;
-    private readonly FrameworkElement _browserElement;
+    // Le navigateur, en version « composition » (WebView2CompositionControl) : la page est dessinée par WPF
+    // lui-même, ce qui la rend visible dans la fenêtre transparente de l'overlay (le WebView2 normal y est invisible).
+    // La fenêtre Aide de la bibliothèque utilise la MÊME version : un navigateur normal et un « composition »
+    // ne peuvent pas partager le dossier WebView2\Aide en même temps (erreur 0x8007139F, vérifiée le 9 octobre 2026) ;
+    // deux « composition », si, et tes connexions (Steam, Reddit…) restent communes.
+    private readonly WebView2CompositionControl _browser;
 
     // Les guides reçus pour le tri choisi (le filtre, lui, s'applique sans rappeler Steam).
     private List<SteamGuide> _guides = new List<SteamGuide>();
@@ -39,6 +38,9 @@ public partial class HelpPanel : UserControl
     // Le navigateur intégré n'a pas pu démarrer : les pages s'ouvrent dans le navigateur de Windows.
     private bool _browserFailed;
 
+    // Une page a été ouverte (Recharger et « Ouvrir dans mon navigateur » n'ont rien à faire avant).
+    private bool _hasPage;
+
     // Pour ignorer la réponse d'un ancien tri si on a changé d'avis entre-temps.
     private int _guidesRequest;
 
@@ -48,29 +50,18 @@ public partial class HelpPanel : UserControl
 
     // initialSearch : des mots déjà tapés dans la case, et la recherche Google lancée à l'ouverture
     // (ex. le nom d'un succès, depuis « Comment l'obtenir ? »).
-    // forTransparentWindow : true pour l'overlay (navigateur « composition », voir plus haut).
-    public HelpPanel(LibraryService library, Game game, string? initialSearch, bool forTransparentWindow)
+    public HelpPanel(LibraryService library, Game game, string? initialSearch)
     {
         InitializeComponent();
         _library = library;
         _game = game;
         _ready = true;
 
-        if (forTransparentWindow)
-        {
-            WebView2CompositionControl composition = new WebView2CompositionControl();
-            _browser = composition;
-            _browserElement = composition;
-        }
-        else
-        {
-            WebView2 normal = new WebView2();
-            _browser = normal;
-            _browserElement = normal;
-        }
-
-        _browserElement.Visibility = Visibility.Collapsed;
-        BrowserHost.Children.Add(_browserElement);
+        // Jamais caché : la version « composition » ne finit JAMAIS de démarrer si elle est cachée (Collapsed)
+        // pendant son démarrage (vérifié le 9 octobre 2026 avec un programme d'essai). Fond transparent : avant
+        // la 1re page, on voit le texte « Choisis un guide… », posé devant (index 0 = dessiné derrière le texte).
+        _browser = new WebView2CompositionControl { DefaultBackgroundColor = System.Drawing.Color.Transparent };
+        BrowserHost.Children.Insert(0, _browser);
 
         GameNameText.Text = game.Name;
         UpdateAchievementsButton();
@@ -117,7 +108,7 @@ public partial class HelpPanel : UserControl
     /// <summary>Libère le navigateur (la fenêtre ou l'overlay qui le contient se ferme).</summary>
     public void DisposeBrowser()
     {
-        (_browser as IDisposable)?.Dispose();
+        _browser.Dispose();
     }
 
     // ----- Succès -----
@@ -190,7 +181,7 @@ public partial class HelpPanel : UserControl
         }
 
         BrowserPlaceholder.Visibility = Visibility.Collapsed;
-        _browserElement.Visibility = Visibility.Visible;
+        _hasPage = true;
         _browser.CoreWebView2.Navigate(url);
     }
 
@@ -212,7 +203,7 @@ public partial class HelpPanel : UserControl
 
     private void Reload_Click(object sender, RoutedEventArgs e)
     {
-        if (_browserReady && _browserElement.Visibility == Visibility.Visible)
+        if (_browserReady && _hasPage)
         {
             _browser.CoreWebView2.Reload();
         }
@@ -220,7 +211,7 @@ public partial class HelpPanel : UserControl
 
     private void OpenExternal_Click(object sender, RoutedEventArgs e)
     {
-        if (_browserReady && _browserElement.Visibility == Visibility.Visible)
+        if (_browserReady && _hasPage)
         {
             BrowserHelper.Open(_browser.CoreWebView2.Source);
         }

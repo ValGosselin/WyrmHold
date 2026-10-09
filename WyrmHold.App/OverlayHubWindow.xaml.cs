@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -151,9 +151,11 @@ public partial class OverlayHubWindow : Window
             EnsureHelpPanel();
         }
 
-        HomeTab.Visibility = tab == HubTab.Home ? Visibility.Visible : Visibility.Collapsed;
-        AchievementsTab.Visibility = tab == HubTab.Achievements ? Visibility.Visible : Visibility.Collapsed;
-        HelpTab.Visibility = tab == HubTab.Help ? Visibility.Visible : Visibility.Collapsed;
+        // Hidden et pas Collapsed : le navigateur de l'Aide ne finit jamais de démarrer s'il est dans un onglet
+        // « Collapsed » (vérifié le 9 octobre 2026) ; avec Hidden, il démarre même si tu changes d'onglet entre-temps.
+        HomeTab.Visibility = tab == HubTab.Home ? Visibility.Visible : Visibility.Hidden;
+        AchievementsTab.Visibility = tab == HubTab.Achievements ? Visibility.Visible : Visibility.Hidden;
+        HelpTab.Visibility = tab == HubTab.Help ? Visibility.Visible : Visibility.Hidden;
 
         HomeTabButton.IsChecked = tab == HubTab.Home;
         AchievementsTabButton.IsChecked = tab == HubTab.Achievements;
@@ -194,8 +196,7 @@ public partial class OverlayHubWindow : Window
             return;
         }
 
-        // forTransparentWindow : le navigateur normal serait invisible dans cette fenêtre transparente.
-        _helpPanel = new HelpPanel(_library, _running.Game, null, forTransparentWindow: true) { ShowGameName = false };
+        _helpPanel = new HelpPanel(_library, _running.Game, null) { ShowGameName = false };
         _helpPanel.AchievementsRequested += () => SelectTab(HubTab.Achievements);
         HelpTab.Child = _helpPanel;
         _ = _helpPanel.StartAsync();
