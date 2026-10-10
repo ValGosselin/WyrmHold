@@ -19,6 +19,47 @@ if (args.Length > 1 && args[0] == "9")
     return;
 }
 
+// 10 sans numéro = joueurs en jeu de TOUTE la bibliothèque (comme l'appli), avec le temps mis.
+if (args.Length == 1 && args[0] == "10")
+{
+    LibraryService library = new LibraryService();
+    List<Game> games = library.LoadGames();
+    System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+    await library.RefreshPlayerCountsAsync(games);
+    Console.WriteLine($"{games.Count} jeux, {games.Count(g => g.HasPlayersInGame)} avec un chiffre, en {watch.ElapsedMilliseconds} ms");
+    foreach (IGrouping<Platform, Game> group in games.GroupBy(g => g.Platform))
+    {
+        Console.WriteLine($"  {group.Key} : {group.Count(g => g.HasPlayersInGame)}/{group.Count()}");
+    }
+    foreach (Game game in games.Where(g => g.HasPlayersInGame).OrderByDescending(g => g.PlayersInGame).Take(5))
+    {
+        Console.WriteLine($"  {game.Name} ({game.PlatformName}) : {game.PlayersInGameText}");
+    }
+    return;
+}
+
+// 10 = joueurs en jeu sur Steam (sans clé) : « dotnet run -- 10 730 1245620 999999999 ».
+if (args.Length > 1 && args[0] == "10")
+{
+    foreach (string appId in args.Skip(1))
+    {
+        try
+        {
+            int? count = await SteamPlayerCountApi.GetCurrentPlayersAsync(appId);
+            Game steam = new Game { Platform = Platform.Steam, PlayersInGame = count };
+            Game epic = new Game { Platform = Platform.Epic, PlayersInGame = count };
+            Console.WriteLine(count is null
+                ? $"{appId} : pas de chiffre chez Steam"
+                : $"{appId} : {count} → badge Steam « {steam.PlayersInGameText} », badge Epic « {epic.PlayersInGameText} »");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"{appId} : erreur {ex.Message}");
+        }
+    }
+    return;
+}
+
 // 8 = clés API : import de l'ancien secrets.json, puis essai de chaque clé enregistrée (affichées masquées).
 if (args.Length > 0 && args[0] == "8")
 {

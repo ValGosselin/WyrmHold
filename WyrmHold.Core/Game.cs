@@ -56,6 +56,56 @@ public class Game : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    // ----- Joueurs en jeu (Steam) -----
+
+    private int? _playersInGame;
+
+    /// <summary>
+    /// Les joueurs en jeu en ce moment sur Steam (null = inconnu ou pas de chiffre). Pas gardé en base :
+    /// relu au démarrage puis toutes les 10 minutes. Pour un jeu hors Steam, c'est le chiffre du même jeu sur Steam.
+    /// </summary>
+    public int? PlayersInGame
+    {
+        get => _playersInGame;
+        set
+        {
+            if (_playersInGame == value)
+            {
+                return;
+            }
+
+            _playersInGame = value;
+
+            // Chaîne vide = « toutes les propriétés ont changé » : le badge, son texte et son infobulle.
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+        }
+    }
+
+    public bool HasPlayersInGame => PlayersInGame is not null;
+
+    // Le texte du badge : « 22,1 k en jeu », suivi de « · Steam » pour un jeu acheté ailleurs (ce n'est pas le total réel).
+    public string PlayersInGameText => PlayersInGame is int count
+        ? FormatPlayers(count) + " en jeu" + (Platform == Platform.Steam ? "" : " · Steam")
+        : "";
+
+    public string PlayersInGameToolTip => PlayersInGame is not int count
+        ? ""
+        : Platform == Platform.Steam
+            ? $"{count.ToString("N0", French)} joueur(s) en jeu en ce moment sur Steam"
+            : $"{count.ToString("N0", French)} joueur(s) en jeu en ce moment sur Steam. "
+              + $"Les joueurs de {PlatformName} ne sont pas comptés : {PlatformName} ne publie pas ce chiffre.";
+
+    private static readonly System.Globalization.CultureInfo French = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+
+    // 845 → « 845 », 22 134 → « 22,1 k », 667 391 → « 667 k », 1 234 567 → « 1,2 M ».
+    private static string FormatPlayers(int count) => count switch
+    {
+        < 1_000 => count.ToString(French),
+        < 100_000 => (count / 1_000.0).ToString("0.#", French) + " k",
+        < 1_000_000 => (count / 1_000).ToString(French) + " k",
+        _ => (count / 1_000_000.0).ToString("0.#", French) + " M"
+    };
     public string ReleaseDateText => ReleaseDateUnix == 0
     ? ""
     : DateTimeOffset.FromUnixTimeSeconds(ReleaseDateUnix).LocalDateTime.ToString("dd/MM/yyyy");

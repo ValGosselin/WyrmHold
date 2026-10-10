@@ -1141,6 +1141,153 @@ public class LibraryService
         return game.SteamAppId.Length == 0 ? null : game.SteamAppId;
     }
 
+    // ----- Joueurs en jeu (Steam) -----
+
+    // Combien de jeux on interroge en même temps (Steam répond vite : environ 30 ms par jeu).
+    private const int ParallelPlayerCountRequests = 4;
+
+    // Jeux hors Steam dont on ne connaît pas encore l'appid : au plus tant de recherches dans la boutique Steam
+    // par mise à jour. Chaque appid trouvé est gardé en base : les suivants viendront aux mises à jour suivantes,
+    // sans envoyer d'un coup des centaines de recherches à Steam.
+    private const int MaxSteamAppIdSearchesPerRefresh = 20;
+
+    // Les derniers chiffres reçus, par appid (null = Steam n'a pas de chiffre pour ce jeu).
+    private readonly Dictionary<string, int?> _playerCounts = new Dictionary<string, int?>();
+
+    /// <summary>
+    /// Remet tout de suite les derniers chiffres connus sur ces jeux (après un rechargement de la bibliothèque,
+    /// les jeux sont de nouveaux objets : sans ça, les badges disparaîtraient jusqu'à la mise à jour suivante).
+    /// </summary>
+    public void ApplyKnownPlayerCounts(IReadOnlyList<Game> games)
+    {
+        Dictionary<string, string> appIdByName = AppIdsByName(games);
+
+        foreach (Game game in games)
+        {
+            if (AppIdFor(game, appIdByName) is string appId && _playerCounts.TryGetValue(appId, out int? count))
+            {
+                game.PlayersInGame = count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Relit chez Steam le nombre de joueurs en jeu de ces jeux, puis met à jour leurs badges.
+    /// Un chiffre illisible (réseau…) ne fait rien planter : le jeu garde son ancien chiffre.
+    /// À appeler depuis le fil de l'interface (les badges sont modifiés à la fin, sur ce fil).
+    /// </summary>
+    public async Task RefreshPlayerCountsAsync(IReadOnlyList<Game> games)
+    {
+        // Les noms des jeux possédés sur Steam : une copie Epic ou GOG du même jeu reprend leur appid, sans recherche.
+        HashSet<string> steamNames = games
+            .Where(game => game.Platform == Platform.Steam)
+            .Select(game => NameTools.Normalize(game.Name))
+            .ToHashSet();
+
+        // 1. Jeux hors Steam sans appid connu : quelques recherches dans la boutique Steam (voir plus haut).
+        List<Game> unknown = games
+            .Where(game => game.Platform != Platform.Steam && game.SteamAppId is null
+                && !steamNames.Contains(NameTools.Normalize(game.Name)))
+            .GroupBy(game => NameTools.Normalize(game.Name))
+            .Select(group => group.First())
+            .Take(MaxSteamAppIdSearchesPerRefresh)
+            .ToList();
+
+        foreach (Game game in unknown)
+        {
+            try
+            {
+                await FindSteamAppIdAsync(game);
+            }
+            catch (Exception ex)
+            {
+                // On réessaiera à la mise à jour suivante (l'appid n'a pas été enregistré).
+                Logger.Log($"Joueurs en jeu : appid Steam introuvable pour l'instant pour {game.Name} : {ex.Message}");
+                break;   // la boutique Steam ne répond pas : inutile d'insister pour les autres
+            }
+        }
+
+        Dictionary<string, string> appIdByName = AppIdsByName(games);
+
+        // 2. Un appel par appid différent (un jeu possédé sur Steam et Epic n'est demandé qu'une fois).
+        List<string> appIds = games
+            .Select(game => AppIdFor(game, appIdByName))
+            .OfType<string>()
+            .Distinct()
+            .ToList();
+
+        using SemaphoreSlim slots = new SemaphoreSlim(ParallelPlayerCountRequests);
+        int failures = 0;
+
+        Task<(string AppId, int? Count, bool Ok)>[] requests = appIds.Select(async appId =>
+        {
+            await slots.WaitAsync();
+
+            try
+            {
+                return (appId, await SteamPlayerCountApi.GetCurrentPlayersAsync(appId), true);
+            }
+            catch (Exception)
+            {
+                Interlocked.Increment(ref failures);
+                return (appId, (int?)null, false);
+            }
+            finally
+            {
+                slots.Release();
+            }
+        }).ToArray();
+
+        (string AppId, int? Count, bool Ok)[] results = await Task.WhenAll(requests);
+
+        foreach ((string appId, int? count, bool ok) in results)
+        {
+            if (ok)
+            {
+                _playerCounts[appId] = count;
+            }
+        }
+
+        // Une seule ligne dans le journal par mise à jour, même si beaucoup de jeux ont échoué (pas de réseau…).
+        Logger.Log(failures > 0
+            ? $"Joueurs en jeu : {failures}/{appIds.Count} chiffre(s) illisible(s) chez Steam ; les anciens sont gardés."
+            : $"Joueurs en jeu : {results.Count(r => r.Count is not null)} chiffre(s) reçu(s) pour {appIds.Count} jeu(x) Steam.");
+
+        // 3. Les badges (sur le fil de l'interface : on y est revenu après les await).
+        ApplyKnownPlayerCounts(games);
+    }
+
+    /// <summary>
+    /// Nom « normalisé » → appid Steam, pour que les copies d'un même jeu sans appid profitent de celui
+    /// d'une autre copie : d'abord la copie Steam, sinon un appid trouvé par recherche.
+    /// </summary>
+    private static Dictionary<string, string> AppIdsByName(IEnumerable<Game> games)
+    {
+        return games
+            .Select(game => (Name: NameTools.Normalize(game.Name), AppId: KnownSteamAppId(game), IsSteam: game.Platform == Platform.Steam))
+            .Where(entry => entry.AppId is not null)
+            .GroupBy(entry => entry.Name)
+            .ToDictionary(group => group.Key, group => group.OrderByDescending(entry => entry.IsSteam).First().AppId!);
+    }
+
+    // L'appid d'un jeu : le sien, sinon celui d'une autre copie du même nom (null = introuvable).
+    private static string? AppIdFor(Game game, Dictionary<string, string> appIdByName)
+    {
+        return KnownSteamAppId(game)
+            ?? (appIdByName.TryGetValue(NameTools.Normalize(game.Name), out string? byName) ? byName : null);
+    }
+
+    // L'appid Steam déjà connu d'un jeu, sans rien chercher (null = inconnu ou introuvable sur Steam).
+    private static string? KnownSteamAppId(Game game)
+    {
+        if (game.Platform == Platform.Steam)
+        {
+            return game.PlatformGameId;
+        }
+
+        return string.IsNullOrEmpty(game.SteamAppId) ? null : game.SteamAppId;
+    }
+
     // ----- Succès -----
 
     // Combien de jeux on interroge en même temps.

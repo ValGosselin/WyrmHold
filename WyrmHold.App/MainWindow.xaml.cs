@@ -63,6 +63,7 @@ public partial class MainWindow : Window
         ShopsPanel.RestoreState(_library.Settings.Ui);
 
         _overlay = new OverlayController(_library);
+        _playerCountsTimer.Tick += PlayerCountsTimer_Tick;
 
         // Une session de jeu vient d'être enregistrée : le temps de jeu affiché change.
         _library.PlaySessionRecorded += game => GamesList.Items.Refresh();
@@ -115,6 +116,11 @@ public partial class MainWindow : Window
         List<Game> games = await _library.ScanAllAsync();
         ShowGames(games);
         RestoreLibraryState();
+
+        // Les joueurs en jeu, dès que les tuiles sont là (au démarrage et à chaque « Actualiser ») : ils ne dépendent
+        // ni des jaquettes ni des succès, dont la lecture peut prendre plusieurs minutes.
+        // « _ = » : en parallèle du reste du chargement, sans l'attendre (environ 20 s pour 1 300 jeux).
+        _ = RefreshPlayerCountsAsync();
 
         // Chaque synchronisation est sautée si son lanceur est désactivé dans Réglages.
         if (_library.IsLauncherEnabled(Platform.Steam) && _library.IsSteamFamilyConnected)
@@ -173,6 +179,54 @@ public partial class MainWindow : Window
         await CompleteGamesAsync(games);
         RefreshButton.IsEnabled = true;
     }
+
+    // ----- Joueurs en jeu (Steam) -----
+
+    // Toutes les 10 minutes, seulement quand la fenêtre est affichée (rien en arrière-plan ni réduite).
+    private readonly System.Windows.Threading.DispatcherTimer _playerCountsTimer =
+        new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+
+    private bool _isRefreshingPlayerCounts;
+
+    private async Task RefreshPlayerCountsAsync()
+    {
+        if (_isRefreshingPlayerCounts)
+        {
+            return;
+        }
+
+        _isRefreshingPlayerCounts = true;
+
+        try
+        {
+            await _library.RefreshPlayerCountsAsync(_allGames);
+
+            // La bibliothèque a pu être rechargée pendant ce temps (nouveaux objets) : on leur donne aussi les chiffres.
+            _library.ApplyKnownPlayerCounts(_allGames);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Joueurs en jeu impossibles à mettre à jour : {ex.Message}");
+        }
+        finally
+        {
+            _isRefreshingPlayerCounts = false;
+        }
+
+        // Le minuteur repart de zéro : la prochaine mise à jour sera dans 10 minutes.
+        _playerCountsTimer.Stop();
+        _playerCountsTimer.Start();
+    }
+
+    private async void PlayerCountsTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!IsVisible || WindowState == WindowState.Minimized)
+        {
+            return;
+        }
+
+        await RefreshPlayerCountsAsync();
+    }
     private async Task<bool> SyncBattleNetSilentlyAsync()
     {
         CoreWebView2Controller? controller = null;
@@ -221,6 +275,9 @@ public partial class MainWindow : Window
 
         // L'onglet Boutiques en a besoin pour le badge « Déjà dans ta bibliothèque ».
         ShopsPanel.SetLibrary(games);
+
+        // Les derniers joueurs en jeu connus, tout de suite (les jeux rechargés sont de nouveaux objets).
+        _library.ApplyKnownPlayerCounts(games);
 
         // 1. D'abord les filtres : ils peuvent remettre à zéro un choix devenu impossible
         //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
