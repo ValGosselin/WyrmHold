@@ -19,7 +19,7 @@ namespace WyrmHold.App
             VelopackApp.Build().Run();
 
             var app = new App();
-            app.InitializeComponent();   // lit App.xaml (dont StartupUri = MainWindow)
+            app.InitializeComponent();   // lit App.xaml (la 1re fenêtre est ouverte par OnStartup)
             app.Run();
         }
 
@@ -35,6 +35,28 @@ namespace WyrmHold.App
             ThemeManager.Apply(AppSettings.Load().Theme);
 
             base.OnStartup(e);
+
+            // D'abord la recherche de mise à jour (choix de Val du 10 octobre 2026) : on n'utilise pas une version
+            // qui va être remplacée. Pendant ce temps, fermer cette petite fenêtre ne doit pas quitter l'appli
+            // (par défaut, WPF s'arrête quand la dernière fenêtre se ferme) : arrêt « à la main » le temps de la recherche.
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            UpdateWindow updates = new UpdateWindow();
+            updates.Closed += (sender, args) => OpenMainWindow();
+            updates.Show();
+        }
+
+        /// <summary>
+        /// Après la recherche de mise à jour (rien à installer, pas de réponse, ou « Passer ») : la vraie fenêtre.
+        /// </summary>
+        private void OpenMainWindow()
+        {
+            MainWindow window = new MainWindow();
+            MainWindow = window;
+
+            // Retour au comportement normal de WPF (celui d'avant) : l'appli s'arrête quand sa dernière fenêtre se ferme.
+            ShutdownMode = ShutdownMode.OnLastWindowClose;
+            window.Show();
         }
 
         // Une erreur non rattrapée dans l'interface. On pourrait continuer, mais l'appli risquerait

@@ -1,0 +1,28 @@
+<!-- La petite fenêtre du démarrage : elle cherche une mise à jour AVANT d'ouvrir Wyrmhold,
+     pour qu'on n'utilise pas une ancienne version qui va être remplacée. -->
+<Window x:Class="WyrmHold.App.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Wyrmhold" Width="420" SizeToContent="Height"
+        ResizeMode="NoResize" WindowStartupLocation="CenterScreen"
+        Loaded="Window_Loaded" Closing="Window_Closing">
+
+    <StackPanel Margin="24,20">
+        <StackPanel Orientation="Horizontal">
+            <Image Source="/Assets/logo-256.png" Width="48" Height="48" Margin="0,0,14,0"/>
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Wyrmhold" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock x:Name="VersionText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+            </StackPanel>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText" Text="Recherche de mises à jour…" Margin="0,18,0,8" TextWrapping="Wrap"/>
+
+        <!-- Indéterminée (elle « défile ») pendant la recherche, puis le pourcentage du téléchargement -->
+        <ProgressBar x:Name="Progress" Height="8" Maximum="100" IsIndeterminate="True"/>
+
+        <Button x:Name="SkipButton" Content="Passer" HorizontalAlignment="Right" Padding="16,4" Margin="0,16,0,0"
+                ToolTip="Ouvrir Wyrmhold sans attendre (la mise à jour sera cherchée au prochain démarrage)"
+                Click="SkipButton_Click"/>
+    </StackPanel>
+</Window>

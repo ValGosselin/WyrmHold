@@ -102,8 +102,7 @@ public partial class MainWindow : Window
         await LoadGamesAsync();
         RefreshAccountsTab();
 
-        // Après la bibliothèque : la vérification des mises à jour ne doit pas la ralentir.
-        await CheckForUpdatesAsync();
+        // (Les mises à jour sont cherchées AVANT l'ouverture de cette fenêtre, voir UpdateWindow.)
     }
 
     // ===================== Bibliothèque =====================
@@ -2483,65 +2482,6 @@ public partial class MainWindow : Window
         }
 
         Application.Current.Shutdown();
-    }
-
-    // ===================== Mises à jour =====================
-
-    /// <summary>
-    /// Cherche une nouvelle version dans les « Releases » du dépôt GitHub, la télécharge,
-    /// puis propose de redémarrer. « Plus tard » : Velopack l'installe au prochain démarrage.
-    /// </summary>
-    private async Task CheckForUpdatesAsync()
-    {
-        try
-        {
-            var updates = new Velopack.UpdateManager(new Velopack.Sources.GithubSource(AppInfo.RepositoryUrl, null, false));
-
-            // Lancé depuis Visual Studio (pas installé) : rien à mettre à jour.
-            if (!updates.IsInstalled)
-            {
-                return;
-            }
-
-            Velopack.UpdateInfo? available = await updates.CheckForUpdatesAsync();
-
-            if (available == null)
-            {
-                return;
-            }
-
-            await updates.DownloadUpdatesAsync(available);
-            Logger.Log($"Mise à jour {available.TargetFullRelease.Version} téléchargée.");
-
-            // Une partie en cours de suivi : on ne la coupe pas, la mise à jour attendra le prochain démarrage.
-            if (_library.HasActiveSessions)
-            {
-                return;
-            }
-
-            MessageBoxResult answer = MessageBox.Show(
-                $"La version {available.TargetFullRelease.Version} de Wyrmhold est prête.\n\n"
-                + "Redémarrer maintenant pour l'installer ? (Sinon, elle s'installera au prochain démarrage.)",
-                "Mise à jour de Wyrmhold",
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Information);
-
-            if (answer == MessageBoxResult.Yes)
-            {
-                // Même rangement qu'en quittant (overlay, icône près de l'horloge), puis Velopack
-                // ferme Wyrmhold, installe la nouvelle version et la relance.
-                SaveUiState();
-                _isExiting = true;
-                _overlay.Dispose();
-                _trayIcon.Dispose();
-                updates.ApplyUpdatesAndRestart(available.TargetFullRelease);
-            }
-        }
-        catch (Exception ex)
-        {
-            // Pas de réseau, GitHub indisponible… : on réessaiera au prochain démarrage.
-            Logger.Log($"Vérification des mises à jour impossible : {ex.Message}");
-        }
     }
 
     // ===================== Clés API =====================
