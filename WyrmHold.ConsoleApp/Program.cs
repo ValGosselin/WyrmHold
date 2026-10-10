@@ -32,6 +32,24 @@ if (args.Length > 0 && args[0] == "11")
     return;
 }
 
+// 14 = réponse BRUTE de GetPlayerAchievements pour des appid (code HTTP + début du texte ; la clé n'est pas affichée).
+// « dotnet run -- 14 1222140 2050650 » : sert à comprendre les refus 403 de Steam.
+if (args.Length > 1 && args[0] == "14")
+{
+    using HttpClient http = new HttpClient();
+
+    foreach (string appId in args.Skip(1))
+    {
+        string url = "https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/"
+            + $"?key={Secrets.Current.SteamApiKey}&steamid={Secrets.Current.SteamId}&appid={Uri.EscapeDataString(appId)}";
+        using HttpResponseMessage response = await http.GetAsync(url);
+        string body = await response.Content.ReadAsStringAsync();
+        Console.WriteLine($"{appId,-8} → {(int)response.StatusCode} {response.StatusCode} : {body.Substring(0, Math.Min(160, body.Length))}");
+    }
+
+    return;
+}
+
 // 13 simuler <nom> = POUR TESTER (modifie la base, Wyrmhold fermé) : fait croire que le jeu avait 3 succès de moins
 // et qu'il n'a pas été lu depuis longtemps. Au prochain lancement, la vérification de la semaine le relit
 // et « découvre » 3 succès ajoutés. Les vrais chiffres reviennent à cette lecture.

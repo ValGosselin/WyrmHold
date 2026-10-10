@@ -10,7 +10,8 @@ namespace WyrmHold.App;
 /// chacun entre -1 et 1, qu'on calcule en additionnant des ondes.
 /// Style « whoosh + accord » (choisi le 9 octobre 2026 parmi trois essais) : un souffle, un petit
 /// impact grave et un accord chaleureux, avec une réverbération en stéréo. Pas de cloche ni de
-/// notes aiguës (ça faisait « 8-bit » et « tintinnabulant »).
+/// mélodie aiguë (ça faisait « 8-bit » et « tintinnabulant »). Le 100 % a en plus une poussière
+/// de paillettes (10 octobre 2026) : des éclats très courts, dispersés, fondus dans la réverbération.
 /// </summary>
 public static class AchievementSounds
 {
@@ -87,7 +88,12 @@ public static class AchievementSounds
 
         AddSine(notes, start: 0.45, frequency: 783.99, volume: 0.30, attack: 0.02, decay: 0.6);
 
-        return Finish(notes, wetLevel: 0.30, tailSeconds: 0.9);
+        // Paillettes (ajoutées le 10 octobre 2026, demande de Val : « un peu pailleté ou brillant »).
+        float[] sparkleLeft = new float[notes.Length];
+        float[] sparkleRight = new float[notes.Length];
+        AddSparkles(sparkleLeft, sparkleRight, start: 0.45, duration: 1.4, count: 70, volume: 0.07);
+
+        return Finish(notes, wetLevel: 0.30, tailSeconds: 0.9, sparkleLeft, sparkleRight);
     }
 
     // ----- Les instruments -----
@@ -97,12 +103,15 @@ public static class AchievementSounds
     /// Avec glideTo, sa hauteur glisse de frequency à glideTo pendant glideTime secondes.
     /// </summary>
     private static void AddSine(float[] samples, double start, double frequency, double volume,
-        double attack, double decay, double? glideTo = null, double glideTime = 0)
+        double attack, double decay, double? glideTo = null, double glideTime = 0, double maxSeconds = double.MaxValue)
     {
         int first = (int)(start * SampleRate);
         double phase = 0;
 
-        for (int i = first; i < samples.Length; i++)
+        // maxSeconds : on arrête le calcul quand la note est devenue inaudible (utile pour les paillettes, très courtes).
+        int last = (int)Math.Min(samples.Length, first + maxSeconds * SampleRate);
+
+        for (int i = first; i < last; i++)
         {
             double t = (double)(i - first) / SampleRate;   // secondes depuis le début de la note
 
@@ -165,37 +174,85 @@ public static class AchievementSounds
         }
     }
 
+    // Les notes des paillettes : l'accord du 100 % (do, mi, sol, si, ré) trois octaves plus haut,
+    // pour que chaque éclat « tombe juste » avec l'accord au lieu de sonner comme un bruit parasite.
+    private static readonly double[] SparkleNotes = { 2093.0, 2637.0, 3136.0, 3951.1, 4698.6, 5274.0 };
+
+    /// <summary>
+    /// Une poussière de paillettes : beaucoup d'éclats très courts (20 à 60 ms), à des hauteurs et des
+    /// places (gauche / droite) tirées au hasard, de plus en plus espacés. Trop brefs pour former une
+    /// mélodie : on entend un scintillement, pas des clochettes. Ils passent dans la réverbération,
+    /// qui les fond en un voile brillant.
+    /// </summary>
+    private static void AddSparkles(float[] left, float[] right, double start, double duration, int count, double volume)
+    {
+        // Random(42) : toujours les mêmes « hasards », donc le son est identique à chaque fois.
+        Random random = new Random(42);
+
+        for (int k = 0; k < count; k++)
+        {
+            // Beaucoup d'éclats au début, puis de moins en moins (la puissance 2 les tasse vers le début).
+            double when = start + duration * Math.Pow(random.NextDouble(), 2);
+
+            // Une note de l'accord, très légèrement désaccordée (± 0,3 %) pour un rendu moins « électronique ».
+            double frequency = SparkleNotes[random.Next(SparkleNotes.Length)] * (1 + (random.NextDouble() - 0.5) * 0.006);
+
+            // Les éclats tardifs sont plus faibles : la poussière retombe.
+            double fade = 1 - (when - start) / duration;
+            double grainVolume = volume * (0.4 + 0.6 * random.NextDouble()) * (0.3 + 0.7 * fade);
+            double decay = 0.02 + 0.04 * random.NextDouble();
+
+            // Place dans l'espace : 0 = tout à gauche, 1 = tout à droite (loi « à puissance constante » :
+            // le volume perçu reste le même où que soit l'éclat).
+            double pan = random.NextDouble();
+            double leftGain = Math.Cos(pan * Math.PI / 2);
+            double rightGain = Math.Sin(pan * Math.PI / 2);
+
+            AddSine(left, when, frequency, grainVolume * leftGain, attack: 0.002, decay: decay, maxSeconds: decay * 6);
+            AddSine(right, when, frequency, grainVolume * rightGain, attack: 0.002, decay: decay, maxSeconds: decay * 6);
+        }
+    }
+
     // ----- La réverbération et le mélange -----
 
     private record Stereo(float[] Left, float[] Right);
 
     /// <summary>
     /// Ajoute la réverbération (en stéréo), mélange avec le son d'origine et règle le volume.
+    /// extraLeft / extraRight : des sons déjà placés à gauche et à droite (les paillettes), facultatifs.
     /// </summary>
-    private static Stereo Finish(float[] notes, double wetLevel, double tailSeconds)
+    private static Stereo Finish(float[] notes, double wetLevel, double tailSeconds,
+        float[]? extraLeft = null, float[]? extraRight = null)
     {
         // On rallonge le son pour laisser la réverbération s'éteindre.
-        float[] dry = new float[notes.Length + (int)(tailSeconds * SampleRate)];
-        Array.Copy(notes, dry, notes.Length);
+        int length = notes.Length + (int)(tailSeconds * SampleRate);
+        float[] dryLeft = new float[length];
+        float[] dryRight = new float[length];
+
+        for (int i = 0; i < notes.Length; i++)
+        {
+            dryLeft[i] = notes[i] + (extraLeft?[i] ?? 0);
+            dryRight[i] = notes[i] + (extraRight?[i] ?? 0);
+        }
 
         // Des réglages un peu différents à gauche et à droite : c'est ce qui donne la largeur.
-        float[] wetLeft = Reverb(dry, new[] { 29.7, 37.1, 41.1, 43.7 });
-        float[] wetRight = Reverb(dry, new[] { 31.3, 36.7, 40.3, 44.9 });
+        float[] wetLeft = Reverb(dryLeft, new[] { 29.7, 37.1, 41.1, 43.7 });
+        float[] wetRight = Reverb(dryRight, new[] { 31.3, 36.7, 40.3, 44.9 });
 
-        float[] left = new float[dry.Length];
-        float[] right = new float[dry.Length];
+        float[] left = new float[length];
+        float[] right = new float[length];
 
-        for (int i = 0; i < dry.Length; i++)
+        for (int i = 0; i < length; i++)
         {
-            left[i] = (float)(DryLevel * dry[i] + wetLevel * wetLeft[i]);
-            right[i] = (float)(DryLevel * dry[i] + wetLevel * wetRight[i]);
+            left[i] = (float)(DryLevel * dryLeft[i] + wetLevel * wetLeft[i]);
+            right[i] = (float)(DryLevel * dryRight[i] + wetLevel * wetRight[i]);
         }
 
         // Le point le plus fort (des deux côtés) est ramené à PeakVolume : jamais de saturation.
         float peak = Math.Max(left.Max(Math.Abs), right.Max(Math.Abs));
         float factor = peak > 0 ? (float)(PeakVolume / peak) : 1;
 
-        for (int i = 0; i < dry.Length; i++)
+        for (int i = 0; i < length; i++)
         {
             left[i] *= factor;
             right[i] *= factor;

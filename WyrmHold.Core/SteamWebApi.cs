@@ -203,10 +203,24 @@ public class SteamWebApi
         // et un message, qu'on veut pouvoir lire au lieu de recevoir directement une exception.
         using HttpResponseMessage response = await Http.GetAsync(url, cancellationToken);
 
-        if (response.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        // 401 = clé refusée : toute la source est hors service.
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
         {
-            throw new AchievementSourceUnavailableException(
-                "Steam refuse l'accès : vérifie que les détails de jeu de ton profil sont publics et que ta clé API est valide.");
+            throw new AchievementSourceUnavailableException("Steam refuse la clé API : vérifie-la dans Réglages → Clés API.");
+        }
+
+        // 403 « Profile is not public » : Steam l'envoie aussi pour CERTAINS jeux d'un profil bien public
+        // (vérifié le 10 octobre 2026 en console, mode 14 : Call of Duty 1938090 et Hitman 1659040 refusés,
+        // Detroit, Elden Ring… acceptés, même compte). Le refus ne vaut donc que pour ce jeu : c'est
+        // LibraryService qui conclut à un profil privé si TOUS les jeux sont refusés.
+        // Avant ce correctif, un seul jeu refusé arrêtait la lecture de tous les suivants.
+        if (response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            string forbiddenError = ReadPlayerStats(await response.Content.ReadAsStringAsync(cancellationToken))?.Error ?? "";
+            throw new HttpRequestException(
+                $"Steam refuse ce jeu (403{(forbiddenError.Length > 0 ? " : " + forbiddenError : "")})",
+                null,
+                HttpStatusCode.Forbidden);
         }
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)

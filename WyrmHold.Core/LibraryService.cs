@@ -1377,6 +1377,12 @@ public class LibraryService
                 CancellationToken = stopSource.Token
             };
 
+            // Jeux refusés un par un (403 de Steam) : résumés en une ligne de journal à la fin.
+            // Si les 25 premiers sont TOUS refusés sans aucune réussite, c'est le profil (ou la clé) :
+            // on arrête la source au lieu d'envoyer des centaines de demandes inutiles.
+            ConcurrentBag<string> refusedGames = new ConcurrentBag<string>();
+            int successCount = 0;
+
             try
             {
                 await Parallel.ForEachAsync(toRefresh, options, async (game, token) =>
@@ -1385,6 +1391,19 @@ public class LibraryService
                     {
                         AchievementProgress result = await provider.GetProgressAsync(game, token);
                         results.Add((game, result));
+                        Interlocked.Increment(ref successCount);
+                    }
+                    catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden && !token.IsCancellationRequested)
+                    {
+                        // Ce jeu-là est refusé : il n'est pas noté « lu », il sera redemandé au prochain chargement.
+                        refusedGames.Add(game.Name);
+
+                        if (refusedGames.Count >= 25 && Volatile.Read(ref successCount) == 0)
+                        {
+                            Logger.Log($"Succès {provider.Platform} indisponibles : Steam refuse tous les jeux (403). "
+                                + "Vérifie que ton profil et les détails de jeu sont publics, et ta clé API.");
+                            stopSource.Cancel();
+                        }
                     }
                     catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.InternalServerError
                                                           && game.AchievementsTotal == 0
@@ -1413,6 +1432,22 @@ public class LibraryService
             catch (OperationCanceledException)
             {
                 // La source a été arrêtée : les jeux déjà lus sont gardés, les autres attendront.
+            }
+
+            if (refusedGames.Count > 0)
+            {
+                List<string> names = refusedGames.OrderBy(name => name).ToList();
+                string list = string.Join(", ", names.Take(10)) + (names.Count > 10 ? $"… (+{names.Count - 10})" : "");
+
+                if (successCount > 0)
+                {
+                    Logger.Log($"Succès {provider.Platform} : {names.Count} jeu(x) refusé(s) (403), les autres sont lus : {list}");
+                }
+                else if (names.Count < 25)
+                {
+                    // Peu de jeux à lire, tous refusés (au-delà de 25, le message d'arrêt est déjà écrit).
+                    Logger.Log($"Succès {provider.Platform} : tous les jeux demandés sont refusés (403) : {list}");
+                }
             }
         }
 
