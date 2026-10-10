@@ -119,13 +119,21 @@ public class LibraryService
             try
             {
                 List<Game> games = provider.GetInstalledGames();
+                HashSet<string>? keptSteamIds = null;
 
                 if (provider.Platform == Platform.Steam)
                 {
-                    await AddSteamAccountGamesAsync(games);
+                    keptSteamIds = await AddSteamAccountGamesAsync(games);
                 }
 
                 _database.SaveGames(provider.Platform, games);
+
+                // Après l'enregistrement : les jeux Steam qui ne sont plus à toi sont masqués (pas supprimés).
+                // null = Steam n'a pas donné ta liste (pas de clé, réseau…) : on ne masque rien.
+                if (keptSteamIds is not null)
+                {
+                    _database.SetSteamOwnership(keptSteamIds);
+                }
             }
             catch (Exception ex)
             {
@@ -237,7 +245,17 @@ public class LibraryService
 
     // ----- Steam : compte et famille -----
 
-    private async Task AddSteamAccountGamesAsync(List<Game> steamGames)
+    /// <summary>
+    /// Ajoute tes jeux Steam du compte (même non installés) et trie ceux qui ne sont pas à toi.
+    /// Renvoie les appid à garder visibles (à toi, de la famille, ou gratuits installés), ou null si Steam
+    /// n'a pas donné ta liste (dans ce cas, on ne masque rien).
+    ///
+    /// Avant le 10 octobre 2026, tout jeu installé ou joué mais absent de tes jeux passait pour un jeu
+    /// « Famille » : chez une testeuse sans famille, un jeu remboursé encore installé apparaissait,
+    /// marqué « Famille ». Maintenant, « Famille » = seulement un jeu de la bibliothèque familiale importée
+    /// (propriétaire connu). Le reste : gardé si gratuit (démo, free-to-play), sinon masqué.
+    /// </summary>
+    private async Task<HashSet<string>?> AddSteamAccountGamesAsync(List<Game> steamGames)
     {
         try
         {
@@ -245,10 +263,11 @@ public class LibraryService
 
             if (ownedGames.Count == 0)
             {
-                return;
+                return null;
             }
 
             HashSet<string> ownedIds = ownedGames.Select(g => g.AppId.ToString()).ToHashSet();
+            HashSet<string> familyIds = _database.LoadKnownFamilyAppIds();
 
             _steamAchievements.SetAppsWithStats(ownedGames
                 .Where(g => g.HasCommunityVisibleStats)
@@ -256,7 +275,7 @@ public class LibraryService
 
             foreach (Game game in steamGames)
             {
-                game.IsFamilyShared = !ownedIds.Contains(game.PlatformGameId);
+                game.IsFamilyShared = !ownedIds.Contains(game.PlatformGameId) && familyIds.Contains(game.PlatformGameId);
             }
 
             foreach (SteamOwnedGame owned in ownedGames)
@@ -267,19 +286,73 @@ public class LibraryService
                 game.IsFamilyShared = false;
             }
 
+            // Jeux joués récemment mais pas à toi : on ne reprend leur temps de jeu que pour la famille.
             List<SteamOwnedGame> recentGames = await _steamApi.GetRecentlyPlayedGamesAsync();
 
-            foreach (SteamOwnedGame recent in recentGames.Where(g => !ownedIds.Contains(g.AppId.ToString())))
+            foreach (SteamOwnedGame recent in recentGames.Where(g => !ownedIds.Contains(g.AppId.ToString())
+                                                                  && familyIds.Contains(g.AppId.ToString())))
             {
                 Game game = FindOrAddSteamGame(steamGames, recent);
                 game.PlaytimeMinutes = recent.PlaytimeMinutes;
                 game.IsFamilyShared = true;
             }
+
+            HashSet<string> kept = new HashSet<string>(ownedIds);
+            kept.UnionWith(familyIds);
+            kept.UnionWith(await FindFreeInstalledGamesAsync(steamGames, kept));
+            return kept;
         }
         catch (Exception ex)
         {
             Logger.Log($"API Steam indisponible : {ex.Message}");
+            return null;
         }
+    }
+
+    /// <summary>
+    /// Parmi les jeux installés ni à toi ni de la famille : ceux qui sont gratuits (démos, free-to-play jamais
+    /// lancés, absents de GetOwnedGames) d'après la boutique Steam. Les autres (remboursés…) seront masqués.
+    /// En cas d'erreur de la boutique, on les garde tous (mieux vaut trop que pas assez).
+    /// </summary>
+    private static async Task<HashSet<string>> FindFreeInstalledGamesAsync(List<Game> steamGames, HashSet<string> kept)
+    {
+        List<Game> unknown = steamGames.Where(g => g.IsInstalled && !kept.Contains(g.PlatformGameId)).ToList();
+        HashSet<string> free = new HashSet<string>();
+
+        if (unknown.Count == 0)
+        {
+            return free;
+        }
+
+        try
+        {
+            List<int> appIds = unknown
+                .Select(g => int.TryParse(g.PlatformGameId, out int id) ? id : 0)
+                .Where(id => id > 0)
+                .ToList();
+
+            foreach (StoreItem item in await SteamStoreApi.GetItemsAsync(appIds))
+            {
+                if (item.IsFree)
+                {
+                    free.Add(item.AppId.ToString());
+                }
+            }
+
+            List<string> hidden = unknown.Where(g => !free.Contains(g.PlatformGameId)).Select(g => g.Name).ToList();
+
+            if (hidden.Count > 0)
+            {
+                Logger.Log($"Jeux Steam installés mais plus à toi (remboursés…), masqués : {string.Join(", ", hidden)}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Boutique Steam indisponible pour trier les jeux installés non possédés ; gardés : {ex.Message}");
+            free.UnionWith(unknown.Select(g => g.PlatformGameId));
+        }
+
+        return free;
     }
 
     private static Game FindOrAddSteamGame(List<Game> steamGames, SteamOwnedGame apiGame)
@@ -1069,6 +1142,36 @@ public class LibraryService
     public Task<string?> GetSteamAppIdAsync(Game game)
     {
         return FindSteamAppIdAsync(game);
+    }
+
+    /// <summary>
+    /// « Jeux similaires » de la fiche : les jeux proches selon la boutique Steam (voir SteamSimilarGames),
+    /// dans l'ordre de Steam, sans ceux que tu possèdes déjà (même appid Steam, ou même nom sur une autre plateforme).
+    /// Jusqu'à count jeux : la fiche en montre 3, et le bouton ↻ passe aux 3 suivants.
+    /// Liste vide si le jeu n'est pas sur Steam. Une erreur de Steam remonte : l'appelant la note et n'affiche rien.
+    /// </summary>
+    public async Task<List<SimilarGame>> GetSimilarGamesAsync(Game game, IEnumerable<Game> library, int count = 15)
+    {
+        if (!int.TryParse(await FindSteamAppIdAsync(game), out int appId))
+        {
+            return new List<SimilarGame>();
+        }
+
+        List<Game> owned = library.ToList();
+        HashSet<int> ownedAppIds = owned
+            .Select(KnownSteamAppId)
+            .Select(id => int.TryParse(id, out int number) ? number : 0)
+            .Where(number => number > 0)
+            .ToHashSet();
+        HashSet<string> ownedNames = owned.Select(g => NameTools.Normalize(g.Name)).ToHashSet();
+
+        // On demande tout ce que Steam propose (une vingtaine) : certains seront écartés par le nom.
+        List<SimilarGame> similar = await SteamSimilarGames.GetAsync(appId, ownedAppIds, int.MaxValue);
+
+        return similar
+            .Where(candidate => !ownedNames.Contains(NameTools.Normalize(candidate.Name)))
+            .Take(count)
+            .ToList();
     }
 
     /// <summary>

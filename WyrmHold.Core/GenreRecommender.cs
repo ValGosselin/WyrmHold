@@ -8,6 +8,12 @@ public record PreferredGenre(string Name, string DisplayName, int Minutes)
 }
 
 /// <summary>
+/// Un tag de Steam : son numéro (recherche de la boutique Steam, ex. 122 = RPG), son nom français (affiché,
+/// et enregistré dans la base) et son nom anglais (celui que comprend IsThereAnyDeal).
+/// </summary>
+public record SteamTag(int Id, string French, string English);
+
+/// <summary>
 /// Recommandations « Pour toi » :
 /// 1. tes genres préférés = les tags Steam de tes jeux, classés par temps de jeu cumulé ;
 /// 2. les promos IsThereAnyDeal qui portent au moins un de ces genres, avec de bons avis Steam.
@@ -81,8 +87,11 @@ public class GenreRecommender
     /// Forme des filtres vérifiée en console le 8 octobre 2026 (voir taches.md) :
     /// steamPerc a besoin d'un maximum (100), sinon IsThereAnyDeal ne renvoie rien.
     /// </summary>
+    // requiredTag : un tag imposé en plus (filtre par tag de la page Boutiques), nom anglais ; null = aucun.
+    // « tags » (le tag imposé) et « tagsUnion » (tes genres) dans le même filtre : vérifié en console le
+    // 10 octobre 2026 (mode 18), IsThereAnyDeal applique les deux.
     public static Task<ItadDealsPage> GetDealsAsync(IsThereAnyDealApi itad, IEnumerable<string> genres,
-        int minSteamPercent, int minSteamReviews, int offset, int limit, string sort)
+        int minSteamPercent, int minSteamReviews, int offset, int limit, string sort, string? requiredTag = null)
     {
         var quality = new Dictionary<string, object>
         {
@@ -91,7 +100,25 @@ public class GenreRecommender
             ["steamCount"] = new { min = minSteamReviews, max = (int?)null }
         };
 
+        if (requiredTag != null)
+        {
+            quality["tags"] = new[] { requiredTag };
+        }
+
         return itad.GetDealsByTagsAsync(genres, matchAll: false, offset, limit, sort, extraFilter: quality);
+    }
+
+    // Tous les tags de Steam (numéro, nom français, nom anglais), remplis en même temps que _frenchToEnglish.
+    private List<SteamTag>? _allTags;
+
+    /// <summary>
+    /// Tous les tags de Steam, triés par nom français. Sert au filtre par tag de la page Boutiques :
+    /// le numéro pour la recherche Steam, le nom anglais pour IsThereAnyDeal.
+    /// </summary>
+    public async Task<List<SteamTag>> GetAllTagsAsync()
+    {
+        await GetFrenchToEnglishAsync();
+        return _allTags!;
     }
 
     /// <summary>
@@ -109,15 +136,17 @@ public class GenreRecommender
         Dictionary<int, string> english = await SteamStoreApi.GetTagNamesAsync("english");
 
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var all = new List<SteamTag>();
 
         foreach ((int tagId, string frenchName) in french)
         {
-            if (english.TryGetValue(tagId, out string? englishName))
+            if (english.TryGetValue(tagId, out string? englishName) && map.TryAdd(frenchName, englishName))
             {
-                map.TryAdd(frenchName, englishName);
+                all.Add(new SteamTag(tagId, frenchName, englishName));
             }
         }
 
+        _allTags = all.OrderBy(tag => tag.French, StringComparer.CurrentCultureIgnoreCase).ToList();
         _frenchToEnglish = map;
         return map;
     }

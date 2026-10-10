@@ -51,7 +51,7 @@ public partial class ShopsView : UserControl
     // que ça provoque ne doit pas relancer une demande de prix.
     private bool _isRebuildingResults;
 
-    // Vrai dès qu'une recherche a été lancée : avant, on n'affiche pas « Aucun jeu trouvé ».
+    // Vrai dès qu'une recherche a été lancée (ou qu'un jeu similaire a été ouvert) : avant, on n'affiche pas « Aucun jeu trouvé ».
     private bool _hasSearched;
 
     // La liste de suivi (base locale) et le choix d'affichage à gauche : résultats ou suivis.
@@ -103,16 +103,30 @@ public partial class ShopsView : UserControl
         // Les listes de promos sont créées AVANT InitializeComponent : pendant celui-ci, les onglets
         // déclenchent déjà RefreshLeftList, qui les lit. Chaque liste sait comment charger une page :
         // le tri (et les genres) sont relus à chaque chargement.
-        _promos = new DealsFeed(offset => _itad.GetDealsAsync(offset, PromosPageSize, GetSelectedTag(PromosSortMode)));
+        // Le filtre par tag (_tag, choisi en haut de la page) est relu lui aussi à chaque chargement.
+        _promos = new DealsFeed(offset => _tag == null
+            ? _itad.GetDealsAsync(offset, PromosPageSize, GetSelectedTag(PromosSortMode))
+            : _itad.GetDealsByTagsAsync(new[] { _tag.English }, matchAll: true, offset, PromosPageSize, GetSelectedTag(PromosSortMode)));
         _forYou = new DealsFeed(offset => GenreRecommender.GetDealsAsync(_itad,
             _preferredGenres.Select(genre => genre.Name),
             _settings?.RecommendationMinSteamPercent ?? 80,
             _settings?.RecommendationMinSteamReviews ?? 2000,
-            offset, PromosPageSize, GetSelectedTag(ForYouSortMode)));
+            offset, PromosPageSize, GetSelectedTag(ForYouSortMode), _tag?.English));
         _free = new FreeGamesFeed(LoadFreePageAsync);
+        _tagResults = new FreeGamesFeed(start =>
+            SteamFreeCatalog.GetPageAsync(FreeGameSource.SteamGame, start, newestFirst: false, _tagSearch, _tag?.Id));
 
         InitializeComponent();
         _presentations = new GamePresentationService(_itad);
+
+        // La liste des tags du filtre : remplie la première fois que la page Boutiques s'affiche.
+        IsVisibleChanged += (_, _) =>
+        {
+            if (IsVisible)
+            {
+                _ = EnsureTagListAsync();
+            }
+        };
 
         UpdateKeyStatus();
 
@@ -468,6 +482,12 @@ public partial class ShopsView : UserControl
             return;
         }
 
+        if (_leftMode == LeftListMode.Results && _tag != null)
+        {
+            await LoadTagResultsAsync(reset: false);
+            return;
+        }
+
         await LoadFeedAsync(_leftMode == LeftListMode.ForYou ? _forYou : _promos, reset: false);
     }
 
@@ -527,6 +547,12 @@ public partial class ShopsView : UserControl
         UpdateFollowButton();
         UpdateWatchListTab();
         RefreshLeftList();   // l'étoile « ★ Suivi » des lignes, et la liste des suivis si elle est affichée
+
+        // Avec un tag choisi, l'onglet Suivis a besoin des tags du nouveau jeu suivi.
+        if (_tag != null && !wasWatched)
+        {
+            _ = LoadWatchTagsAsync();
+        }
 
         // Compte relié : on prévient aussi ta Waitlist. En cas d'échec, la synchro suivante rattrapera.
         if (_itadAccount.IsConnected)
@@ -720,6 +746,15 @@ public partial class ShopsView : UserControl
     {
         string title = ShopSearchBox.Text.Trim();
 
+        // Avec un tag choisi : on cherche dans la boutique Steam (nom + tag ; nom vide = tous les jeux du tag).
+        if (_tag != null)
+        {
+            _tagSearch = title;
+            ResultsTabButton.IsChecked = true;
+            await LoadTagResultsAsync(reset: true);
+            return;
+        }
+
         if (title.Length == 0 || !_itad.IsConfigured)
         {
             return;
@@ -749,6 +784,307 @@ public partial class ShopsView : UserControl
         }
     }
 
+    /// <summary>
+    /// Ouvre un jeu venu d'ailleurs (« Jeux similaires » de la fiche) : on retrouve son identifiant
+    /// IsThereAnyDeal grâce à son numéro Steam, puis on l'affiche comme un résultat de recherche
+    /// (présentation et prix). S'il est inconnu par son numéro, on le cherche par son nom.
+    /// </summary>
+    public async Task ShowSteamGameAsync(int steamAppId, string name)
+    {
+        if (!_itad.IsConfigured)
+        {
+            return;
+        }
+
+        ForgetPendingLeftTab();
+
+        // Bug signalé le 10 octobre 2026 : avec un tag choisi, Résultats montrait les jeux du tag et le jeu
+        // similaire n'y était pas (seul son titre s'affichait). On repart sans filtre.
+        ResetTagFilter();
+        ShopSearchBox.Text = name;
+        ShopStatusText.Text = "Recherche…";
+
+        try
+        {
+            ItadSearchResult? match = await _itad.LookupBySteamAppIdAsync(steamAppId);
+
+            if (match == null)
+            {
+                await SearchAsync();   // cherche le nom qu'on vient de mettre dans la case
+                return;
+            }
+
+            // « Jeux et éditions seulement » masquerait un jeu d'un autre type : on la décoche dans ce cas.
+            if (match.Type != "game")
+            {
+                GamesOnlyCheck.IsChecked = false;
+            }
+
+            _searchResults = new List<ItadSearchResult> { match };
+            _hasSearched = true;
+            ResultsTabButton.IsChecked = true;
+            RefreshLeftList();
+
+            SelectRowAndShow(row => row.Id == match.Id);
+        }
+        catch (Exception ex)
+        {
+            ShopStatusText.Text = "La recherche a échoué (détail dans le journal).";
+            Logger.Log($"Jeu similaire « {name} » (appid {steamAppId}) introuvable chez IsThereAnyDeal : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Sélectionne la ligne voulue et affiche TOUJOURS sa fiche à droite : on vide d'abord la sélection,
+    /// sinon re-sélectionner le jeu déjà choisi ne déclencherait aucun changement (donc aucun chargement).
+    /// </summary>
+    private void SelectRowAndShow(Func<SearchResultRow, bool> match)
+    {
+        SearchResultRow? row = (SearchResultsList.ItemsSource as List<SearchResultRow>)?.FirstOrDefault(match);
+
+        if (row == null)
+        {
+            return;
+        }
+
+        _isRebuildingResults = true;
+        SearchResultsList.SelectedItem = null;
+        _isRebuildingResults = false;
+
+        // Sélectionner la ligne déclenche SearchResultsList_SelectionChanged : présentation et prix.
+        SearchResultsList.SelectedItem = row;
+        SearchResultsList.ScrollIntoView(row);
+    }
+
+    /// <summary>
+    /// Remet le filtre par tag sur « Tous les tags » (clic sur un jeu similaire). Les listes déjà chargées
+    /// avec ce tag (Promos, Gratuits…) sont rechargées sans lui, sans attendre.
+    /// </summary>
+    private void ResetTagFilter()
+    {
+        if (_tag == null)
+        {
+            return;
+        }
+
+        _isSettingTag = true;
+        ShopTagFilter.SelectedIndex = 0;
+        _isSettingTag = false;
+        _tag = null;
+        _ = ApplyTagAsync();
+    }
+
+    /// <summary>
+    /// L'onglet n'a pas encore été affiché : la liste de la dernière fois (Promos…) attendait d'être remise.
+    /// Quand on ouvre la page sur autre chose (jeu similaire, tag), on l'oublie, sinon elle prendrait la place.
+    /// </summary>
+    private void ForgetPendingLeftTab()
+    {
+        if (_pendingLeftTab != null)
+        {
+            IsVisibleChanged -= ApplyPendingLeftTab;
+            _pendingLeftTab = null;
+        }
+    }
+
+    // ===================== Filtre par tag (toute la page Boutiques) =====================
+    // Demandé le 10 octobre 2026 : un seul filtre, en haut de la page, qui vaut pour tous les onglets.
+    //   Résultats : jeux Steam qui ont ce tag (recherche de la boutique Steam, sans clé), avec le nom tapé ;
+    //   Suivis : tes jeux suivis qui ont ce tag (tags lus chez IsThereAnyDeal, une fois par jeu) ;
+    //   Promos et Pour toi : filtre « tags » d'IsThereAnyDeal ; Gratuits : recherche Steam (pas Epic).
+
+    // Le tag choisi (null = « Tous les tags »).
+    private SteamTag? _tag;
+
+    // Résultats filtrés par tag : jeux Steam, page par page, et le nom cherché avec le tag.
+    private readonly FreeGamesFeed _tagResults;
+    private string _tagSearch = "";
+
+    // Vrai pendant que le code choisit un tag lui-même (pas de rechargement retardé en plus).
+    private bool _isSettingTag;
+
+    // La liste des tags, remplie une seule fois (null = pas encore, ou échec : on réessaiera).
+    private Task? _tagListLoading;
+
+    // Numéro du dernier choix de tag : seul le dernier, une demi-seconde plus tard, recharge les listes.
+    private int _tagRequest;
+
+    // Les tags (noms anglais) de chaque jeu suivi, lus une fois chez IsThereAnyDeal (identifiant → tags).
+    private readonly Dictionary<string, List<string>> _watchTags = new Dictionary<string, List<string>>();
+    private bool _isLoadingWatchTags;
+
+    /// <summary>
+    /// Clic sur un tag de la fiche d'un jeu : ce tag est choisi dans le filtre, et l'onglet Résultats montre
+    /// les jeux Steam qui l'ont (les plus populaires d'abord). Marche aussi sans clé IsThereAnyDeal.
+    /// </summary>
+    public async Task ShowTagAsync(string frenchTag)
+    {
+        ForgetPendingLeftTab();
+        await EnsureTagListAsync();
+
+        ComboBoxItem? item = ShopTagFilter.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(candidate => candidate.Tag is SteamTag tag
+                && string.Equals(tag.French, frenchTag, StringComparison.CurrentCultureIgnoreCase));
+
+        if (item == null)
+        {
+            ShopStatusText.Text = $"Le tag « {frenchTag} » est inconnu de la boutique Steam.";
+            return;
+        }
+
+        // On choisit le tag sans déclencher le rechargement retardé : on recharge nous-mêmes juste après.
+        _isSettingTag = true;
+        ShopTagFilter.SelectedItem = item;
+        _isSettingTag = false;
+        _tag = (SteamTag)item.Tag;
+
+        // On repart d'une recherche vide : tous les jeux du tag.
+        ShopSearchBox.Text = "";
+        _tagSearch = "";
+        ResultsTabButton.IsChecked = true;
+        await ApplyTagAsync();
+    }
+
+    /// <summary>Remplit la liste des tags (une seule fois) : « Tous les tags », puis les tags de Steam en français.</summary>
+    private Task EnsureTagListAsync()
+    {
+        return _tagListLoading ??= FillTagListAsync();
+    }
+
+    private async Task FillTagListAsync()
+    {
+        try
+        {
+            foreach (SteamTag tag in await _recommender.GetAllTagsAsync())
+            {
+                // Content = nom affiché (et tapé au clavier pour sauter au tag), Tag = le tag complet.
+                ShopTagFilter.Items.Add(new ComboBoxItem { Content = tag.French, Tag = tag });
+            }
+        }
+        catch (Exception ex)
+        {
+            // Sans la liste de Steam, le filtre reste sur « Tous les tags » ; on réessaiera à la prochaine ouverture.
+            Logger.Log($"Liste des tags de Steam impossible à lire : {ex.Message}");
+            _tagListLoading = null;
+        }
+    }
+
+    /// <summary>
+    /// Un tag choisi dans la liste : on attend une demi-seconde (taper « r », « p », « g » saute de tag en tag)
+    /// avant de recharger les listes avec ce filtre.
+    /// </summary>
+    private async void ShopTagFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isSettingTag || ShopTagFilter == null)
+        {
+            return;
+        }
+
+        int request = ++_tagRequest;
+        await Task.Delay(500);
+
+        if (request != _tagRequest)
+        {
+            return;
+        }
+
+        SteamTag? tag = (ShopTagFilter.SelectedItem as ComboBoxItem)?.Tag as SteamTag;
+
+        if (tag == _tag)
+        {
+            return;
+        }
+
+        _tag = tag;
+        _tagSearch = ShopSearchBox.Text.Trim();
+        await ApplyTagAsync();
+    }
+
+    /// <summary>
+    /// Le tag a changé : on recharge les listes qui en dépendent (celles déjà ouvertes, et Résultats),
+    /// puis on refait l'affichage.
+    /// </summary>
+    private async Task ApplyTagAsync()
+    {
+        var loading = new List<Task>();
+
+        if (_tag != null)
+        {
+            loading.Add(LoadTagResultsAsync(reset: true));
+            loading.Add(LoadWatchTagsAsync());
+        }
+
+        if (_promos.IsLoaded || _leftMode == LeftListMode.Promos)
+        {
+            loading.Add(LoadFeedAsync(_promos, reset: true));
+        }
+
+        if (_forYou.IsLoaded && _preferredGenres.Count > 0)
+        {
+            loading.Add(LoadFeedAsync(_forYou, reset: true));
+        }
+
+        if (_free.IsLoaded || _leftMode == LeftListMode.Free)
+        {
+            loading.Add(LoadFreeAsync(reset: true));
+        }
+
+        RefreshLeftList();
+        await Task.WhenAll(loading);
+        RefreshLeftList();
+    }
+
+    /// <summary>Résultats filtrés par tag : une page de jeux Steam (nom cherché + tag), en tenant la liste à jour.</summary>
+    private async Task LoadTagResultsAsync(bool reset)
+    {
+        Task loading = _tagResults.LoadAsync(reset);
+        RefreshLeftList();
+        await loading;
+        RefreshLeftList();
+    }
+
+    /// <summary>
+    /// Les tags de chaque jeu suivi, lus chez IsThereAnyDeal (présentation, gardée en mémoire) : un appel
+    /// par jeu, la première fois seulement. Sans eux, l'onglet Suivis ne peut pas être filtré.
+    /// </summary>
+    private async Task LoadWatchTagsAsync()
+    {
+        if (_isLoadingWatchTags || !_itad.IsConfigured)
+        {
+            return;
+        }
+
+        _isLoadingWatchTags = true;
+        RefreshLeftList();
+
+        foreach (WatchedGame game in _watchList.Games.Where(g => !_watchTags.ContainsKey(g.ItadId)).ToList())
+        {
+            try
+            {
+                GamePresentation? presentation = await _presentations.GetAsync(game.ItadId);
+                _watchTags[game.ItadId] = presentation?.Tags ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Tags illisibles pour le jeu suivi « {game.Title} » : {ex.Message}");
+            }
+        }
+
+        _isLoadingWatchTags = false;
+        RefreshLeftList();
+    }
+
+    /// <summary>Vrai si le jeu suivi a le tag choisi (faux tant que ses tags ne sont pas lus).</summary>
+    private bool WatchedGameHasTag(WatchedGame game)
+    {
+        return _tag == null
+            || (_watchTags.TryGetValue(game.ItadId, out List<string>? tags)
+                && tags.Contains(_tag.English, StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Vrai si la clé IsThereAnyDeal est renseignée (sans elle, la page Boutiques ne peut rien chercher).</summary>
+    public bool CanSearchShops => _itad.IsConfigured;
+
     private void GamesOnlyCheck_Changed(object sender, RoutedEventArgs e)
     {
         RefreshLeftList();
@@ -772,17 +1108,37 @@ public partial class ShopsView : UserControl
         bool isPromos = _leftMode == LeftListMode.Promos;
         bool isForYou = _leftMode == LeftListMode.ForYou;
         bool isFree = _leftMode == LeftListMode.Free;
+        bool isTagResults = _leftMode == LeftListMode.Results && _tag != null;
         PromosOptionsPanel.Visibility = isPromos ? Visibility.Visible : Visibility.Collapsed;
         ForYouOptionsPanel.Visibility = isForYou ? Visibility.Visible : Visibility.Collapsed;
         FreeOptionsPanel.Visibility = isFree ? Visibility.Visible : Visibility.Collapsed;
-        LoadMorePromosButton.Visibility = isPromos || isForYou || isFree ? Visibility.Visible : Visibility.Collapsed;
-        LoadMorePromosButton.Content = isFree
+        LoadMorePromosButton.Visibility = isPromos || isForYou || isFree || isTagResults ? Visibility.Visible : Visibility.Collapsed;
+        LoadMorePromosButton.Content = isFree || isTagResults
             ? $"Charger {SteamFreeCatalog.PageSize} jeux de plus"
             : $"Charger {PromosPageSize} promos de plus";
 
+        // « · tag RPG » au bout du texte d'état, pour rappeler que la liste est filtrée.
+        string tagNote = _tag == null ? "" : $" · tag « {_tag.French} »";
+        string Count(int count) => count.ToString("N0", CultureInfo.GetCultureInfo("fr-FR"));
+
         List<SearchResultRow> shown;
 
-        if (isFree)
+        if (isTagResults)
+        {
+            // Résultats filtrés par tag : jeux de la boutique Steam (nom tapé + tag).
+            shown = _tagResults.Items.Select(MakeFreeRow).ToList();
+
+            ShopStatusText.Text = _tagResults.IsLoading
+                ? "Recherche des jeux du tag…"
+                : _tagResults.LoadFailed
+                    ? "La boutique Steam ne répond pas (détail dans le journal)."
+                    : shown.Count == 0
+                        ? $"Aucun jeu trouvé{(_tagSearch.Length > 0 ? $" pour « {_tagSearch} »" : "")}{tagNote}."
+                        : $"{Count(shown.Count)} jeu(x) Steam sur {Count(_tagResults.TotalCount)}{tagNote}";
+
+            LoadMorePromosButton.IsEnabled = _tagResults.HasMore && !_tagResults.IsLoading;
+        }
+        else if (isFree)
         {
             bool isEpic = GetSelectedTag(FreeKindMode) == "epic";
             FreeSteamOptions.Visibility = isEpic ? Visibility.Collapsed : Visibility.Visible;
@@ -794,10 +1150,10 @@ public partial class ShopsView : UserControl
                 : _free.LoadFailed
                     ? "Impossible de charger la liste (détail dans le journal)."
                     : shown.Count == 0
-                        ? _freeSearch.Length > 0 ? $"Aucun jeu trouvé pour « {_freeSearch} »." : "Aucun jeu pour l'instant."
+                        ? _freeSearch.Length > 0 ? $"Aucun jeu trouvé pour « {_freeSearch} »." : $"Aucun jeu pour l'instant{tagNote}."
                         : isEpic
-                            ? $"{shown.Count} jeu(x) offert(s) ou annoncé(s) par Epic"
-                            : $"{shown.Count} affiché(s) sur {_free.TotalCount.ToString("N0", CultureInfo.GetCultureInfo("fr-FR"))}";
+                            ? $"{shown.Count} jeu(x) offert(s) ou annoncé(s) par Epic{(_tag != null ? " (le tag ne s'applique pas à Epic)" : "")}"
+                            : $"{shown.Count} affiché(s) sur {Count(_free.TotalCount)}{tagNote}";
 
             // Epic donne toute sa liste d'un coup : le bouton reste grisé.
             LoadMorePromosButton.IsEnabled = _free.HasMore && !_free.IsLoading;
@@ -830,8 +1186,8 @@ public partial class ShopsView : UserControl
                         : feed.LoadFailed
                             ? "Impossible de charger les promos (détail dans le journal)."
                             : hiddenCount > 0
-                                ? $"{shown.Count} promo(s), {hiddenCount} {hiddenReason}"
-                                : $"{shown.Count} promo(s)";
+                                ? $"{shown.Count} promo(s), {hiddenCount} {hiddenReason}{tagNote}"
+                                : $"{shown.Count} promo(s){tagNote}";
 
             LoadMorePromosButton.IsEnabled = feed.HasMore && !feed.IsLoading;
             PromosSortMode.IsEnabled = !_promos.IsLoading;
@@ -841,13 +1197,18 @@ public partial class ShopsView : UserControl
         else if (_leftMode == LeftListMode.WatchList)
         {
             shown = _watchList.Games
+                .Where(WatchedGameHasTag)
                 .OrderBy(game => game.Title, StringComparer.CurrentCultureIgnoreCase)
                 .Select(game => MakeRow(game.ItadId, game.Title, game.Type, game))
                 .ToList();
 
-            ShopStatusText.Text = shown.Count == 0
+            ShopStatusText.Text = _watchList.Games.Count == 0
                 ? "Aucun jeu suivi : choisis un jeu et clique sur « ☆ Suivre »."
-                : $"{shown.Count} jeu(x) suivi(s){GetPriceCheckText()}";
+                : _tag != null
+                    ? _isLoadingWatchTags
+                        ? $"Lecture des tags des jeux suivis…{tagNote}"
+                        : $"{shown.Count} jeu(x) suivi(s) sur {_watchList.Games.Count}{tagNote}"
+                    : $"{shown.Count} jeu(x) suivi(s){GetPriceCheckText()}";
         }
         else
         {
@@ -875,7 +1236,10 @@ public partial class ShopsView : UserControl
         // sans relancer la demande de prix grâce à _isRebuildingResults.
         _isRebuildingResults = true;
         SearchResultsList.ItemsSource = shown;
-        SearchResultsList.SelectedItem = shown.FirstOrDefault(row => row.Id == _currentGame?.Id);
+        // Un jeu Steam ouvert depuis Résultats filtré par tag a pris l'identifiant IsThereAnyDeal : on le
+        // retrouve alors par son numéro Steam.
+        SearchResultsList.SelectedItem = shown.FirstOrDefault(row => row.Id == _currentGame?.Id
+            || (row.SteamAppId != null && row.SteamAppId == _currentGame?.SteamAppId));
         _isRebuildingResults = false;
 
         UpdateOwnedText();
@@ -936,6 +1300,55 @@ public partial class ShopsView : UserControl
 
         int request = ++_pricesRequest;
 
+        // Un jeu trouvé par tag dans la boutique Steam (onglet Résultats) : on cherche son identifiant
+        // IsThereAnyDeal par son numéro Steam, puis on l'affiche comme un résultat normal (présentation et prix).
+        // Sans clé, ou si IsThereAnyDeal ne le connaît pas : sa présentation Steam seulement.
+        string? noPricesReason = null;
+
+        if (game.Free is { Source: FreeGameSource.SteamGame, SteamAppId: int steamAppId })
+        {
+            _currentGame = game;
+            SelectedGameTitle.Text = game.Title;
+            DealsStatusText.Text = "Recherche des prix…";
+            ItadSearchResult? match = null;
+
+            if (_itad.IsConfigured)
+            {
+                try
+                {
+                    match = await _itad.LookupBySteamAppIdAsync(steamAppId);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"« {game.Title} » (appid {steamAppId}) introuvable chez IsThereAnyDeal : {ex.Message}");
+                }
+
+                if (request != _pricesRequest)
+                {
+                    return;   // un autre jeu a été choisi pendant la recherche
+                }
+            }
+
+            if (match != null)
+            {
+                game = new SearchResultRow
+                {
+                    Id = match.Id,
+                    Title = match.Title,
+                    Type = match.Type ?? "",
+                    OwnedPlatforms = game.OwnedPlatforms,
+                    IsWatched = _watchList.IsWatched(match.Id),
+                    SteamAppId = steamAppId
+                };
+            }
+            else
+            {
+                noPricesReason = _itad.IsConfigured
+                    ? "Pas de prix connus pour ce jeu chez IsThereAnyDeal."
+                    : "Ajoute ta clé IsThereAnyDeal (Réglages → Clés API) pour voir ses prix.";
+            }
+        }
+
         _currentGame = game;
         SelectedGameTitle.Text = game.Title;
         UpdateOwnedText();
@@ -950,6 +1363,12 @@ public partial class ShopsView : UserControl
         if (game.Free != null)
         {
             await ShowFreeGameAsync(game.Free, request);
+
+            if (noPricesReason != null && request == _pricesRequest)
+            {
+                DealsStatusText.Text = noPricesReason;
+            }
+
             return;
         }
 
@@ -1047,7 +1466,7 @@ public partial class ShopsView : UserControl
         }
 
         FreeGameSource source = kind == "f2p" ? FreeGameSource.SteamFreeToPlay : FreeGameSource.SteamDemo;
-        return await SteamFreeCatalog.GetPageAsync(source, start, GetSelectedTag(FreeSortMode) == "new", _freeSearch);
+        return await SteamFreeCatalog.GetPageAsync(source, start, GetSelectedTag(FreeSortMode) == "new", _freeSearch, _tag?.Id);
     }
 
     /// <summary>Charge la liste en tenant la colonne de gauche à jour (même principe que LoadFeedAsync).</summary>
@@ -1103,7 +1522,8 @@ public partial class ShopsView : UserControl
             Type = free.SummaryLine,
             OwnedPlatforms = GetFreeOwnedPlatforms(free),
             ImageUrl = free.ImageUrl,
-            Free = free
+            Free = free,
+            SteamAppId = free.SteamAppId
         };
     }
 
@@ -1137,7 +1557,8 @@ public partial class ShopsView : UserControl
             return;   // pendant InitializeComponent
         }
 
-        if (_currentGame?.Free is not FreeGame free)
+        // Un jeu Steam trouvé par tag n'est pas forcément gratuit : pas de bouton « Installer » pour lui.
+        if (_currentGame?.Free is not FreeGame free || free.Source == FreeGameSource.SteamGame)
         {
             InstallButton.Visibility = Visibility.Collapsed;
             return;
@@ -1692,8 +2113,11 @@ public class SearchResultRow
     public bool IsAtHistoricalLow { get; init; }
     public string OwnedBadgeText => $"✓ Dans ta bibliothèque ({OwnedPlatforms})";
 
-    // Onglet Gratuits seulement : le jeu lui-même et sa petite image (null ailleurs).
+    // Onglet Gratuits (et Résultats filtré par tag) : le jeu Steam lui-même et sa petite image (null ailleurs).
     public FreeGame? Free { get; init; }
+
+    // Le numéro Steam du jeu, s'il est connu : sert à garder la ligne sélectionnée quand la liste se refait.
+    public int? SteamAppId { get; init; }
     public string? ImageUrl { get; init; }
     public bool HasImage => ImageUrl != null;
 }

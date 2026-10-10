@@ -25,19 +25,30 @@ public static class SteamFreeCatalog
     private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
 
     /// <summary>
-    /// Une page de démos (source = SteamDemo) ou de jeux gratuits (SteamFreeToPlay).
+    /// Une page de démos (source = SteamDemo), de jeux gratuits (SteamFreeToPlay) ou de tous les jeux (SteamGame,
+    /// pour l'onglet Résultats filtré par tag).
     /// newestFirst : nouveautés d'abord ; sinon, l'ordre de Steam (les plus populaires).
-    /// search : un nom à chercher, ou vide.
+    /// search : un nom à chercher, ou vide. tagId : un tag de Steam (« tags=122 » = RPG, vérifié le 10 octobre 2026), ou null.
     /// </summary>
     public static async Task<FreeGamesPage> GetPageAsync(FreeGameSource source, int start, bool newestFirst, string search,
-        CancellationToken token = default)
+        int? tagId = null, CancellationToken token = default)
     {
-        string filter = source == FreeGameSource.SteamDemo ? "category1=10" : "maxprice=free&category1=998";
+        string filter = source switch
+        {
+            FreeGameSource.SteamDemo => "category1=10",
+            FreeGameSource.SteamFreeToPlay => "maxprice=free&category1=998",
+            _ => "category1=998"   // jeux seulement (pas de DLC ni de logiciels)
+        };
         string url = $"https://store.steampowered.com/search/results/?infinite=1&start={start}&count={PageSize}&cc=fr&l=french&{filter}";
 
         if (newestFirst)
         {
             url += "&sort_by=Released_DESC";
+        }
+
+        if (tagId is int tag)
+        {
+            url += "&tags=" + tag;
         }
 
         if (!string.IsNullOrWhiteSpace(search))

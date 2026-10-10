@@ -1,4 +1,5 @@
-﻿using Wyrmhold.Core;
+﻿using System.Text.Json;
+using Wyrmhold.Core;
 
 // Phase 6 — essais IsThereAnyDeal, prix en France (euros).
 // 1 = comparateur de prix (chercher un jeu, voir ses offres)
@@ -29,6 +30,96 @@ if (args.Length > 0 && args[0] == "11")
             ? $"{game.PlatformName,-10} {game.Name} : AUCUNE MÉTHODE"
             : $"{game.PlatformName,-10} {game.Name} : {plan.Kind} → {plan.FileName} {plan.Arguments}");
     }
+    return;
+}
+
+// 18 = IsThereAnyDeal : « tags » (un tag) et « tagsUnion » (des genres) dans le MÊME filtre, comme « Pour toi » + un tag.
+if (args.Length > 0 && args[0] == "18")
+{
+    IsThereAnyDealApi itad = new IsThereAnyDealApi(Secrets.Current);
+    string[] genres = { "Strategy", "Simulation" };
+
+    ItadDealsPage tagOnly = await itad.GetDealsByTagsAsync(new[] { "RPG" }, true, 0, 200, "");
+    ItadDealsPage genresOnly = await itad.GetDealsByTagsAsync(genres, false, 0, 200, "");
+    ItadDealsPage both = await itad.GetDealsByTagsAsync(new[] { "RPG" }, true, 0, 200, "",
+        extraFilter: new Dictionary<string, object> { ["tagsUnion"] = genres });
+
+    HashSet<string> tagIds = tagOnly.List.Select(d => d.Id).ToHashSet();
+    HashSet<string> genreIds = genresOnly.List.Select(d => d.Id).ToHashSet();
+    Console.WriteLine($"RPG seul : {tagOnly.List.Count} ; Strategy OU Simulation : {genresOnly.List.Count} ; les deux : {both.List.Count}");
+    Console.WriteLine($"Parmi « les deux » : {both.List.Count(d => tagIds.Contains(d.Id))} aussi dans « RPG seul » (1re page), "
+        + $"{both.List.Count(d => genreIds.Contains(d.Id))} aussi dans « genres » (1re page)");
+    Console.WriteLine(string.Join(" ; ", both.List.Take(8).Select(d => d.Title)));
+    return;
+}
+
+// 17 = GetOwnedGames avec / sans include_free_sub (démos, licences gratuites) : combien de jeux en plus, lesquels.
+if (args.Length > 0 && args[0] == "17")
+{
+    using HttpClient http = new HttpClient();
+    string baseUrl = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/"
+        + $"?key={Secrets.Current.SteamApiKey}&steamid={Secrets.Current.SteamId}&include_appinfo=true&include_played_free_games=true";
+
+    async Task<Dictionary<int, string>> ReadAsync(string url)
+    {
+        using JsonDocument doc = JsonDocument.Parse(await http.GetStringAsync(url));
+        return doc.RootElement.GetProperty("response").TryGetProperty("games", out JsonElement list)
+            ? list.EnumerateArray().ToDictionary(g => g.GetProperty("appid").GetInt32(),
+                g => g.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? "" : "")
+            : new Dictionary<int, string>();
+    }
+
+    Dictionary<int, string> without = await ReadAsync(baseUrl);
+    Dictionary<int, string> with = await ReadAsync(baseUrl + "&include_free_sub=true");
+    List<KeyValuePair<int, string>> extra = with.Where(pair => !without.ContainsKey(pair.Key)).ToList();
+
+    Console.WriteLine($"Sans include_free_sub : {without.Count} ; avec : {with.Count} ; en plus : {extra.Count}");
+    Console.WriteLine(string.Join(" ; ", extra.Take(25).Select(pair => $"{pair.Value} ({pair.Key})")));
+
+    // Essai à blanc de la nouvelle règle (10 octobre 2026) : quels jeux Steam de la base seraient masqués ?
+    List<Game> steamRows = new LibraryService().LoadGames().Where(g => g.Platform == Platform.Steam).ToList();
+    HashSet<string> familyIds = new GameDatabase().LoadKnownFamilyAppIds();
+    List<Game> wouldHide = steamRows
+        .Where(g => !(int.TryParse(g.PlatformGameId, out int id) && with.ContainsKey(id)) && !familyIds.Contains(g.PlatformGameId))
+        .ToList();
+    Console.WriteLine($"\nEssai à blanc : {steamRows.Count} jeux Steam affichés, {familyIds.Count} de la famille connus ; "
+        + $"ni à toi ni de la famille : {wouldHide.Count} (installés : {wouldHide.Count(g => g.IsInstalled)}, gardés s'ils sont gratuits)");
+    Console.WriteLine(string.Join(" ; ", wouldHide.Take(30).Select(g => $"{g.Name} ({g.PlatformGameId}{(g.IsInstalled ? ", installé" : "")}{(g.IsFamilyShared == true ? ", marqué famille" : "")})")));
+
+    List<Game> installedNotOwned = new LibraryService().LoadGames()
+        .Where(g => g.Platform == Platform.Steam && g.IsInstalled && int.TryParse(g.PlatformGameId, out int id) && !with.ContainsKey(id))
+        .ToList();
+    Console.WriteLine($"\nInstallés mais absents même avec include_free_sub : {installedNotOwned.Count}");
+    Console.WriteLine(string.Join(" ; ", installedNotOwned.Select(g => $"{g.Name} ({g.PlatformGameId}, famille={g.IsFamilyShared}, propriétaire={g.OwnerSteamId ?? "-"})")));
+    return;
+}
+
+// 16 = jeux similaires selon Steam (sans clé) : « dotnet run -- 16 1222140 730 ».
+if (args.Length > 1 && args[0] == "16")
+{
+    foreach (string appId in args.Skip(1))
+    {
+        List<SimilarGame> similar = await SteamSimilarGames.GetAsync(int.Parse(appId), new HashSet<int>(), 6);
+        Console.WriteLine($"{appId} → {string.Join(" ; ", similar.Select(game => $"{game.Name} ({game.AppId})"))}");
+        Console.WriteLine($"   image : {similar.FirstOrDefault()?.ImageUrl}");
+    }
+
+    return;
+}
+
+// 15 = réponse BRUTE d'IsThereAnyDeal games/lookup/v1 pour des appid Steam (la clé n'est pas affichée).
+if (args.Length > 1 && args[0] == "15")
+{
+    using HttpClient http = new HttpClient();
+    http.DefaultRequestHeaders.Add("ITAD-API-Key", Secrets.Current.IsThereAnyDealApiKey);
+
+    foreach (string appId in args.Skip(1))
+    {
+        using HttpResponseMessage response = await http.GetAsync($"https://api.isthereanydeal.com/games/lookup/v1?appid={Uri.EscapeDataString(appId)}");
+        string body = await response.Content.ReadAsStringAsync();
+        Console.WriteLine($"{appId,-8} → {(int)response.StatusCode} : {body.Substring(0, Math.Min(220, body.Length))}");
+    }
+
     return;
 }
 

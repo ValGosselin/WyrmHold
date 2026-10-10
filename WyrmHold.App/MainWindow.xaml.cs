@@ -725,6 +725,113 @@ public partial class MainWindow : Window
 
         BuildGameCollectionsPanel();
         _ = LoadPatchNotesAsync(copy);
+        _ = LoadSimilarGamesAsync(copy);
+    }
+
+    // ===================== Jeux similaires =====================
+
+    private int _similarGamesRequest;
+
+    /// <summary>
+    /// Remplit « Jeux similaires » : 3 jeux proches selon la boutique Steam, sans ceux que tu possèdes.
+    /// Affichés même sans clé IsThereAnyDeal (le clic ne fait alors rien, une ligne explique pourquoi).
+    /// En cas de souci (jeu absent de Steam, Steam qui ne répond pas), la section reste cachée.
+    /// </summary>
+    private async Task LoadSimilarGamesAsync(Game? game)
+    {
+        // Même principe que les patch notes : une sélection plus récente annule celle-ci.
+        int request = ++_similarGamesRequest;
+
+        SimilarGamesPanel.Visibility = Visibility.Collapsed;
+        SimilarGamesList.ItemsSource = null;
+
+        if (game is null)
+        {
+            return;
+        }
+
+        // Petite pause : si tu descends la liste avec les flèches, on ne demande que pour le jeu où tu t'arrêtes.
+        await Task.Delay(400);
+
+        if (request != _similarGamesRequest)
+        {
+            return;
+        }
+
+        List<SimilarGame> similar;
+
+        try
+        {
+            similar = await _library.GetSimilarGamesAsync(game, _allGames);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Jeux similaires indisponibles pour {game.Name} : {ex.Message}");
+            return;
+        }
+
+        if (request != _similarGamesRequest || similar.Count == 0)
+        {
+            return;
+        }
+
+        _similarGames = similar;
+        _similarGamesOffset = 0;
+        ShowSimilarGamesPage();
+        SimilarGamesHint.Visibility = ShopsPanel.CanSearchShops ? Visibility.Collapsed : Visibility.Visible;
+        SimilarGamesPanel.Visibility = Visibility.Visible;
+    }
+
+    // Tous les jeux similaires du jeu affiché (une quinzaine), et où on en est : la fiche en montre 3 à la fois.
+    private List<SimilarGame> _similarGames = new List<SimilarGame>();
+    private int _similarGamesOffset;
+    private const int SimilarGamesShown = 3;
+
+    /// <summary>Affiche les 3 jeux similaires à partir de _similarGamesOffset ; ↻ caché s'il n'y en a pas d'autres.</summary>
+    private void ShowSimilarGamesPage()
+    {
+        SimilarGamesList.ItemsSource = _similarGames.Skip(_similarGamesOffset).Take(SimilarGamesShown).ToList();
+        MoreSimilarGamesButton.Visibility = _similarGames.Count > SimilarGamesShown ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>↻ : les 3 suivants ; arrivé au bout de la liste, on repart du début.</summary>
+    private void MoreSimilarGamesButton_Click(object sender, RoutedEventArgs e)
+    {
+        _similarGamesOffset += SimilarGamesShown;
+
+        if (_similarGamesOffset >= _similarGames.Count)
+        {
+            _similarGamesOffset = 0;
+        }
+
+        ShowSimilarGamesPage();
+    }
+
+    /// <summary>
+    /// Clic sur un tag de la fiche : Boutiques → Résultats, les jeux Steam qui ont ce tag
+    /// (recherche de la boutique Steam : marche aussi sans clé IsThereAnyDeal).
+    /// </summary>
+    private async void GameTag_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag })
+        {
+            return;
+        }
+
+        ShopsTab.IsSelected = true;
+        await ShopsPanel.ShowTagAsync(tag);
+    }
+
+    /// <summary>Clic sur un jeu similaire : la page Boutiques sur ce jeu (rien sans clé IsThereAnyDeal).</summary>
+    private async void SimilarGame_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: SimilarGame game } || !ShopsPanel.CanSearchShops)
+        {
+            return;
+        }
+
+        ShopsTab.IsSelected = true;
+        await ShopsPanel.ShowSteamGameAsync(game.AppId, game.Name);
     }
 
     private void CopySelector_SelectionChanged(object sender, SelectionChangedEventArgs e)

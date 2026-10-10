@@ -337,15 +337,53 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2" Margin="0,0,6,6">
-                                                <TextBlock Text="{Binding}" FontSize="11"/>
-                                            </Border>
+                                            <!-- Clic sur un tag = les promos de ce tag dans Boutiques (avec la clé IsThereAnyDeal).
+                                                 Le tag (un texte) est rangé dans Tag : le code le relit au clic. -->
+                                            <Button Tag="{Binding}" Click="GameTag_Click" Cursor="Hand" Padding="0"
+                                                    Background="Transparent" BorderThickness="0" Margin="0,0,6,6"
+                                                    ToolTip="Voir les jeux avec ce tag dans Boutiques">
+                                                <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2">
+                                                    <TextBlock Text="{Binding}" FontSize="11"/>
+                                                </Border>
+                                            </Button>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <TextBlock Text="Collections" FontWeight="SemiBold" Margin="0,12,0,4"/>
                                 <StackPanel x:Name="GameCollectionsPanel"/>
                                 <TextBlock Text="{Binding Description}" TextWrapping="Wrap" Margin="0,12,0,0"/>
+
+                                <!-- Jeux similaires (selon la boutique Steam), sans ceux que tu possèdes : remplis par le code.
+                                     Clic = la page Boutiques sur ce jeu (s'il y a la clé IsThereAnyDeal). -->
+                                <StackPanel x:Name="SimilarGamesPanel" Visibility="Collapsed">
+                                    <DockPanel Margin="0,16,0,6">
+                                        <!-- ↻ : les 3 jeux similaires suivants (caché s'il n'y en a pas d'autres) -->
+                                        <Button x:Name="MoreSimilarGamesButton" DockPanel.Dock="Right" Content="↻" Padding="8,0"
+                                                ToolTip="Proposer 3 autres jeux" Click="MoreSimilarGamesButton_Click"/>
+                                        <TextBlock Text="Jeux similaires" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </DockPanel>
+                                    <ItemsControl x:Name="SimilarGamesList">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <!-- Le jeu est rangé dans Tag : le code le relit au clic. -->
+                                                <Button Tag="{Binding}" Click="SimilarGame_Click" Margin="0,0,0,6" Padding="4"
+                                                        HorizontalContentAlignment="Stretch" Background="Transparent"
+                                                        BorderThickness="0" Cursor="Hand">
+                                                    <DockPanel>
+                                                        <Image DockPanel.Dock="Left" Width="110" Height="63" Stretch="UniformToFill"
+                                                               Margin="0,0,10,0" RenderOptions.BitmapScalingMode="HighQuality"
+                                                               local:WebImageLoader.DecodeWidth="220"
+                                                               local:WebImageLoader.Url="{Binding ImageUrl}"/>
+                                                        <TextBlock Text="{Binding Name}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                                                    </DockPanel>
+                                                </Button>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock x:Name="SimilarGamesHint" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed"
+                                               Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Text="Ajoute ta clé IsThereAnyDeal (Réglages → Clés API) pour ouvrir leurs prix dans Boutiques."/>
+                                </StackPanel>
 
                                 <!-- Patch notes : remplies par le code quand on sélectionne un jeu -->
                                 <TextBlock Text="Patch notes" FontWeight="SemiBold" Margin="0,16,0,4"/>
@@ -703,7 +741,7 @@
         </TabItem>
         <!-- ===================== Onglet Boutiques ===================== -->
         <!-- Son contenu est dans ShopsView.xaml (un UserControl), pour ne pas alourdir ce fichier. -->
-        <TabItem Header="Boutiques">
+        <TabItem x:Name="ShopsTab" Header="Boutiques">
             <local:ShopsView x:Name="ShopsPanel"/>
         </TabItem>
 

@@ -5,7 +5,8 @@ public enum FreeGameSource
 {
     SteamDemo,       // démo Steam
     SteamFreeToPlay, // jeu gratuit (free-to-play) sur Steam
-    EpicGiveaway     // jeu offert pour un temps limité sur l'Epic Games Store
+    EpicGiveaway,    // jeu offert pour un temps limité sur l'Epic Games Store
+    SteamGame        // n'importe quel jeu Steam (onglet Résultats filtré par tag) : pas forcément gratuit
 }
 
 /// <summary>
@@ -42,6 +43,7 @@ public class FreeGame
     {
         FreeGameSource.SteamDemo => "Démo Steam",
         FreeGameSource.SteamFreeToPlay => "Gratuit sur Steam",
+        FreeGameSource.SteamGame => "Steam",
         _ => "Epic Games Store"
     };
 

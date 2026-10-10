@@ -58,6 +58,9 @@ public class GameDatabase
         AddColumnIfMissing(connection, "HasNewAchievements", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "AchievementsCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "AchievementsAdded", "INTEGER NOT NULL DEFAULT 0");
+
+        // Jeu Steam que tu ne possèdes plus (remboursé, week-end gratuit terminé…) : gardé en base, jamais affiché.
+        AddColumnIfMissing(connection, "IsNotOwned", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "AchievementsAddedUnix", "INTEGER NOT NULL DEFAULT 0");
 
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
@@ -407,7 +410,7 @@ public class GameDatabase
                AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix,
                AchievementsAdded, AchievementsAddedUnix
         FROM Game
-        WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
+        WHERE (IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam') AND IsNotOwned = 0;
         """;
 
         using SqliteDataReader reader = command.ExecuteReader();
@@ -574,6 +577,61 @@ public class GameDatabase
             upsert.Parameters.AddWithValue("$playtime", game.PlaytimeMinutes);
             upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    /// <summary>
+    /// Les appid des jeux de la famille Steam déjà importés (bibliothèque partagée : propriétaire connu).
+    /// </summary>
+    public HashSet<string> LoadKnownFamilyAppIds()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+        SELECT PlatformGameId FROM Game
+        WHERE Platform = 'Steam' AND IsFamilyShared = 1 AND OwnerSteamId IS NOT NULL;
+        """;
+
+        HashSet<string> ids = new HashSet<string>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            ids.Add(reader.GetString(0));
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Masque les jeux Steam qui ne sont plus à toi : tous ceux qui ne sont pas dans keptIds
+    /// (possédés, famille, gratuits installés). Rien n'est supprimé : un jeu racheté réapparaît avec son historique.
+    /// </summary>
+    public void SetSteamOwnership(HashSet<string> keptIds)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        using (SqliteCommand hideAll = connection.CreateCommand())
+        {
+            hideAll.Transaction = transaction;
+            hideAll.CommandText = "UPDATE Game SET IsNotOwned = 1 WHERE Platform = 'Steam';";
+            hideAll.ExecuteNonQuery();
+        }
+
+        foreach (string id in keptIds)
+        {
+            using SqliteCommand keep = connection.CreateCommand();
+            keep.Transaction = transaction;
+            keep.CommandText = "UPDATE Game SET IsNotOwned = 0 WHERE Platform = 'Steam' AND PlatformGameId = $id;";
+            keep.Parameters.AddWithValue("$id", id);
+            keep.ExecuteNonQuery();
         }
 
         transaction.Commit();

@@ -22,6 +22,15 @@ internal class StoreItem
     [JsonPropertyName("success")]
     public int Success { get; set; }
 
+    // Le nom du jeu dans la langue demandée (sert aux « Jeux similaires »).
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    // Vrai pour une démo ou un jeu gratuit (vérifié le 10 octobre 2026 : Counter-Strike 2, une démo, AION 2 → true ;
+    // Detroit → absent). Sert à garder un jeu gratuit installé qui n'est pas dans GetOwnedGames.
+    [JsonPropertyName("is_free")]
+    public bool IsFree { get; set; }
+
     [JsonPropertyName("is_early_access")]
     public bool IsEarlyAccess { get; set; }
 

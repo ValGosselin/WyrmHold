@@ -22,6 +22,16 @@ public class ItadSearchResult
     public string? Type { get; set; }
 }
 
+/// <summary>Réponse de /games/lookup/v1 : {"found":true,"game":{"id":…,"title":…,"type":…}} ou {"found":false}.</summary>
+public class ItadLookupResponse
+{
+    [JsonPropertyName("found")]
+    public bool Found { get; set; }
+
+    [JsonPropertyName("game")]
+    public ItadSearchResult? Game { get; set; }
+}
+
 /// <summary>Un jeu de ta Waitlist sur le site (/waitlist/games/v1).</summary>
 public class ItadWaitlistGame
 {

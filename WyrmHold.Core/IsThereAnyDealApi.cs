@@ -47,6 +47,21 @@ public class IsThereAnyDealApi
     }
 
     /// <summary>
+    /// Le jeu IsThereAnyDeal qui correspond à un numéro de jeu Steam (appid), ou null s'il n'est pas connu.
+    /// Vérifié en console le 10 octobre 2026 (mode 15) : 960990 → Beyond Two Souls ; 999999999 → {"found":false}.
+    /// </summary>
+    public async Task<ItadSearchResult?> LookupBySteamAppIdAsync(int steamAppId)
+    {
+        string url = BaseUrl + "games/lookup/v1?appid=" + steamAppId;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        string json = await SendAsync(request);
+
+        ItadLookupResponse? response = JsonSerializer.Deserialize<ItadLookupResponse>(json);
+        return response is { Found: true, Game: not null } ? response.Game : null;
+    }
+
+    /// <summary>
     /// Récupère les prix d'un ou plusieurs jeux (200 au plus par appel) dans un pays.
     /// Un seul appel suffit pour toute une liste : c'est ce qui permettra de vérifier
     /// tous les jeux suivis sans gaspiller la limite de requêtes.

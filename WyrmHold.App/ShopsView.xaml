@@ -34,6 +34,16 @@
                 </TextBlock>
             </Grid>
             <Button x:Name="ShopSearchButton" Content="Rechercher" Width="110" Click="ShopSearchButton_Click"/>
+
+            <!-- Filtre par tag, pour TOUS les onglets de la page : « Tous les tags », puis les tags de Steam
+                 en français (remplis par le code à la 1re ouverture de la page). Aussi choisi par un clic sur
+                 un tag de la fiche d'un jeu. Taper les premières lettres saute au tag ; les listes se rechargent
+                 une demi-seconde après. -->
+            <ComboBox x:Name="ShopTagFilter" Width="200" Margin="10,0,0,0" VerticalContentAlignment="Center"
+                      MaxDropDownHeight="400" IsTextSearchEnabled="True" ToolTip="Filtrer tous les onglets par un tag"
+                      SelectionChanged="ShopTagFilter_SelectionChanged">
+                <ComboBoxItem Content="🏷 Tous les tags" IsSelected="True"/>
+            </ComboBox>
             <CheckBox x:Name="GamesOnlyCheck" Content="Jeux et éditions seulement (sans DLC ni bande-son)"
                       Margin="16,0,0,0" VerticalAlignment="Center"
                       Checked="GamesOnlyCheck_Changed" Unchecked="GamesOnlyCheck_Changed"/>
