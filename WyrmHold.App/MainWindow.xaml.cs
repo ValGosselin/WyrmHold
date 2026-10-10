@@ -1551,6 +1551,228 @@ public partial class MainWindow : Window
 
     // ===================== Lancement =====================
 
+    // ===================== Menu clic droit des tuiles =====================
+
+    /// <summary>
+    /// Le jeu de la tuile cliquée (le menu reçoit la tuile comme DataContext), qui devient aussi la sélection :
+    /// « Jouer » et « Favori » réutilisent ainsi les boutons de la fiche.
+    /// </summary>
+    private Game? SelectTileFromMenu(object sender)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not Game tile)
+        {
+            return null;
+        }
+
+        GamesList.SelectedItem = tile;
+        return tile;
+    }
+
+    private void TileMenuPlay_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not null)
+        {
+            LaunchSelectedGame();
+        }
+    }
+
+    private void TileMenuFavorite_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not null)
+        {
+            FavoriteButton_Click(sender, e);
+        }
+    }
+
+    /// <summary>
+    /// « Re-télécharger la jaquette » : pour une mauvaise image (ex. It's Fine qui affichait « It's A Wipe! »).
+    /// </summary>
+    private async void TileMenuRedownloadCover_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not Game game)
+        {
+            return;
+        }
+
+        string? oldPath = game.CoverPath;
+        bool found;
+
+        try
+        {
+            found = await _library.RedownloadCoverAsync(game);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Jaquette impossible à re-télécharger pour {game.Name} : {ex.Message}");
+            MessageBox.Show("La jaquette n'a pas pu être re-téléchargée. Les détails sont dans le journal.", "Wyrmhold");
+            return;
+        }
+
+        // Même nom de fichier, autre image : on la retire de la mémoire, puis on redessine la tuile et la fiche.
+        CoverLoader.Forget(oldPath);
+        CoverLoader.Forget(game.CoverPath);
+        GamesList.Items.Refresh();
+
+        // La fiche : on lui retire puis on lui redonne son jeu, pour que sa jaquette soit relue.
+        object shown = DetailPanel.DataContext;
+        DetailPanel.DataContext = null;
+        DetailPanel.DataContext = shown;
+
+        Logger.Log(found
+            ? $"Jaquette de {game.Name} re-téléchargée."
+            : $"Jaquette de {game.Name} : aucune image trouvée (Steam, SteamGridDB).");
+
+        if (!found)
+        {
+            MessageBox.Show($"Aucune jaquette trouvée pour {game.Name} (ni chez {game.PlatformName}, ni chez Steam, ni sur SteamGridDB). La tuile affiche son nom.", "Wyrmhold");
+        }
+    }
+
+    private void TileMenuOpenFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not Game game)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(game.InstallPath) || !Directory.Exists(game.InstallPath))
+        {
+            MessageBox.Show($"Le dossier de {game.Name} est introuvable. Clique sur Actualiser si le jeu a été déplacé ou désinstallé.", "Wyrmhold");
+            return;
+        }
+
+        // Comme un double-clic sur le dossier : l'Explorateur de fichiers s'ouvre dedans.
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(game.InstallPath) { UseShellExecute = true })?.Dispose();
+    }
+
+    /// <summary>
+    /// « Désinstaller… » : Wyrmhold demande confirmation, puis lance le désinstalleur officiel du launcher
+    /// (il ne supprime jamais de fichier lui-même). Pour Epic, il ouvre son launcher et explique où cliquer.
+    /// </summary>
+    private void TileMenuUninstall_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not Game game)
+        {
+            return;
+        }
+
+        UninstallPlan? plan = GameUninstaller.FindPlan(game);
+
+        if (plan is null)
+        {
+            MessageBox.Show(
+                $"Wyrmhold n'a pas trouvé le désinstalleur de {game.Name}.\n\n"
+                + $"Désinstalle-le depuis {game.PlatformName}, ou depuis Paramètres → Applications → Applications installées de Windows.",
+                "Désinstaller", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        string size = game.SizeText.Length > 0 ? $", {game.SizeText}" : "";
+
+        string question = plan.Kind == UninstallKind.OpenLauncher
+            ? $"{game.PlatformName} ne permet pas de désinstaller un jeu depuis une autre application.\n\n"
+              + $"Wyrmhold va ouvrir {game.PlatformName} : dans ta Bibliothèque, clique sur « ⋯ » à côté de « {game.Name} », puis sur Désinstaller."
+            : $"Désinstaller {game.Name} ({game.PlatformName}{size}) ?\n\n"
+              + $"Wyrmhold lance le désinstalleur de {game.PlatformName}, qui peut te demander de confirmer à nouveau.";
+
+        MessageBoxResult answer = MessageBox.Show(question, "Désinstaller",
+            plan.Kind == UninstallKind.OpenLauncher ? MessageBoxButton.OKCancel : MessageBoxButton.YesNo,
+            plan.Kind == UninstallKind.OpenLauncher ? MessageBoxImage.Information : MessageBoxImage.Warning,
+            plan.Kind == UninstallKind.OpenLauncher ? MessageBoxResult.OK : MessageBoxResult.No);
+
+        if (answer != MessageBoxResult.Yes && answer != MessageBoxResult.OK)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!GameUninstaller.Run(plan))
+            {
+                return;   // demande d'autorisation de Windows refusée : rien n'a été lancé
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Désinstalleur impossible à lancer pour {game.Name} ({plan.FileName}) : {ex.Message}");
+            MessageBox.Show($"Le désinstalleur de {game.Name} n'a pas pu être lancé. Les détails sont dans le journal.", "Wyrmhold");
+            return;
+        }
+
+        Logger.Log($"Désinstallation de {game.Name} ({game.PlatformName}) lancée : {plan.FileName} {plan.Arguments}");
+        WatchUninstall(game);
+    }
+
+    // ----- Fin d'une désinstallation -----
+
+    // Les jeux en cours de désinstallation, et jusqu'à quand on surveille leur dossier.
+    private readonly Dictionary<string, (Game Game, DateTime Until)> _uninstalling = new Dictionary<string, (Game, DateTime)>();
+
+    // Toutes les 10 secondes tant qu'un jeu est en cours de désinstallation.
+    private readonly System.Windows.Threading.DispatcherTimer _uninstallTimer =
+        new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+
+    // Un désinstalleur laissé ouvert, ou annulé : on arrête de surveiller au bout de 15 minutes.
+    private static readonly TimeSpan UninstallWatchDuration = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Surveille le dossier du jeu : dès qu'il a disparu, la bibliothèque est relue (comme le début
+    /// d'« Actualiser ») et la tuile passe en « non installé ».
+    /// </summary>
+    private void WatchUninstall(Game game)
+    {
+        if (string.IsNullOrEmpty(game.InstallPath))
+        {
+            return;
+        }
+
+        _uninstalling[GameWatcher.KeyOf(game)] = (game, DateTime.Now + UninstallWatchDuration);
+
+        if (!_uninstallTimer.IsEnabled)
+        {
+            _uninstallTimer.Tick -= UninstallTimer_Tick;
+            _uninstallTimer.Tick += UninstallTimer_Tick;
+            _uninstallTimer.Start();
+        }
+    }
+
+    private async void UninstallTimer_Tick(object? sender, EventArgs e)
+    {
+        bool anyFinished = false;
+
+        foreach ((string key, (Game game, DateTime until)) in _uninstalling.ToList())
+        {
+            if (!Directory.Exists(game.InstallPath))
+            {
+                Logger.Log($"Désinstallation de {game.Name} terminée (dossier supprimé).");
+                _uninstalling.Remove(key);
+                anyFinished = true;
+            }
+            else if (DateTime.Now > until)
+            {
+                // Annulée, ou le désinstalleur a gardé le dossier (sauvegardes…) : « Actualiser » fera le point.
+                _uninstalling.Remove(key);
+            }
+        }
+
+        if (_uninstalling.Count == 0)
+        {
+            _uninstallTimer.Stop();
+        }
+
+        if (anyFinished)
+        {
+            try
+            {
+                ShowGames(await _library.ScanAllAsync());
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Bibliothèque impossible à relire après une désinstallation : {ex.Message}");
+            }
+        }
+    }
+
     private void LaunchSelectedGame()
     {
         if (CurrentGame is not Game game)

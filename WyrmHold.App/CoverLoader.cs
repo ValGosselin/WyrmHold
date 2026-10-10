@@ -19,6 +19,18 @@ public static class CoverLoader
             typeof(CoverLoader),
             new PropertyMetadata(null, OnPathChanged));
 
+    /// <summary>
+    /// Retire une image de la mémoire : la prochaine fois, elle sera relue sur le disque
+    /// (après « Re-télécharger la jaquette », le fichier a le même nom mais une autre image).
+    /// </summary>
+    public static void Forget(string? path)
+    {
+        if (path is not null)
+        {
+            Cache.Remove(path);
+        }
+    }
+
     public static string? GetPath(DependencyObject element)
     {
         return (string?)element.GetValue(PathProperty);

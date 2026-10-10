@@ -12,6 +12,11 @@
         Loaded="Window_Loaded"
         Closing="Window_Closing">
 
+    <Window.Resources>
+        <!-- true → visible, false → caché (menu clic droit des tuiles : options des jeux installés) -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+    </Window.Resources>
+
     <TabControl x:Name="MainTabs" Margin="10" SelectionChanged="MainTabs_SelectionChanged">
 
         <!-- ===================== Onglet Bibliothèque ===================== -->
@@ -402,6 +407,31 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Width="150" Margin="6">
+                                <!-- Clic droit sur la tuile. Le menu reçoit le jeu de la tuile (DataContext) tout seul. -->
+                                <StackPanel.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="▶  Jouer" Click="TileMenuPlay_Click"/>
+                                        <MenuItem Click="TileMenuFavorite_Click">
+                                            <MenuItem.Style>
+                                                <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                    <Setter Property="Header" Value="★  Ajouter aux favoris"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                            <Setter Property="Header" Value="☆  Retirer des favoris"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </MenuItem.Style>
+                                        </MenuItem>
+                                        <!-- Ces deux-là : seulement pour un jeu installé -->
+                                        <MenuItem Header="🖼  Re-télécharger la jaquette" Click="TileMenuRedownloadCover_Click"/>
+                                        <MenuItem Header="📁  Ouvrir le dossier du jeu" Click="TileMenuOpenFolder_Click"
+                                                  Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                        <Separator Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                        <MenuItem Header="🗑  Désinstaller…" Click="TileMenuUninstall_Click"
+                                                  Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                    </ContextMenu>
+                                </StackPanel.ContextMenu>
                                 <StackPanel.Style>
                                     <Style TargetType="StackPanel">
                                         <Style.Triggers>
@@ -418,58 +448,62 @@
                                                VerticalAlignment="Center" Margin="8"/>
                                     <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
 
-                                    <!-- En haut à droite, l'un sous l'autre : l'étoile des favoris, puis les joueurs en jeu -->
-                                    <StackPanel HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,6,6,0">
-                                    <Border Background="#AA000000" CornerRadius="12" Padding="6,1" HorizontalAlignment="Right">
-                                        <Border.Style>
-                                            <Style TargetType="Border">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <TextBlock Text="★" Foreground="Gold" FontSize="16"/>
-                                    </Border>
-
-                                    <!-- Joueurs en jeu en ce moment sur Steam : pastille verte (dessinée : WPF afficherait
-                                         l'emoji 🟢 en noir et blanc) + « 22,1 k » (« · Steam » pour un jeu acheté ailleurs). -->
-                                    <Border Background="#CC000000" CornerRadius="10" Padding="6,1" Margin="0,4,0,0"
-                                            HorizontalAlignment="Right" ToolTip="{Binding PlayersInGameToolTip}">
-                                        <Border.Style>
-                                            <Style TargetType="Border">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HasPlayersInGame}" Value="True">
-                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <StackPanel Orientation="Horizontal">
-                                            <Ellipse Width="7" Height="7" Fill="#4CAF50" VerticalAlignment="Center" Margin="0,1,5,0"/>
-                                            <TextBlock Text="{Binding PlayersInGameText}" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
-                                        </StackPanel>
-                                    </Border>
+                                    <!-- En haut de la jaquette. 1re ligne : l'étoile des favoris à gauche, les joueurs en jeu à droite
+                                         (si les deux ne tiennent pas, le chiffre finit par « … » ; l'infobulle le donne en entier).
+                                         2e ligne, à gauche : « Mis à jour ». -->
+                                    <StackPanel VerticalAlignment="Top" Margin="6,6,6,0">
+                                        <DockPanel LastChildFill="True">
+                                            <Border DockPanel.Dock="Left" Background="#AA000000" CornerRadius="12" Padding="6,1" Margin="0,0,4,0">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="★" Foreground="Gold" FontSize="16"/>
+                                            </Border>
+                                    
+                                            <!-- Joueurs en jeu en ce moment sur Steam : pastille verte (dessinée : WPF afficherait
+                                                 l'emoji 🟢 en noir et blanc) + « 22,1 k en jeu » (« · Steam » pour un jeu acheté ailleurs). -->
+                                            <Border Background="#CC000000" CornerRadius="10" Padding="6,1" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center" ToolTip="{Binding PlayersInGameToolTip}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasPlayersInGame}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <DockPanel>
+                                                    <Ellipse DockPanel.Dock="Left" Width="7" Height="7" Fill="#4CAF50" VerticalAlignment="Center" Margin="0,1,5,0"/>
+                                                    <TextBlock Text="{Binding PlayersInGameText}" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </DockPanel>
+                                            </Border>
+                                        </DockPanel>
+                                    
+                                        <!-- Badge « Mis à jour » -->
+                                        <Border Background="#2E7D32" CornerRadius="10" Padding="6,1" HorizontalAlignment="Left" Margin="0,4,0,0">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
+                                                            <Setter Property="Visibility" Value="Visible"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock Text="Mis à jour" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                        </Border>
                                     </StackPanel>
-
-                                    <!-- Badge « Mis à jour » (en haut à gauche) -->
-                                    <Border Background="#2E7D32" CornerRadius="10" Padding="6,1"
-                                        HorizontalAlignment="Left" VerticalAlignment="Top" Margin="6,6,0,0">
-                                        <Border.Style>
-                                            <Style TargetType="Border">
-                                                <Setter Property="Visibility" Value="Collapsed"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
-                                                        <Setter Property="Visibility" Value="Visible"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <TextBlock Text="Mis à jour" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
-                                    </Border>
 
                                     <!-- Progression des succès (en bas à gauche) : « 🏆 37/50 », dorée à 100 %, orange si des succès ont été ajoutés -->
                                     <Border CornerRadius="10" Padding="6,1"

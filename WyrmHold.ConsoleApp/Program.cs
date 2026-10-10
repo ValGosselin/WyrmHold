@@ -1,4 +1,4 @@
-using Wyrmhold.Core;
+﻿using Wyrmhold.Core;
 
 // Phase 6 — essais IsThereAnyDeal, prix en France (euros).
 // 1 = comparateur de prix (chercher un jeu, voir ses offres)
@@ -16,6 +16,19 @@ if (args.Length > 0 && args[0] == "7")
 if (args.Length > 1 && args[0] == "9")
 {
     await CompareLocalAchievementsAsync(args[1]);
+    return;
+}
+
+// 11 = désinstallation, ESSAI À BLANC (rien n'est lancé) : ce que ferait « Désinstaller… » pour chaque jeu installé.
+if (args.Length > 0 && args[0] == "11")
+{
+    foreach (Game game in new LibraryService().LoadGames().Where(g => g.IsInstalled).OrderBy(g => g.Platform))
+    {
+        UninstallPlan? plan = GameUninstaller.FindPlan(game);
+        Console.WriteLine(plan is null
+            ? $"{game.PlatformName,-10} {game.Name} : AUCUNE MÉTHODE"
+            : $"{game.PlatformName,-10} {game.Name} : {plan.Kind} → {plan.FileName} {plan.Arguments}");
+    }
     return;
 }
 

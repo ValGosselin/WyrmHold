@@ -148,6 +148,23 @@ public class CoverCache
         }
     }
 
+    /// <summary>
+    /// Oublie la jaquette d'un jeu (l'image et les marqueurs « introuvable ») : le prochain téléchargement
+    /// la redemandera depuis le début (clic droit → « Re-télécharger la jaquette »).
+    /// </summary>
+    public void Forget(Game game)
+    {
+        foreach (string path in new[] { GetCoverPath(game), GetMissingMarkerPath(game), GetSgdbMissingMarkerPath(game) })
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+
+        game.CoverPath = null;
+    }
+
     private static async Task<byte[]?> TryDownloadAsync(string url, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await Http.GetAsync(url, cancellationToken);

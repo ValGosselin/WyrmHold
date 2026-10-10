@@ -84,9 +84,10 @@ public class Game : INotifyPropertyChanged
 
     public bool HasPlayersInGame => PlayersInGame is not null;
 
-    // Le texte du badge : « 22,1 k en jeu », suivi de « · Steam » pour un jeu acheté ailleurs (ce n'est pas le total réel).
+    // Le texte du badge : « 22,1 k en jeu ». Pour un jeu acheté ailleurs, c'est le chiffre de Steam :
+    // seule l'infobulle le précise (« · Steam » sur la tuile retiré le 10 octobre 2026, à la demande de Val).
     public string PlayersInGameText => PlayersInGame is int count
-        ? FormatPlayers(count) + " en jeu" + (Platform == Platform.Steam ? "" : " · Steam")
+        ? FormatPlayers(count) + " en jeu"
         : "";
 
     public string PlayersInGameToolTip => PlayersInGame is not int count

@@ -213,6 +213,18 @@ public class LibraryService
         _covers.AttachCovers(games);
     }
 
+    /// <summary>
+    /// Re-télécharge la jaquette d'un jeu (ex. une mauvaise image enregistrée une fois pour toutes) :
+    /// on l'oublie, puis on la redemande par le même chemin qu'au démarrage (lanceur, Steam, puis SteamGridDB).
+    /// Renvoie true si une nouvelle jaquette a été trouvée.
+    /// </summary>
+    public async Task<bool> RedownloadCoverAsync(Game game)
+    {
+        _covers.Forget(game);
+        await DownloadCoversAsync(new List<Game> { game });
+        return game.CoverPath is not null;
+    }
+
     public async Task UpdateMetadataAsync(List<Game> games)
     {
         List<Game> updatedGames = await _metadata.FetchMissingAsync(games);

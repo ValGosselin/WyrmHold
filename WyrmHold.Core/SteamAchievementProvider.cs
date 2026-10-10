@@ -30,10 +30,12 @@ public class SteamAchievementProvider : IAchievementProvider
             return false;
         }
 
-        // Les jeux de la famille ne sont pas dans GetOwnedGames : on ne sait pas s'ils ont des succès,
-        // donc on les essaie seulement si tu y as joué.
+        // Les jeux de la famille ne sont pas dans GetOwnedGames : on ne sait pas d'avance s'ils ont des succès,
+        // donc on les essaie tous (une seule fois : un jeu sans succès est ensuite noté « sans succès »).
+        // Avant le 10 octobre 2026, seulement ceux auxquels tu avais joué : 286 jeux de la famille avec des succès
+        // (ex. It's Fine, 67 succès) n'étaient jamais lus et passaient pour « sans succès ».
         return _appsWithStats.Contains(game.PlatformGameId)
-            || (game.IsFamilyShared == true && game.PlaytimeMinutes > 0);
+            || game.IsFamilyShared == true;
     }
 
     public Task<AchievementProgress> GetProgressAsync(Game game, CancellationToken cancellationToken = default)
