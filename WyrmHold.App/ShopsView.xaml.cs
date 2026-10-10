@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -62,6 +63,12 @@ public partial class ShopsView : UserControl
     private readonly DealsFeed _promos;
     private readonly DealsFeed _forYou;
 
+    // Onglet Gratuits : la liste chargée page par page, le nom cherché (validé par Entrée),
+    // et les présentations Steam déjà chargées (appid → description, captures ; null = Steam ne connaît pas le jeu).
+    private readonly FreeGamesFeed _free;
+    private string _freeSearch = "";
+    private readonly Dictionary<int, SteamGameMedia?> _freeMedia = new Dictionary<int, SteamGameMedia?>();
+
     // Onglet Pour toi : la bibliothèque (pour calculer tes genres), le calcul, et les genres retenus.
     private List<Game> _libraryGames = new List<Game>();
     private readonly GenreRecommender _recommender = new GenreRecommender();
@@ -102,6 +109,7 @@ public partial class ShopsView : UserControl
             _settings?.RecommendationMinSteamPercent ?? 80,
             _settings?.RecommendationMinSteamReviews ?? 2000,
             offset, PromosPageSize, GetSelectedTag(ForYouSortMode)));
+        _free = new FreeGamesFeed(LoadFreePageAsync);
 
         InitializeComponent();
         _presentations = new GamePresentationService(_itad);
@@ -139,8 +147,11 @@ public partial class ShopsView : UserControl
             LeftListMode.WatchList => "watchlist",
             LeftListMode.Promos => "promos",
             LeftListMode.ForYou => "foryou",
+            LeftListMode.Free => "free",
             _ => "results"
         };
+        state.FreeKind = GetSelectedTag(FreeKindMode);
+        state.FreeSort = GetSelectedTag(FreeSortMode);
         state.PromosSort = GetSelectedTag(PromosSortMode);
         state.ForYouSort = GetSelectedTag(ForYouSortMode);
         state.DealsSort = GetSelectedTag(DealsSortMode);
@@ -156,6 +167,8 @@ public partial class ShopsView : UserControl
         SelectByTag(PromosSortMode, state.PromosSort);
         SelectByTag(ForYouSortMode, state.ForYouSort);
         SelectByTag(DealsSortMode, state.DealsSort);
+        SelectByTag(FreeKindMode, state.FreeKind);
+        SelectByTag(FreeSortMode, state.FreeSort);
         GamesOnlyCheck.IsChecked = state.GamesOnly;
         HideOwnedCheck.IsChecked = state.HideOwned;
         OnlyDealsCheck.IsChecked = state.OnlyDeals;
@@ -184,6 +197,7 @@ public partial class ShopsView : UserControl
             "watchlist" => WatchListTabButton,
             "promos" => PromosTabButton,
             "foryou" => ForYouTabButton,
+            "free" => FreeTabButton,
             _ => ResultsTabButton
         };
         button.IsChecked = true;
@@ -262,7 +276,11 @@ public partial class ShopsView : UserControl
     /// <summary>La ligne verte sous le titre du jeu affiché à droite.</summary>
     private void UpdateOwnedText()
     {
-        string? ownedPlatforms = _currentGame == null ? null : GetOwnedPlatforms(_currentGame.Title);
+        string? ownedPlatforms = _currentGame == null
+            ? null
+            : _currentGame.Free != null
+                ? GetFreeOwnedPlatforms(_currentGame.Free)
+                : GetOwnedPlatforms(_currentGame.Title);
 
         if (ownedPlatforms != null)
         {
@@ -284,9 +302,16 @@ public partial class ShopsView : UserControl
         _leftMode = WatchListTabButton?.IsChecked == true ? LeftListMode.WatchList
             : PromosTabButton?.IsChecked == true ? LeftListMode.Promos
             : ForYouTabButton?.IsChecked == true ? LeftListMode.ForYou
+            : FreeTabButton?.IsChecked == true ? LeftListMode.Free
             : LeftListMode.Results;
 
         RefreshLeftList();
+
+        // Première ouverture de l'onglet Gratuits : on charge la liste choisie (pas besoin de clé).
+        if (_leftMode == LeftListMode.Free && !_free.IsLoaded && !_free.IsLoading)
+        {
+            await LoadFreeAsync(reset: true);
+        }
 
         // Première ouverture de l'onglet Promos : on charge la liste (une seule requête).
         if (_leftMode == LeftListMode.Promos && !_promos.IsLoaded)
@@ -437,6 +462,12 @@ public partial class ShopsView : UserControl
 
     private async void LoadMorePromosButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_leftMode == LeftListMode.Free)
+        {
+            await LoadFreeAsync(reset: false);
+            return;
+        }
+
         await LoadFeedAsync(_leftMode == LeftListMode.ForYou ? _forYou : _promos, reset: false);
     }
 
@@ -514,7 +545,8 @@ public partial class ShopsView : UserControl
     /// <summary>Le bouton dit ce qu'un clic va faire : suivre, ou arrêter de suivre.</summary>
     private void UpdateFollowButton()
     {
-        if (_currentGame == null)
+        // Les jeux de l'onglet Gratuits ne sont pas chez IsThereAnyDeal : rien à suivre.
+        if (_currentGame == null || _currentGame.Free != null)
         {
             FollowButton.Visibility = Visibility.Collapsed;
             return;
@@ -535,6 +567,10 @@ public partial class ShopsView : UserControl
         else if (_leftMode == LeftListMode.ForYou)
         {
             await LoadForYouAsync(recomputeGenres: true);
+        }
+        else if (_leftMode == LeftListMode.Free)
+        {
+            await LoadFreeAsync(reset: true);
         }
         else
         {
@@ -735,13 +771,38 @@ public partial class ShopsView : UserControl
 
         bool isPromos = _leftMode == LeftListMode.Promos;
         bool isForYou = _leftMode == LeftListMode.ForYou;
+        bool isFree = _leftMode == LeftListMode.Free;
         PromosOptionsPanel.Visibility = isPromos ? Visibility.Visible : Visibility.Collapsed;
         ForYouOptionsPanel.Visibility = isForYou ? Visibility.Visible : Visibility.Collapsed;
-        LoadMorePromosButton.Visibility = isPromos || isForYou ? Visibility.Visible : Visibility.Collapsed;
+        FreeOptionsPanel.Visibility = isFree ? Visibility.Visible : Visibility.Collapsed;
+        LoadMorePromosButton.Visibility = isPromos || isForYou || isFree ? Visibility.Visible : Visibility.Collapsed;
+        LoadMorePromosButton.Content = isFree
+            ? $"Charger {SteamFreeCatalog.PageSize} jeux de plus"
+            : $"Charger {PromosPageSize} promos de plus";
 
         List<SearchResultRow> shown;
 
-        if (isPromos || isForYou)
+        if (isFree)
+        {
+            bool isEpic = GetSelectedTag(FreeKindMode) == "epic";
+            FreeSteamOptions.Visibility = isEpic ? Visibility.Collapsed : Visibility.Visible;
+
+            shown = _free.Items.Select(MakeFreeRow).ToList();
+
+            ShopStatusText.Text = _free.IsLoading
+                ? "Chargement des jeux gratuits…"
+                : _free.LoadFailed
+                    ? "Impossible de charger la liste (détail dans le journal)."
+                    : shown.Count == 0
+                        ? _freeSearch.Length > 0 ? $"Aucun jeu trouvé pour « {_freeSearch} »." : "Aucun jeu pour l'instant."
+                        : isEpic
+                            ? $"{shown.Count} jeu(x) offert(s) ou annoncé(s) par Epic"
+                            : $"{shown.Count} affiché(s) sur {_free.TotalCount.ToString("N0", CultureInfo.GetCultureInfo("fr-FR"))}";
+
+            // Epic donne toute sa liste d'un coup : le bouton reste grisé.
+            LoadMorePromosButton.IsEnabled = _free.HasMore && !_free.IsLoading;
+        }
+        else if (isPromos || isForYou)
         {
             DealsFeed feed = isForYou ? _forYou : _promos;
 
@@ -818,6 +879,7 @@ public partial class ShopsView : UserControl
         _isRebuildingResults = false;
 
         UpdateOwnedText();
+        UpdateInstallButton();   // après « Actualiser » de la bibliothèque, un jeu installé passe à « ✓ Déjà installé »
     }
 
     /// <summary>
@@ -878,6 +940,19 @@ public partial class ShopsView : UserControl
         SelectedGameTitle.Text = game.Title;
         UpdateOwnedText();
         UpdateFollowButton();
+        UpdateInstallButton();
+
+        // Un jeu de l'onglet Gratuits n'a pas de prix : on cache les offres et on montre sa présentation.
+        bool isFree = game.Free != null;
+        PricesPanel.Visibility = isFree ? Visibility.Collapsed : Visibility.Visible;
+        DealsSortMode.Visibility = isFree ? Visibility.Collapsed : Visibility.Visible;
+
+        if (game.Free != null)
+        {
+            await ShowFreeGameAsync(game.Free, request);
+            return;
+        }
+
         DealsStatusText.Text = "Chargement des prix…";
         HistoryLowText.Text = "";
         HistoryCompareText.Text = "";
@@ -952,6 +1027,231 @@ public partial class ShopsView : UserControl
         catch (Exception ex)
         {
             Logger.Log($"Présentation IsThereAnyDeal « {game.Title} » : {ex.Message}");
+        }
+    }
+
+    // ===================== Jeux gratuits (onglet « 🎁 Gratuits ») =====================
+
+    /// <summary>
+    /// Charge une page de la liste choisie (appelé par FreeGamesFeed) : démos ou jeux gratuits Steam,
+    /// ou jeux offerts par Epic (toute la liste d'un coup, il n'y en a que quelques-uns).
+    /// </summary>
+    private async Task<FreeGamesPage> LoadFreePageAsync(int start)
+    {
+        string kind = GetSelectedTag(FreeKindMode);
+
+        if (kind == "epic")
+        {
+            List<FreeGame> games = await EpicFreeGames.GetAsync();
+            return new FreeGamesPage(games, games.Count, games.Count, false);
+        }
+
+        FreeGameSource source = kind == "f2p" ? FreeGameSource.SteamFreeToPlay : FreeGameSource.SteamDemo;
+        return await SteamFreeCatalog.GetPageAsync(source, start, GetSelectedTag(FreeSortMode) == "new", _freeSearch);
+    }
+
+    /// <summary>Charge la liste en tenant la colonne de gauche à jour (même principe que LoadFeedAsync).</summary>
+    private async Task LoadFreeAsync(bool reset)
+    {
+        Task loading = _free.LoadAsync(reset);   // passe IsLoading à true tout de suite
+        RefreshLeftList();                       // affiche « Chargement… »
+        await loading;
+        RefreshLeftList();
+    }
+
+    private async void FreeKindMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Pendant InitializeComponent ou la remise de l'état enregistré, l'onglet n'est pas affiché :
+        // la liste se chargera à sa première ouverture.
+        if (_leftMode != LeftListMode.Free)
+        {
+            return;
+        }
+
+        await LoadFreeAsync(reset: true);
+    }
+
+    private async void FreeSortMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_leftMode != LeftListMode.Free)
+        {
+            return;
+        }
+
+        await LoadFreeAsync(reset: true);
+    }
+
+    private async void FreeSearchBox_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter)
+        {
+            return;
+        }
+
+        // Le nom est gardé à part : « Charger plus » reprend la même recherche, même si tu as retapé dans la case.
+        _freeSearch = FreeSearchBox.Text.Trim();
+        await LoadFreeAsync(reset: true);
+    }
+
+    /// <summary>Une ligne de l'onglet Gratuits : image, nom, puis « Démo Steam · 20 juil. 2022 · 98 % … ».</summary>
+    private SearchResultRow MakeFreeRow(FreeGame free)
+    {
+        return new SearchResultRow
+        {
+            Id = "free:" + FreeGamesFeed.KeyOf(free),
+            Title = free.Title,
+            Type = free.SummaryLine,
+            OwnedPlatforms = GetFreeOwnedPlatforms(free),
+            ImageUrl = free.ImageUrl,
+            Free = free
+        };
+    }
+
+    /// <summary>Ta copie Steam du jeu (même appid), ou null.</summary>
+    private Game? FindSteamCopy(int appId)
+    {
+        string id = appId.ToString(CultureInfo.InvariantCulture);
+        return _libraryGames.FirstOrDefault(game => game.Platform == Platform.Steam && game.PlatformGameId == id);
+    }
+
+    /// <summary>
+    /// Le badge « Dans ta bibliothèque » d'un jeu gratuit. Steam : par l'appid (une démo « X Demo » n'est pas
+    /// le jeu « X », le nom tromperait) ; Epic : par le nom, comme ailleurs dans la page.
+    /// </summary>
+    private string? GetFreeOwnedPlatforms(FreeGame free)
+    {
+        if (free.SteamAppId is int appId)
+        {
+            Game? copy = FindSteamCopy(appId);
+            return copy == null ? null : copy.IsInstalled ? "Steam, installé" : "Steam";
+        }
+
+        return GetOwnedPlatforms(free.Title);
+    }
+
+    /// <summary>Le bouton d'installation : visible pour un jeu gratuit, et il dit ce qu'un clic va faire.</summary>
+    private void UpdateInstallButton()
+    {
+        if (InstallButton == null)
+        {
+            return;   // pendant InitializeComponent
+        }
+
+        if (_currentGame?.Free is not FreeGame free)
+        {
+            InstallButton.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        InstallButton.Visibility = Visibility.Visible;
+
+        if (free.SteamAppId is int appId)
+        {
+            bool installed = FindSteamCopy(appId)?.IsInstalled == true;
+            InstallButton.Content = installed ? "✓ Déjà installé" : "⬇ Installer avec Steam";
+            InstallButton.IsEnabled = !installed;
+            InstallButton.ToolTip = installed
+                ? null
+                : "Steam ouvre sa fenêtre d'installation (dossier, place nécessaire) : c'est toi qui confirmes.";
+        }
+        else
+        {
+            InstallButton.Content = free.IsAvailableNow ? "🎁 Obtenir sur Epic" : "Voir sur Epic";
+            InstallButton.IsEnabled = true;
+            InstallButton.ToolTip = "Ouvre la page du jeu : clique sur « Obtenir » en étant connecté à ton compte Epic, "
+                + "puis installe-le depuis le launcher Epic.";
+        }
+    }
+
+    /// <summary>
+    /// Steam : demande l'installation à Steam (steam://install/&lt;appid&gt;), qui affiche sa propre fenêtre.
+    /// Wyrmhold n'installe rien lui-même : l'installation reste le travail du launcher.
+    /// Epic : ouvre la page du jeu, où tu cliques toi-même sur « Obtenir ».
+    /// </summary>
+    private void InstallButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentGame?.Free is not FreeGame free)
+        {
+            return;
+        }
+
+        if (free.SteamInstallUrl is not string installUrl)
+        {
+            BrowserHelper.Open(free.StoreUrl);
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute = true : Windows passe le lien steam:// au programme qui le gère (Steam).
+            Process.Start(new ProcessStartInfo(installUrl) { UseShellExecute = true });
+            Logger.Log($"Installation demandée à Steam : {free.Title} (appid {free.SteamAppId}).");
+            DealsStatusText.Text = "Steam ouvre sa fenêtre d'installation : confirme dans Steam. "
+                + "Une fois installé, le jeu apparaîtra dans ta bibliothèque (bouton « Actualiser »).";
+        }
+        catch (Exception ex)
+        {
+            DealsStatusText.Text = "Impossible d'ouvrir Steam : est-il installé ? (détail dans le journal)";
+            Logger.Log($"Installation Steam de {free.Title} ({installUrl}) impossible : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Présentation d'un jeu gratuit : ce que la liste connaît déjà (image, date, avis, période Epic),
+    /// puis, pour Steam, la description, les captures et la bande-annonce (gardées en mémoire).
+    /// </summary>
+    private async Task ShowFreeGameAsync(FreeGame free, int request)
+    {
+        _deals = new List<DealRow>();
+        DealsList.ItemsSource = null;
+        HistoryLowText.Text = "";
+        HistoryCompareText.Text = "";
+        DealsStatusText.Text = free.AvailabilityText;
+
+        StopTrailer();
+        RightScroll.ScrollToTop();
+
+        WebImageLoader.SetUrl(PresentationCover, free.CoverUrl);
+        PresentationCover.Visibility = free.CoverUrl == null ? Visibility.Collapsed : Visibility.Visible;
+        // Steam écrit une date (« 20 juil. 2022 ») ou un texte (« Prochainement », « octobre 2026 ») :
+        // « sorti le » seulement devant un jour précis.
+        string release = free.ReleaseText.Length > 0 && char.IsDigit(free.ReleaseText[0])
+            ? $"sorti le {free.ReleaseText}"
+            : free.ReleaseText;
+        SetTextOrHide(PresentationInfo, string.Join(" · ",
+            new[] { free.SourceText, release }.Where(text => text.Length > 0)));
+        SetTextOrHide(PresentationTags, "");
+        SetTextOrHide(PresentationReviews, free.ReviewText.Length > 0 ? $"👍 {free.ReviewText} sur Steam" : "");
+        SetTextOrHide(PresentationDescription, free.Description);
+        ShowMedia(free.Title, null);
+        PresentationPanel.Visibility = Visibility.Visible;
+
+        if (free.SteamAppId is not int appId)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!_freeMedia.TryGetValue(appId, out SteamGameMedia? media))
+            {
+                media = await SteamStoreApi.GetMediaAsync(appId);
+                _freeMedia[appId] = media;
+            }
+
+            // Un autre jeu a été choisi pendant le chargement : on n'affiche pas l'ancien.
+            if (request != _pricesRequest)
+            {
+                return;
+            }
+
+            SetTextOrHide(PresentationDescription, media?.Description ?? "");
+            ShowMedia(free.Title, media);
+        }
+        catch (Exception ex)
+        {
+            // La présentation est un bonus : le bouton d'installation marche sans elle.
+            Logger.Log($"Présentation Steam indisponible pour {free.Title} (appid {appId}) : {ex.Message}");
         }
     }
 
@@ -1391,6 +1691,11 @@ public class SearchResultRow
     public string SaleText { get; init; } = "";
     public bool IsAtHistoricalLow { get; init; }
     public string OwnedBadgeText => $"✓ Dans ta bibliothèque ({OwnedPlatforms})";
+
+    // Onglet Gratuits seulement : le jeu lui-même et sa petite image (null ailleurs).
+    public FreeGame? Free { get; init; }
+    public string? ImageUrl { get; init; }
+    public bool HasImage => ImageUrl != null;
 }
 
 /// <summary>
@@ -1452,5 +1757,6 @@ public enum LeftListMode
     Results,
     WatchList,
     Promos,
-    ForYou
+    ForYou,
+    Free
 }

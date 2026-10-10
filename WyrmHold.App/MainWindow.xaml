@@ -135,6 +135,20 @@
                         </ComboBox>
                         <WrapPanel x:Name="PlatformFilters"/>
                     </DockPanel>
+
+                    <!-- Bandeau « nouveaux succès » : affiché après la lecture des succès si des mises à jour
+                         en ont ajouté (rempli par MainWindow.ShowAddedAchievements). -->
+                    <Border x:Name="AddedAchievementsBanner" Background="#E65100" CornerRadius="6"
+                            Padding="12,6" Margin="0,8,0,0" Visibility="Collapsed">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="✕" Padding="8,2" Margin="8,0,0,0"
+                                    ToolTip="Fermer" Click="AddedAchievementsClose_Click"/>
+                            <Button DockPanel.Dock="Right" Content="Voir ces jeux" Padding="10,2" Margin="8,0,0,0"
+                                    Click="AddedAchievementsShow_Click"/>
+                            <TextBlock x:Name="AddedAchievementsText" Foreground="White" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+                        </DockPanel>
+                    </Border>
                 </StackPanel>
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <!-- Son DataContext est choisi par le code (ShowDetails) : la tuile sélectionnée,
@@ -247,7 +261,7 @@
                                             <Style TargetType="Border">
                                                 <Setter Property="Visibility" Value="Collapsed"/>
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding HasNewAchievements}" Value="True">
+                                                    <DataTrigger Binding="{Binding HasAddedAchievements}" Value="True">
                                                         <Setter Property="Visibility" Value="Visible"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
@@ -518,7 +532,7 @@
                                                     <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
                                                         <Setter Property="Background" Value="#FFC107"/>
                                                     </DataTrigger>
-                                                    <DataTrigger Binding="{Binding HasNewAchievements}" Value="True">
+                                                    <DataTrigger Binding="{Binding HasAddedAchievements}" Value="True">
                                                         <Setter Property="Background" Value="#E65100"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
@@ -533,6 +547,10 @@
                                                         <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
                                                             <Setter Property="Text" Value="🏆 100 %"/>
                                                             <Setter Property="Foreground" Value="Black"/>
+                                                        </DataTrigger>
+                                                        <!-- Succès ajoutés pas encore regardés : « 🏆 37/60 · +10 » sur fond orange -->
+                                                        <DataTrigger Binding="{Binding HasAddedAchievements}" Value="True">
+                                                            <Setter Property="Text" Value="{Binding AddedAchievementsTileText}"/>
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>

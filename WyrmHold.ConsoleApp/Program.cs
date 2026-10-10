@@ -32,6 +32,105 @@ if (args.Length > 0 && args[0] == "11")
     return;
 }
 
+// 13 simuler <nom> = POUR TESTER (modifie la base, Wyrmhold fermé) : fait croire que le jeu avait 3 succès de moins
+// et qu'il n'a pas été lu depuis longtemps. Au prochain lancement, la vérification de la semaine le relit
+// et « découvre » 3 succès ajoutés. Les vrais chiffres reviennent à cette lecture.
+if (args.Length > 2 && args[0] == "13" && args[1] == "simuler")
+{
+    string wanted = string.Join(" ", args.Skip(2));
+    Game? target = new LibraryService().LoadGames()
+        .Where(g => g.AchievementsTotal > 3 && g.Name.Contains(wanted, StringComparison.CurrentCultureIgnoreCase))
+        .OrderBy(g => g.Name.Length)
+        .FirstOrDefault();
+
+    if (target is null)
+    {
+        Console.WriteLine($"Aucun jeu avec plus de 3 succès dont le nom contient « {wanted} ».");
+        return;
+    }
+
+    target.AchievementsTotal -= 3;
+    target.AchievementsUnlocked = Math.Min(target.AchievementsUnlocked, target.AchievementsTotal);
+    target.HasNewAchievements = false;
+    target.AchievementsAdded = 0;
+    target.AchievementsCheckedUnix = 1;   // « lu il y a très longtemps » : premier de la vérification de la semaine
+    new GameDatabase().SaveAchievements(new List<Game> { target });
+
+    Console.WriteLine($"{target.Name} ({target.PlatformName}) : enregistré à {target.AchievementsUnlocked}/{target.AchievementsTotal}. "
+        + "Lance Wyrmhold : après « lecture des succès », il doit annoncer +3.");
+    return;
+}
+
+// 13 = succès ajoutés : la logique des badges (jeux fictifs en mémoire), puis, en lecture seule,
+// combien de jeux de ta bibliothèque la vérification de la semaine relirait.
+if (args.Length > 0 && args[0] == "13")
+{
+    void Check(string label, Game game, int unlocked, int total, int expectedAdded, bool expectedOrange)
+    {
+        int added = game.ApplyAchievementProgress(new AchievementProgress(unlocked, total), 1000);
+        bool ok = added == expectedAdded && game.HasNewAchievements == expectedOrange;
+        Console.WriteLine($"{(ok ? "OK " : "ERREUR")} {label} : +{added}, badge « {(game.HasAddedAchievements ? game.NewAchievementsText : "aucun")} », vignette « {game.AddedAchievementsTileText} »");
+    }
+
+    Check("1re lecture (rien de nouveau)", new Game(), 10, 50, 0, false);
+    Check("en cours 37/50 → 37/60", new Game { AchievementsUnlocked = 37, AchievementsTotal = 50, AchievementsCheckedUnix = 1 }, 37, 60, 10, false);
+    Check("terminé 50/50 → 50/55", new Game { AchievementsUnlocked = 50, AchievementsTotal = 50, AchievementsCheckedUnix = 1 }, 50, 55, 5, true);
+    Check("total 0 (erreur 500) → 40", new Game { AchievementsTotal = 0, AchievementsCheckedUnix = 1 }, 0, 40, 0, false);
+
+    Game seen = new Game { AchievementsUnlocked = 37, AchievementsTotal = 50, AchievementsCheckedUnix = 1 };
+    seen.ApplyAchievementProgress(new AchievementProgress(37, 60), 1000);
+    seen.AcknowledgeAddedAchievements();
+    Console.WriteLine($"{(seen.HasAddedAchievements ? "ERREUR" : "OK ")} liste des succès ouverte : badge retiré");
+
+    Game back = new Game { AchievementsUnlocked = 50, AchievementsTotal = 50, AchievementsCheckedUnix = 1 };
+    back.ApplyAchievementProgress(new AchievementProgress(50, 55), 1000);
+    back.AcknowledgeAddedAchievements();
+    Console.WriteLine($"{(back.HasNewAchievements ? "OK " : "ERREUR")} jeu terminé : badge orange gardé après l'ouverture ({back.NewAchievementsText})");
+    back.ApplyAchievementProgress(new AchievementProgress(55, 55), 2000);
+    Console.WriteLine($"{(back.HasAddedAchievements ? "ERREUR" : "OK ")} retour à 100 % : badge retiré");
+
+    long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    List<Game> library = new LibraryService().LoadGames();
+    int withAchievements = library.Count(g => g.AchievementsTotal > 0);
+    int stale = library.Count(g => g.AchievementsTotal > 0 && g.AchievementsCheckedUnix < now - 7 * 24 * 3600);
+    Console.WriteLine($"\nBibliothèque : {withAchievements} jeux avec succès, {stale} lus il y a plus de 7 jours "
+        + $"→ relus par lots de 150 ({Math.Ceiling(stale / 150.0)} lecture(s) pour tout parcourir).");
+    return;
+}
+
+// 12 = jeux gratuits (sans clé) : démos Steam, jeux gratuits Steam, jeux offerts par Epic. « dotnet run -- 12 [nom] ».
+if (args.Length > 0 && args[0] == "12")
+{
+    string search = string.Join(" ", args.Skip(1));
+
+    foreach (FreeGameSource source in new[] { FreeGameSource.SteamDemo, FreeGameSource.SteamFreeToPlay })
+    {
+        foreach (bool newestFirst in new[] { false, true })
+        {
+            FreeGamesPage first = await SteamFreeCatalog.GetPageAsync(source, 0, newestFirst, search);
+            FreeGamesPage second = await SteamFreeCatalog.GetPageAsync(source, first.NextStart, newestFirst, search);
+            int common = first.Games.Count(game => second.Games.Any(other => other.SteamAppId == game.SteamAppId));
+
+            Console.WriteLine($"\n{source}{(newestFirst ? " (nouveautés)" : "")} : {first.TotalCount} au total, "
+                + $"page 1 = {first.Games.Count}, page 2 = {second.Games.Count}, en commun = {common}, encore = {second.HasMore}");
+
+            foreach (FreeGame game in first.Games.Take(3))
+            {
+                Console.WriteLine($"  {game.SteamAppId,-8} {game.Title} | {game.SummaryLine} | {game.SteamInstallUrl}");
+            }
+        }
+    }
+
+    Console.WriteLine("\nOfferts sur Epic :");
+
+    foreach (FreeGame game in await EpicFreeGames.GetAsync())
+    {
+        Console.WriteLine($"  {game.Title} | {game.SummaryLine} | {game.StoreUrl}");
+    }
+
+    return;
+}
+
 // 10 sans numéro = joueurs en jeu de TOUTE la bibliothèque (comme l'appli), avec le temps mis.
 if (args.Length == 1 && args[0] == "10")
 {

@@ -57,6 +57,8 @@ public class GameDatabase
         AddColumnIfMissing(connection, "AchievementsTotal", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "HasNewAchievements", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "AchievementsCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "AchievementsAdded", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "AchievementsAddedUnix", "INTEGER NOT NULL DEFAULT 0");
 
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
         using (SqliteCommand fillAddedDates = connection.CreateCommand())
@@ -402,7 +404,8 @@ public class GameDatabase
         command.CommandText = """
         SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes,
                InstalledVersion, LastUpdateDetectedUnix, SteamAppId,
-               AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix
+               AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix,
+               AchievementsAdded, AchievementsAddedUnix
         FROM Game
         WHERE IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam';
         """;
@@ -442,7 +445,9 @@ public class GameDatabase
                 AchievementsUnlocked = reader.GetInt32(reader.GetOrdinal("AchievementsUnlocked")),
                 AchievementsTotal = reader.GetInt32(reader.GetOrdinal("AchievementsTotal")),
                 HasNewAchievements = reader.GetInt64(reader.GetOrdinal("HasNewAchievements")) == 1,
-                AchievementsCheckedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsCheckedUnix"))
+                AchievementsCheckedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsCheckedUnix")),
+                AchievementsAdded = reader.GetInt32(reader.GetOrdinal("AchievementsAdded")),
+                AchievementsAddedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsAddedUnix"))
             });
         }
 
@@ -473,9 +478,13 @@ public class GameDatabase
                 AchievementsUnlocked    = $unlocked,
                 AchievementsTotal       = $total,
                 HasNewAchievements      = $hasNew,
-                AchievementsCheckedUnix = $checked
+                AchievementsCheckedUnix = $checked,
+                AchievementsAdded       = $added,
+                AchievementsAddedUnix   = $addedAt
             WHERE Platform = $platform AND PlatformGameId = $gameId;
             """;
+            update.Parameters.AddWithValue("$added", game.AchievementsAdded);
+            update.Parameters.AddWithValue("$addedAt", game.AchievementsAddedUnix);
             update.Parameters.AddWithValue("$unlocked", game.AchievementsUnlocked);
             update.Parameters.AddWithValue("$total", game.AchievementsTotal);
             update.Parameters.AddWithValue("$hasNew", game.HasNewAchievements ? 1 : 0);

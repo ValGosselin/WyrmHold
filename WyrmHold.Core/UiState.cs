@@ -29,8 +29,12 @@ public class UiState
 
     // ----- Boutiques -----
 
-    // La liste de gauche : « results », « watchlist », « promos » ou « foryou ».
+    // La liste de gauche : « results », « watchlist », « promos », « foryou » ou « free ».
     public string ShopsLeftTab { get; set; } = "results";
+
+    // Onglet « 🎁 Gratuits » : la liste (« demos », « f2p » ou « epic ») et le tri (« » = populaires, « new »).
+    public string FreeKind { get; set; } = "demos";
+    public string FreeSort { get; set; } = "";
     public string PromosSort { get; set; } = "";
     public string ForYouSort { get; set; } = "rank";
     public string DealsSort { get; set; } = "price";

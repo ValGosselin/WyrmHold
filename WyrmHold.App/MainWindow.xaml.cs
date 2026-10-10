@@ -43,6 +43,9 @@ public partial class MainWindow : Window
     private bool _isBuildingSavedViews;
     private string _achievementFilter = "all";
 
+    // Les jeux du bandeau « nouveaux succès » (vidé quand on le ferme).
+    private readonly List<AddedAchievements> _addedAchievements = new List<AddedAchievements>();
+
     // Numéro de la dernière demande de patch notes : une réponse plus ancienne est ignorée.
     private int _patchNotesRequest;
     private string _patchNotesLinkUrl = "";
@@ -495,7 +498,7 @@ public partial class MainWindow : Window
         {
             "complete" => game.IsAchievementsComplete,
             "inProgress" => game.HasAchievements && !game.IsAchievementsComplete,
-            "newAchievements" => game.HasNewAchievements,
+            "newAchievements" => game.HasAddedAchievements,
             "withAchievements" => game.HasAchievements,
             "withoutAchievements" => !game.HasAchievements,
             _ => true
@@ -1370,13 +1373,18 @@ public partial class MainWindow : Window
             Progress<(int Done, int Total)> progress = new Progress<(int Done, int Total)>(
                 p => Title = $"{_summary} — succès {p.Done}/{p.Total}…");
 
-            int refreshedCount = await _library.RefreshAchievementsAsync(games, progress);
+            AchievementRefreshResult result = await _library.RefreshAchievementsAsync(games, progress);
 
-            if (refreshedCount > 0)
+            if (result.RefreshedCount > 0)
             {
                 // Les vignettes se redessinent toutes seules ; il reste à refaire le tri et les filtres.
                 RebuildGamesViewKeepingSelection();
                 UpdateResultCount();
+            }
+
+            if (result.Added.Count > 0)
+            {
+                ShowAddedAchievements(result.Added);
             }
         }
         catch (Exception ex)
@@ -1385,6 +1393,54 @@ public partial class MainWindow : Window
         }
 
         Title = _summary;
+    }
+
+    /// <summary>
+    /// Prévient que des mises à jour ont ajouté des succès : bandeau orange en haut de la bibliothèque
+    /// (« Voir ces jeux » applique le filtre « Succès ajoutés »), et, si Wyrmhold est caché dans la barre
+    /// des tâches, une bulle près de l'horloge. Une nouvelle lecture complète le bandeau au lieu de l'effacer.
+    /// </summary>
+    private void ShowAddedAchievements(List<AddedAchievements> added)
+    {
+        foreach (AddedAchievements item in added)
+        {
+            _addedAchievements.RemoveAll(known => known.Game == item.Game);
+            _addedAchievements.Add(item);
+        }
+
+        // Les 3 jeux qui en ont reçu le plus, puis « et N autres ».
+        List<AddedAchievements> sorted = _addedAchievements.OrderByDescending(item => item.Count).ToList();
+        string names = string.Join(", ", sorted.Take(3).Select(item => $"{item.Game.Name} (+{item.Count})"));
+        string more = sorted.Count > 3 ? $" et {sorted.Count - 3} autre(s)" : "";
+        string text = sorted.Count == 1
+            ? $"🏆 Nouveaux succès ajoutés par une mise à jour : {names}"
+            : $"🏆 {sorted.Count} jeux ont reçu de nouveaux succès : {names}{more}";
+
+        AddedAchievementsText.Text = text;
+        AddedAchievementsBanner.Visibility = Visibility.Visible;
+
+        if (!IsVisible)
+        {
+            _trayIcon.ShowBalloonTip(5000, "Wyrmhold", text, System.Windows.Forms.ToolTipIcon.Info);
+        }
+    }
+
+    private void AddedAchievementsShow_Click(object sender, RoutedEventArgs e)
+    {
+        // Choisir « Succès ajoutés » dans la liste déclenche Filter_SelectionChanged, qui refait l'affichage.
+        SelectByTag(AchievementFilter, "newAchievements");
+        CloseAddedAchievementsBanner();
+    }
+
+    private void AddedAchievementsClose_Click(object sender, RoutedEventArgs e)
+    {
+        CloseAddedAchievementsBanner();
+    }
+
+    private void CloseAddedAchievementsBanner()
+    {
+        AddedAchievementsBanner.Visibility = Visibility.Collapsed;
+        _addedAchievements.Clear();
     }
 
     private async Task<bool> SyncSteamFamilySilentlyAsync()

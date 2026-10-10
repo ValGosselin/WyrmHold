@@ -172,8 +172,17 @@ public class Game : INotifyPropertyChanged
     // Vrai si le jeu était à 100 % et que son total a augmenté depuis (nouveaux succès à faire).
     public bool HasNewAchievements { get; set; }
 
+    // Nombre de succès ajoutés par les mises à jour du jeu depuis que tu as regardé ses succès
+    // (0 = rien de nouveau), et le moment où on les a vus arriver. Vaut pour tous les jeux, terminés ou non :
+    // remis à 0 quand tu ouvres la liste des succès du jeu, ou quand tu reviens à 100 %.
+    public int AchievementsAdded { get; set; }
+    public long AchievementsAddedUnix { get; set; }
+
     // Dernière fois que les succès ont été lus (temps Unix, 0 = jamais).
     public long AchievementsCheckedUnix { get; set; }
+
+    // Badge « +10 succès » : nouveaux succès pas encore regardés, ou jeu terminé qui en a reçu.
+    public bool HasAddedAchievements => AchievementsAdded > 0 || HasNewAchievements;
 
     public bool HasAchievements => AchievementsTotal > 0;
 
@@ -195,7 +204,15 @@ public class Game : INotifyPropertyChanged
         ? ""
         : $"{AchievementsUnlocked}/{AchievementsTotal} ({AchievementsRatio:P0})";
 
-    public string NewAchievementsText => $"Succès ajoutés : {MissingAchievements} à faire";
+    // Sur la vignette : « 🏆 37/60 · +10 » (ou sans le « +10 » pour un jeu terminé dont on ne connaît que le reste).
+    public string AddedAchievementsTileText => AchievementsAdded > 0
+        ? $"🏆 {AchievementsText} · +{AchievementsAdded}"
+        : $"🏆 {AchievementsText}";
+
+    // Jeu terminé qui a reçu des succès : combien il en reste ; sinon, combien ont été ajoutés.
+    public string NewAchievementsText => HasNewAchievements
+        ? $"Succès ajoutés : {MissingAchievements} à faire"
+        : $"+{AchievementsAdded} succès ajouté{(AchievementsAdded > 1 ? "s" : "")}";
 
     // ----- Regroupement des copies (affichage seulement : chaque copie garde sa ligne en base) -----
 
@@ -232,32 +249,63 @@ public class Game : INotifyPropertyChanged
         : DateTimeOffset.FromUnixTimeSeconds(LastUpdateDetectedUnix).LocalDateTime.ToString("dd/MM/yyyy");
 
     /// <summary>
-    /// Enregistre une nouvelle lecture des succès et tient à jour le badge « Succès ajoutés ».
+    /// Enregistre une nouvelle lecture des succès et tient à jour les badges « Succès ajoutés ».
+    /// Renvoie le nombre de succès que cette lecture a fait apparaître (0 la plupart du temps).
     /// </summary>
-    public void ApplyAchievementProgress(AchievementProgress progress, long checkedUnix)
+    public int ApplyAchievementProgress(AchievementProgress progress, long checkedUnix)
     {
         // À regarder AVANT d'écraser les anciennes valeurs : après, on ne saurait plus.
         bool wasComplete = IsAchievementsComplete;
-        bool totalIncreased = progress.Total > AchievementsTotal;
+
+        // Un total qui monte = des succès ajoutés. Sauf à la toute première lecture (on ne connaissait
+        // rien) ou si le total était 0 (jeu lu « sans succès » par erreur, voir RefreshAchievementsAsync) :
+        // ce serait alors tout le jeu qui passerait pour « nouveau ».
+        int added = AchievementsCheckedUnix > 0 && AchievementsTotal > 0 && progress.Total > AchievementsTotal
+            ? progress.Total - AchievementsTotal
+            : 0;
 
         AchievementsUnlocked = progress.Unlocked;
         AchievementsTotal = progress.Total;
         AchievementsCheckedUnix = checkedUnix;
 
+        if (added > 0)
+        {
+            AchievementsAdded += added;
+            AchievementsAddedUnix = checkedUnix;
+        }
+
         if (IsAchievementsComplete || AchievementsTotal == 0)
         {
-            // Revenu à 100 % (ou plus de succès du tout) : le badge disparaît.
+            // Revenu à 100 % (ou plus de succès du tout) : les badges disparaissent.
             HasNewAchievements = false;
+            AchievementsAdded = 0;
         }
-        else if (wasComplete && totalIncreased)
+        else if (wasComplete && added > 0)
         {
-            // Était à 100 %, et le jeu a reçu de nouveaux succès.
+            // Était à 100 %, et le jeu a reçu de nouveaux succès : badge orange jusqu'au retour à 100 %.
             HasNewAchievements = true;
         }
-        // Sinon, on garde la valeur d'avant : le badge reste jusqu'au retour à 100 %.
+        // Sinon, on garde les valeurs d'avant.
 
         // Chaîne vide = « toutes les propriétés ont changé » : la fiche et la vignette se redessinent.
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+        return added;
+    }
+
+    /// <summary>
+    /// Tu as ouvert la liste des succès du jeu : le « +10 succès ajoutés » a été vu, il disparaît.
+    /// (Le badge orange d'un jeu terminé, lui, reste jusqu'au retour à 100 %.) Renvoie vrai si ça a changé.
+    /// </summary>
+    public bool AcknowledgeAddedAchievements()
+    {
+        if (AchievementsAdded == 0)
+        {
+            return false;
+        }
+
+        AchievementsAdded = 0;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+        return true;
     }
 }
 

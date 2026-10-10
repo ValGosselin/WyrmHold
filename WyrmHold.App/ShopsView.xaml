@@ -62,8 +62,10 @@
                              Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
                 <RadioButton x:Name="ForYouTabButton" Content="✨ Pour toi" Padding="12,4" Margin="0,0,6,4"
                              Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
+                <RadioButton x:Name="FreeTabButton" Content="🎁 Gratuits" Padding="12,4" Margin="0,0,6,4"
+                             Style="{StaticResource {x:Type ToggleButton}}" Checked="LeftTab_Checked"/>
                 <Button x:Name="RefreshPricesButton" Content="↻" Padding="10,4" Margin="0,0,0,4"
-                        ToolTip="Mettre à jour : jeux suivis (synchro Waitlist et prix) ou liste des promos, selon l'onglet"
+                        ToolTip="Mettre à jour : jeux suivis (synchro Waitlist et prix), liste des promos ou des jeux gratuits, selon l'onglet"
                         Click="RefreshPricesButton_Click"/>
             </WrapPanel>
 
@@ -103,7 +105,43 @@
                 </ComboBox>
             </StackPanel>
 
-            <!-- En bas, dans les onglets Promos et Pour toi : charger la page suivante -->
+            <!-- Options de l'onglet « 🎁 Gratuits » : quelle liste, quel tri, et une recherche par nom.
+                 Sources vérifiées en console le 10 octobre 2026 (mode 12). Le tri et la recherche
+                 ne servent qu'aux listes Steam : ils sont cachés pour Epic (quelques jeux seulement). -->
+            <StackPanel x:Name="FreeOptionsPanel" DockPanel.Dock="Top" Margin="0,0,0,6" Visibility="Collapsed">
+                <ComboBox x:Name="FreeKindMode" Height="32" VerticalContentAlignment="Center" SelectedIndex="0"
+                          SelectionChanged="FreeKindMode_SelectionChanged">
+                    <ComboBoxItem Content="Démos Steam" Tag="demos"/>
+                    <ComboBoxItem Content="Jeux gratuits Steam" Tag="f2p"/>
+                    <ComboBoxItem Content="Offerts sur Epic" Tag="epic"/>
+                </ComboBox>
+                <StackPanel x:Name="FreeSteamOptions">
+                    <ComboBox x:Name="FreeSortMode" Height="32" Margin="0,6,0,0" VerticalContentAlignment="Center"
+                              SelectedIndex="0" SelectionChanged="FreeSortMode_SelectionChanged">
+                        <ComboBoxItem Content="Les plus populaires" Tag=""/>
+                        <ComboBoxItem Content="Nouveautés" Tag="new"/>
+                    </ComboBox>
+                    <Grid Height="32" Margin="0,6,0,0">
+                        <TextBox x:Name="FreeSearchBox" Padding="6,0" VerticalContentAlignment="Center"
+                                 KeyDown="FreeSearchBox_KeyDown"/>
+                        <TextBlock Text="Chercher par nom (Entrée)…" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Text, ElementName=FreeSearchBox}" Value="">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+
+            <!-- En bas, dans les onglets Promos, Pour toi et Gratuits : charger la page suivante -->
             <Button x:Name="LoadMorePromosButton" DockPanel.Dock="Bottom" Content="Charger 50 promos de plus"
                     Margin="0,6,0,0" Height="32" Visibility="Collapsed" Click="LoadMorePromosButton_Click"/>
 
@@ -113,6 +151,11 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel Margin="0,2">
+                            <!-- Onglet Gratuits seulement : la petite image du jeu (231 × 87 chez Steam) -->
+                            <Image Width="140" HorizontalAlignment="Left" Margin="0,2,0,4" Stretch="Uniform"
+                                   RenderOptions.BitmapScalingMode="HighQuality"
+                                   local:WebImageLoader.DecodeWidth="280" local:WebImageLoader.Url="{Binding ImageUrl}"
+                                   Visibility="{Binding HasImage, Converter={StaticResource BoolToVisibility}}"/>
                             <TextBlock Text="{Binding Title}" TextWrapping="Wrap"/>
                             <TextBlock Text="{Binding Type}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
                             <!-- Affiché seulement si le jeu est dans ta bibliothèque -->
@@ -160,6 +203,11 @@
                 <!-- Ajoute ou retire le jeu affiché de la liste de suivi. Caché tant qu'aucun jeu n'est choisi. -->
                 <Button x:Name="FollowButton" DockPanel.Dock="Right" Height="32" Padding="12,0" Margin="0,0,10,0"
                         VerticalAlignment="Bottom" Visibility="Collapsed" Click="FollowButton_Click"/>
+
+                <!-- Onglet Gratuits : « ⬇ Installer avec Steam » (Steam ouvre sa fenêtre d'installation)
+                     ou « Obtenir sur Epic » (ouvre la page du jeu). Caché pour les jeux des autres onglets. -->
+                <Button x:Name="InstallButton" DockPanel.Dock="Right" Height="32" Padding="12,0" Margin="0,0,10,0"
+                        VerticalAlignment="Bottom" Visibility="Collapsed" Click="InstallButton_Click"/>
 
                 <StackPanel>
                     <TextBlock x:Name="SelectedGameTitle" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
@@ -256,6 +304,9 @@
                 </DockPanel>
             </Border>
 
+            <!-- Filtres et liste des offres : cachés pour un jeu de l'onglet Gratuits (il n'a pas de prix) -->
+            <StackPanel x:Name="PricesPanel">
+
             <!-- Filtres des offres -->
             <StackPanel Orientation="Horizontal" Height="32" Margin="0,0,0,10">
 
@@ -346,6 +397,7 @@
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
 
+            </StackPanel>
             </StackPanel>
             </ScrollViewer>
         </DockPanel>

@@ -1309,25 +1309,54 @@ public class LibraryService
     // après la dernière lecture, pendant la même partie.
     private const int RecentlyPlayedDays = 3;
 
+    // Vérification de fond (demandée le 10 octobre 2026) : un jeu qui a des succès est relu au moins une fois
+    // par semaine, même pas joué ni installé, pour repérer les succès ajoutés par une mise à jour.
+    // Au plus 150 jeux par lecture (les plus anciennement lus d'abord) : la bibliothèque est parcourue
+    // en quelques démarrages, sans tout redemander d'un coup.
+    private const int WeeklyCheckDays = 7;
+    private const int MaxWeeklyChecksPerRefresh = 150;
+
     /// <summary>
-    /// Relit les succès des jeux qui en ont besoin, et renvoie le nombre de jeux mis à jour.
+    /// Relit les succès des jeux qui en ont besoin. Renvoie le nombre de jeux relus, et ceux qui ont reçu
+    /// de nouveaux succès depuis la lecture précédente (pour prévenir le joueur).
     /// Si une source ne répond pas, ses jeux gardent leur dernière valeur enregistrée.
     /// </summary>
-    public async Task<int> RefreshAchievementsAsync(List<Game> games, IProgress<(int Done, int Total)>? progress = null)
+    public async Task<AchievementRefreshResult> RefreshAchievementsAsync(List<Game> games, IProgress<(int Done, int Total)>? progress = null)
     {
         await EnsureFreshGogTokensAsync();
         await EnsureFreshEpicSessionAsync();
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        // 1. Pour chaque source activée dans les réglages, la liste des jeux à relire.
-        List<(IAchievementProvider Provider, List<Game> Games)> work = _achievementProviders
+        // 1. Pour chaque source activée dans les réglages, la liste des jeux à relire :
+        //    ceux qui en ont besoin (joués, mis à jour…), puis un lot de vérifications de la semaine.
+        List<IAchievementProvider> providers = _achievementProviders
             .Where(provider => Settings.IsAchievementSourceEnabled(provider.Platform))
-            .Select(provider => (Provider: provider, Games: games
-                .Where(g => g.Platform == provider.Platform
-                            && provider.CanHaveAchievements(g)
-                            && NeedsAchievementRefresh(g, now))
-                .ToList()))
+            .ToList();
+
+        bool CanRead(Game game) => providers.Any(p => p.Platform == game.Platform && p.CanHaveAchievements(game));
+
+        HashSet<Game> toRead = games.Where(g => CanRead(g) && NeedsAchievementRefresh(g, now)).ToHashSet();
+
+        const long OneDay = 24 * 60 * 60;
+        List<Game> weekly = games
+            .Where(g => !toRead.Contains(g)
+                        && g.AchievementsTotal > 0
+                        && g.AchievementsCheckedUnix < now - WeeklyCheckDays * OneDay
+                        && CanRead(g))
+            .OrderBy(g => g.AchievementsCheckedUnix)
+            .Take(MaxWeeklyChecksPerRefresh)
+            .ToList();
+
+        toRead.UnionWith(weekly);
+
+        if (weekly.Count > 0)
+        {
+            Logger.Log($"Succès : {weekly.Count} jeu(x) relu(s) pour la vérification de la semaine (succès ajoutés).");
+        }
+
+        List<(IAchievementProvider Provider, List<Game> Games)> work = providers
+            .Select(provider => (Provider: provider, Games: toRead.Where(g => g.Platform == provider.Platform).ToList()))
             .Where(item => item.Games.Count > 0)
             .ToList();
 
@@ -1388,9 +1417,17 @@ public class LibraryService
         }
 
         // 3. On applique les résultats aux jeux, puis on enregistre tout d'un coup.
+        List<AddedAchievements> added = new List<AddedAchievements>();
+
         foreach ((Game game, AchievementProgress result) in results)
         {
-            game.ApplyAchievementProgress(result, now);
+            int addedCount = game.ApplyAchievementProgress(result, now);
+
+            if (addedCount > 0)
+            {
+                added.Add(new AddedAchievements(game, addedCount));
+                Logger.Log($"Succès ajoutés : {game.Name} ({game.PlatformName}) +{addedCount}, total {game.AchievementsTotal}.");
+            }
         }
 
         List<Game> refreshedGames = results.Select(r => r.Game).ToList();
@@ -1400,7 +1437,7 @@ public class LibraryService
             _database.SaveAchievements(refreshedGames);
         }
 
-        return refreshedGames.Count;
+        return new AchievementRefreshResult(refreshedGames.Count, added.OrderByDescending(a => a.Count).ToList());
     }
 
     /// <summary>
@@ -1436,6 +1473,9 @@ public class LibraryService
 
         AchievementProgress progress = new AchievementProgress(details.Count(d => d.IsUnlocked), details.Count);
         game.ApplyAchievementProgress(progress, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+        // La liste des succès est affichée (fenêtre ou overlay) : les succès ajoutés ont été vus.
+        game.AcknowledgeAddedAchievements();
         _database.SaveAchievements(new List<Game> { game });
 
         return details;
