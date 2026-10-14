@@ -1131,6 +1131,84 @@ public class LibraryService
         };
     }
 
+    // Une patch note pas encore publiée peut l'être quelques heures après la mise à jour : on revérifie à ce rythme.
+    private static readonly TimeSpan UpdateNotesRecheck = TimeSpan.FromHours(6);
+
+    // Au plus autant de jeux par passage (une mise à jour de Steam peut toucher beaucoup de jeux d'un coup).
+    private const int UpdateNotesPerRefresh = 30;
+
+    /// <summary>
+    /// Pour les jeux dont la version a changé ces 7 derniers jours : cherche dans les annonces Steam une patch note
+    /// publiée au plus 7 jours avant la mise à jour (étiquette « patchnotes » ou titre du genre « Update 1.4 »).
+    /// Sans patch note, pas de badge « Mis à jour ». Revérifie toutes les 6 h pendant 7 jours.
+    /// Renvoie le nombre de jeux pour lesquels une patch note vient d'être trouvée.
+    /// </summary>
+    public async Task<int> RefreshUpdateNotesAsync(IReadOnlyList<Game> games)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        long recheckBefore = now - (long)UpdateNotesRecheck.TotalSeconds;
+
+        List<Game> toCheck = games
+            .Where(game => game.IsUpdateDetectedRecently && !game.HasUpdateNotes
+                && (game.UpdateNotesCheckedUnix < game.LastUpdateDetectedUnix || game.UpdateNotesCheckedUnix < recheckBefore))
+            .OrderByDescending(game => game.LastUpdateDetectedUnix)
+            .Take(UpdateNotesPerRefresh)
+            .ToList();
+
+        if (toCheck.Count == 0)
+        {
+            return 0;
+        }
+
+        // Plusieurs copies du même jeu (Steam + Epic…) partagent la page Steam : une seule lecture par appid.
+        Dictionary<string, List<SteamNewsItem>> fetched = new Dictionary<string, List<SteamNewsItem>>();
+        List<Game> checkedGames = new List<Game>();
+        int found = 0;
+
+        foreach (Game game in toCheck)
+        {
+            try
+            {
+                string? steamAppId = await FindSteamAppIdAsync(game);
+
+                if (steamAppId is not null)
+                {
+                    if (!fetched.TryGetValue(steamAppId, out List<SteamNewsItem>? announcements))
+                    {
+                        // Toujours relu (pas le cache de la session) : la patch note a pu sortir depuis.
+                        announcements = await SteamNewsApi.GetAnnouncementsAsync(steamAppId, AnnouncementsToRead);
+                        fetched[steamAppId] = announcements;
+                        _announcementsCache[steamAppId] = announcements;
+                    }
+
+                    long oldestAccepted = game.LastUpdateDetectedUnix - Game.RecentUpdateDays * 24 * 3600;
+                    SteamNewsItem? notes = announcements
+                        .Where(item => item.DateUnix >= oldestAccepted && item.LooksLikePatchNotes)
+                        .MaxBy(item => item.DateUnix);
+
+                    if (notes is not null)
+                    {
+                        game.UpdateNotesUnix = notes.DateUnix;
+                        found++;
+                        Logger.Log($"Mise à jour de {game.Name} : patch note trouvée (« {notes.Title} »).");
+                    }
+                }
+
+                game.UpdateNotesCheckedUnix = now;
+                checkedGames.Add(game);
+            }
+            catch (Exception ex)
+            {
+                // Steam ne répond pas : on réessaiera au prochain passage (rien n'est noté comme vérifié).
+                Logger.Log($"Patch note de {game.Name} impossible à vérifier : {ex.Message}");
+            }
+        }
+
+        _database.SaveUpdateNotes(checkedGames);
+        Logger.Log($"Patch notes des mises à jour : {checkedGames.Count} jeu(x) vérifié(s), {found} avec patch note.");
+        return found;
+    }
+
     // ----- Guides et discussions -----
 
     // Guides déjà lus pendant cette session, par appid et par tri (évite de rappeler Steam à chaque clic).
@@ -2002,11 +2080,19 @@ public class LibraryService
     private void OnGameStopped(RunningGame running, DateTimeOffset end)
     {
         Game game = running.Game;
+        string key = GameWatcher.KeyOf(game);
 
-        if (!_activeSessions.Remove(GameWatcher.KeyOf(game)))
+        if (!_activeSessions.Remove(key))
         {
             // Jeu lancé hors de Wyrmhold : rien n'est enregistré (réglage à venir, désactivé par défaut).
             return;
+        }
+
+        // Jeu relancé (sa nouvelle partie démarre juste après) : la nouvelle session sera comptée elle aussi,
+        // et la surveillance ne doit pas s'arrêter entre les deux.
+        if (Watcher.IsRestarting)
+        {
+            _expectedSessions[key] = (game, DateTimeOffset.Now + LaunchTimeout);
         }
 
         int minutes = (int)Math.Round((end - running.Start).TotalMinutes);

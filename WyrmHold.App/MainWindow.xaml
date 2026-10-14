@@ -478,8 +478,7 @@
                                         <!-- Ces deux-là : seulement pour un jeu installé -->
                                         <MenuItem Header="🖼  Re-télécharger la jaquette" Click="TileMenuRedownloadCover_Click"/>
                                         <MenuItem Header="📁  Ouvrir le dossier du jeu" Click="TileMenuOpenFolder_Click"
-                                                  Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
-                                        <Separator Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                                  Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>                                        <Separator Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
                                         <MenuItem Header="🗑  Désinstaller…" Click="TileMenuUninstall_Click"
                                                   Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
                                     </ContextMenu>

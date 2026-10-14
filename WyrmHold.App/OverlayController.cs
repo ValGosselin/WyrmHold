@@ -38,9 +38,16 @@ public sealed class OverlayController : IDisposable
     private readonly Queue<ToastContent> _toasts = new Queue<ToastContent>();
     private readonly DispatcherTimer _toastTimer = new DispatcherTimer { Interval = ToastDuration };
 
+    // Overlay bloqué par le plein écran exclusif : le jeu à expliquer à la sortie, et ceux déjà expliqués.
+    private Game? _pendingFullScreenHint;
+    private readonly HashSet<string> _hintedGames = new HashSet<string>();
+
     public OverlayController(LibraryService library)
     {
         _library = library;
+
+        // Toutes les 5 s (et à la fermeture du jeu) : si on est sorti du plein écran, l'explication peut s'afficher.
+        _library.Watcher.Scanned += ShowPendingFullScreenHint;
 
         // Le jeu se ferme : son overlay aussi (le prochain jeu aura le sien).
         _library.Watcher.GameStopped += (running, end) =>
@@ -49,6 +56,8 @@ public sealed class OverlayController : IDisposable
             {
                 CloseHub();
             }
+
+            ShowPendingFullScreenHint();
         };
 
         _library.LiveAchievements.AchievementUnlocked += OnAchievementUnlocked;
@@ -149,9 +158,17 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     private void OpenHub()
     {
-        // En plein écran exclusif, une fenêtre par-dessus ferait sortir le jeu du plein écran : on ne fait rien.
+        // En plein écran exclusif, une fenêtre par-dessus ferait sortir le jeu du plein écran (Windows le réduit) :
+        // rien ne s'affiche, mais un son dit que le raccourci a été entendu, et l'explication viendra à la sortie du jeu.
         if (FullScreenDetector.IsExclusiveFullScreen())
         {
+            Logger.Log("Overlay non ouvert : plein écran exclusif.");
+            System.Media.SystemSounds.Beep.Play();
+
+            if (_library.Watcher.Current is RunningGame blocked && _hintedGames.Add(GameWatcher.KeyOf(blocked.Game)))
+            {
+                _pendingFullScreenHint = blocked.Game;
+            }
             return;
         }
 
@@ -181,6 +198,27 @@ public sealed class OverlayController : IDisposable
         }
 
         _hub.Open(_hotkeyText);
+    }
+
+    /// <summary>
+    /// L'overlay a été bloqué par le plein écran exclusif : dès qu'on n'y est plus (Alt+Tab, jeu fermé),
+    /// une notification explique quoi faire. Une seule fois par jeu tant que Wyrmhold reste ouvert.
+    /// </summary>
+    private void ShowPendingFullScreenHint()
+    {
+        if (_pendingFullScreenHint is not Game game || FullScreenDetector.IsExclusiveFullScreen())
+        {
+            return;
+        }
+
+        _pendingFullScreenHint = null;
+
+        EnqueueToast(new ToastContent(
+            "OVERLAY",
+            $"{game.Name} : plein écran exclusif",
+            "L'overlay ne s'ouvre pas dans ce mode. Pour l'utiliser, mets le jeu en fenêtré ou en fenêtré sans bordure dans ses options.",
+            null,
+            false));
     }
 
     private void CloseHub()

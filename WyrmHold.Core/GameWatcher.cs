@@ -36,8 +36,16 @@ public class GameWatcher
     // certains jeux ferment leur petit programme de démarrage puis ouvrent le vrai jeu.
     private const int MissesBeforeStop = 2;
 
+    // Un jeu dont TOUS les programmes ont été remplacés par de nouveaux (fermé puis relancé, même très vite)
+    // compte comme une nouvelle partie, mais seulement si l'ancien programme a tourné au moins ce temps-là :
+    // un petit programme de démarrage, qui ne vit que quelques secondes, ne coupe pas la partie en deux.
+    private static readonly TimeSpan MinLifetimeForRestart = TimeSpan.FromSeconds(60);
+
     // Un dossier de jeu installé et le jeu qui va avec.
     private record GameFolder(string Folder, Game Game);
+
+    // Un jeu trouvé à un passage, et les numéros (PID) de ses programmes qui tournent.
+    private record FoundGame(Game Game, HashSet<int> ProcessIds);
 
     // Les dossiers des jeux installés, du plus long au plus court : le plus précis gagne.
     private List<GameFolder> _folders = new List<GameFolder>();
@@ -45,6 +53,12 @@ public class GameWatcher
     // Les jeux en cours, par clé (voir KeyOf), et combien de fois de suite chacun a manqué à l'appel.
     private readonly Dictionary<string, RunningGame> _running = new Dictionary<string, RunningGame>();
     private readonly Dictionary<string, int> _misses = new Dictionary<string, int>();
+
+    // Pour chaque jeu en cours : ses programmes (PID) et le moment où chacun a été vu la 1re fois.
+    private readonly Dictionary<string, Dictionary<int, DateTimeOffset>> _processes = new Dictionary<string, Dictionary<int, DateTimeOffset>>();
+
+    // Pour chaque jeu en cours : le dernier passage où il tournait encore.
+    private readonly Dictionary<string, DateTimeOffset> _lastSeen = new Dictionary<string, DateTimeOffset>();
 
     // null = surveillance arrêtée.
     private CancellationTokenSource? _stop;
@@ -58,6 +72,9 @@ public class GameWatcher
     public event Action? Scanned;
 
     public bool IsWatching => _stop is not null;
+
+    // true pendant le GameStopped d'un jeu relancé : un GameStarted du même jeu suit tout de suite.
+    public bool IsRestarting { get; private set; }
 
     // Le jeu en cours, ou le dernier lancé s'il y en a plusieurs. null = aucun jeu.
     public RunningGame? Current => _running.Values.MaxBy(running => running.Start);
@@ -129,6 +146,8 @@ public class GameWatcher
         List<RunningGame> stopped = _running.Values.ToList();
         _running.Clear();
         _misses.Clear();
+        _processes.Clear();
+        _lastSeen.Clear();
 
         foreach (RunningGame running in stopped)
         {
@@ -146,7 +165,7 @@ public class GameWatcher
 
                 // La lecture des programmes se fait à côté (Task.Run) pour ne pas figer la fenêtre ;
                 // la suite reprend sur le fil de l'interface.
-                Dictionary<string, Game> found = await Task.Run(() => FindRunningGames(folders));
+                Dictionary<string, FoundGame> found = await Task.Run(() => FindRunningGames(folders));
 
                 if (token.IsCancellationRequested)
                 {
@@ -172,19 +191,57 @@ public class GameWatcher
     /// <summary>
     /// Compare les jeux trouvés à ce passage avec ceux du passage d'avant.
     /// </summary>
-    private void Update(Dictionary<string, Game> found)
+    private void Update(Dictionary<string, FoundGame> found)
     {
         DateTimeOffset now = DateTimeOffset.Now;
 
-        foreach ((string key, Game game) in found)
+        foreach ((string key, FoundGame foundGame) in found)
         {
+            // Un événement précédent a pu arrêter la surveillance : on s'arrête là.
+            if (!IsWatching)
+            {
+                return;
+            }
+
             _misses.Remove(key);
+
+            if (_running.TryGetValue(key, out RunningGame? running) && IsRestarted(key, foundGame.ProcessIds))
+            {
+                // Fermé puis relancé, même en moins de 10 s : la partie d'avant finit au dernier passage
+                // où l'ancien programme tournait, et une nouvelle commence (nouvel overlay, nouveau suivi).
+                Logger.Log($"Détecteur de jeu : {foundGame.Game.Name} a été relancé, nouvelle partie.");
+                _running.Remove(key);
+                _processes.Remove(key);
+
+                IsRestarting = true;
+
+                try
+                {
+                    GameStopped?.Invoke(running, _lastSeen.GetValueOrDefault(key, now));
+                }
+                finally
+                {
+                    IsRestarting = false;
+                }
+
+                if (!IsWatching)
+                {
+                    return;
+                }
+            }
 
             if (!_running.ContainsKey(key))
             {
-                RunningGame running = new RunningGame(game, now);
-                _running[key] = running;
-                GameStarted?.Invoke(running);
+                RunningGame started = new RunningGame(foundGame.Game, now);
+                _running[key] = started;
+                RememberProcesses(key, foundGame.ProcessIds, now);
+                _lastSeen[key] = now;
+                GameStarted?.Invoke(started);
+            }
+            else
+            {
+                RememberProcesses(key, foundGame.ProcessIds, now);
+                _lastSeen[key] = now;
             }
         }
 
@@ -199,6 +256,8 @@ public class GameWatcher
             }
 
             _misses.Remove(key);
+            _processes.Remove(key);
+            _lastSeen.Remove(key);
 
             // Un événement précédent a pu arrêter la surveillance (et vider la liste) : rien à faire alors.
             if (!_running.Remove(key, out RunningGame? stopped))
@@ -217,11 +276,48 @@ public class GameWatcher
     }
 
     /// <summary>
-    /// Les jeux dont au moins un programme tourne. Appelé à côté du fil de l'interface.
+    /// true si aucun des programmes vus jusqu'ici ne tourne encore (ils ont tous été remplacés)
+    /// et que l'un d'eux a tourné assez longtemps pour être le vrai jeu, pas un programme de démarrage.
     /// </summary>
-    private static Dictionary<string, Game> FindRunningGames(List<GameFolder> folders)
+    private bool IsRestarted(string key, HashSet<int> processIds)
     {
-        Dictionary<string, Game> found = new Dictionary<string, Game>();
+        if (!_processes.TryGetValue(key, out Dictionary<int, DateTimeOffset>? known) || known.Count == 0)
+        {
+            return false;
+        }
+
+        if (known.Keys.Any(processIds.Contains))
+        {
+            return false;
+        }
+
+        DateTimeOffset lastSeen = _lastSeen.GetValueOrDefault(key, DateTimeOffset.Now);
+        return known.Values.Any(firstSeen => lastSeen - firstSeen >= MinLifetimeForRestart);
+    }
+
+    /// <summary>
+    /// Retient les programmes qui tournent pour ce jeu (avec le moment où chacun est apparu) et oublie les autres.
+    /// </summary>
+    private void RememberProcesses(string key, HashSet<int> processIds, DateTimeOffset now)
+    {
+        Dictionary<int, DateTimeOffset> known = _processes.GetValueOrDefault(key) ?? new Dictionary<int, DateTimeOffset>();
+        Dictionary<int, DateTimeOffset> current = new Dictionary<int, DateTimeOffset>();
+
+        foreach (int processId in processIds)
+        {
+            current[processId] = known.GetValueOrDefault(processId, now);
+        }
+
+        _processes[key] = current;
+    }
+
+    /// <summary>
+    /// Les jeux dont au moins un programme tourne, avec les numéros de ces programmes.
+    /// Appelé à côté du fil de l'interface.
+    /// </summary>
+    private static Dictionary<string, FoundGame> FindRunningGames(List<GameFolder> folders)
+    {
+        Dictionary<string, FoundGame> found = new Dictionary<string, FoundGame>();
 
         if (folders.Count == 0)
         {
@@ -246,7 +342,15 @@ public class GameWatcher
 
                 if (match is not null)
                 {
-                    found.TryAdd(KeyOf(match.Game), match.Game);
+                    string key = KeyOf(match.Game);
+
+                    if (!found.TryGetValue(key, out FoundGame? entry))
+                    {
+                        entry = new FoundGame(match.Game, new HashSet<int>());
+                        found[key] = entry;
+                    }
+
+                    entry.ProcessIds.Add(process.Id);
                 }
             }
         }

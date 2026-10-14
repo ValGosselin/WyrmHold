@@ -63,6 +63,10 @@ public class GameDatabase
         AddColumnIfMissing(connection, "IsNotOwned", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "AchievementsAddedUnix", "INTEGER NOT NULL DEFAULT 0");
 
+        // Badge « Mis à jour » seulement avec une patch note (14 octobre 2026).
+        AddColumnIfMissing(connection, "UpdateNotesUnix", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "UpdateNotesCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
+
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
         using (SqliteCommand fillAddedDates = connection.CreateCommand())
         {
@@ -408,7 +412,7 @@ public class GameDatabase
         SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes,
                InstalledVersion, LastUpdateDetectedUnix, SteamAppId,
                AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix,
-               AchievementsAdded, AchievementsAddedUnix
+               AchievementsAdded, AchievementsAddedUnix, UpdateNotesUnix, UpdateNotesCheckedUnix
         FROM Game
         WHERE (IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam') AND IsNotOwned = 0;
         """;
@@ -450,7 +454,9 @@ public class GameDatabase
                 HasNewAchievements = reader.GetInt64(reader.GetOrdinal("HasNewAchievements")) == 1,
                 AchievementsCheckedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsCheckedUnix")),
                 AchievementsAdded = reader.GetInt32(reader.GetOrdinal("AchievementsAdded")),
-                AchievementsAddedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsAddedUnix"))
+                AchievementsAddedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsAddedUnix")),
+                UpdateNotesUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesUnix")),
+                UpdateNotesCheckedUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesCheckedUnix"))
             });
         }
 
@@ -492,6 +498,33 @@ public class GameDatabase
             update.Parameters.AddWithValue("$total", game.AchievementsTotal);
             update.Parameters.AddWithValue("$hasNew", game.HasNewAchievements ? 1 : 0);
             update.Parameters.AddWithValue("$checked", game.AchievementsCheckedUnix);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public void SaveUpdateNotes(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE Game SET
+                UpdateNotesUnix        = $notes,
+                UpdateNotesCheckedUnix = $checked
+            WHERE Platform = $platform AND PlatformGameId = $gameId;
+            """;
+            update.Parameters.AddWithValue("$notes", game.UpdateNotesUnix);
+            update.Parameters.AddWithValue("$checked", game.UpdateNotesCheckedUnix);
             update.Parameters.AddWithValue("$platform", game.Platform.ToString());
             update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
             update.ExecuteNonQuery();

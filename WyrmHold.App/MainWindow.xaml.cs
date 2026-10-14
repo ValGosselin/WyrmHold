@@ -228,6 +228,42 @@ public partial class MainWindow : Window
         }
 
         await RefreshPlayerCountsAsync();
+
+        // Une patch note publiée après la mise à jour : le badge « Mis à jour » apparaît sans redémarrer.
+        await RefreshUpdateNotesAsync();
+    }
+
+    // ----- Badge « Mis à jour » : seulement avec une patch note -----
+
+    private bool _isRefreshingUpdateNotes;
+
+    private async Task RefreshUpdateNotesAsync()
+    {
+        if (_isRefreshingUpdateNotes)
+        {
+            return;
+        }
+
+        _isRefreshingUpdateNotes = true;
+
+        try
+        {
+            if (await _library.RefreshUpdateNotesAsync(_allGames) > 0)
+            {
+                // Badges et filtre « Mis à jour ces 7 jours » à redessiner.
+                GamesList.Items.Refresh();
+                RebuildGamesViewKeepingSelection();
+                UpdateResultCount();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Patch notes des mises à jour impossibles à vérifier : {ex.Message}");
+        }
+        finally
+        {
+            _isRefreshingUpdateNotes = false;
+        }
     }
     private async Task<bool> SyncBattleNetSilentlyAsync()
     {
@@ -1438,6 +1474,9 @@ public partial class MainWindow : Window
 
     private async Task CompleteGamesAsync(List<Game> games)
     {
+        Title = $"{_summary} — patch notes des mises à jour…";
+        await RefreshUpdateNotesAsync();
+
         Title = $"{_summary} — téléchargement des jaquettes…";
 
         try

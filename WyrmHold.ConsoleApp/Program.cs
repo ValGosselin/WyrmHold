@@ -33,6 +33,43 @@ if (args.Length > 0 && args[0] == "11")
     return;
 }
 
+// 19 = badge « Mis à jour », ESSAI À BLANC (rien n'est enregistré) : jeux dont la version a changé ces 7 jours,
+// et la patch note qui allumerait le badge. « dotnet run -- 19 405640 » = règle appliquée à un appid, comme s'il venait d'être mis à jour.
+if (args.Length > 0 && args[0] == "19")
+{
+    List<(string Name, string AppId, long DetectedUnix)> targets = args.Length > 1
+        ? new List<(string, string, long)> { (args[1], args[1], DateTimeOffset.UtcNow.ToUnixTimeSeconds()) }
+        : new LibraryService().LoadGames()
+            .Where(g => g.IsUpdateDetectedRecently)
+            .Select(g => (g.Name, g.Platform == Platform.Steam ? g.PlatformGameId : g.SteamAppId ?? "", g.LastUpdateDetectedUnix))
+            .ToList();
+
+    foreach ((string name, string appId, long detected) in targets)
+    {
+        Console.WriteLine($"{name} (appid {appId}, version changée le {DateTimeOffset.FromUnixTimeSeconds(detected).LocalDateTime:dd/MM HH:mm})");
+
+        if (appId.Length == 0)
+        {
+            Console.WriteLine("   appid Steam inconnu : l'appli le cherchera par le nom");
+            continue;
+        }
+
+        long oldest = detected - Game.RecentUpdateDays * 24 * 3600;
+
+        foreach (SteamNewsItem item in await SteamNewsApi.GetAnnouncementsAsync(appId, 20))
+        {
+            string verdict = item.DateUnix < oldest ? "trop ancienne" : item.LooksLikePatchNotes ? "PATCH NOTE → badge" : "pas une patch note";
+            Console.WriteLine($"   {DateTimeOffset.FromUnixTimeSeconds(item.DateUnix).LocalDateTime:dd/MM/yyyy} [{verdict}] {item.Title}");
+
+            if (item.DateUnix < oldest)
+            {
+                break;
+            }
+        }
+    }
+    return;
+}
+
 // 18 = IsThereAnyDeal : « tags » (un tag) et « tagsUnion » (des genres) dans le MÊME filtre, comme « Pour toi » + un tag.
 if (args.Length > 0 && args[0] == "18")
 {

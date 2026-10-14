@@ -56,7 +56,6 @@ public class Game : INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-
     // ----- Joueurs en jeu (Steam) -----
 
     private int? _playersInGame;
@@ -157,8 +156,23 @@ public class Game : INotifyPropertyChanged
     // Le moment où Wyrmhold a vu la version changer (temps Unix, 0 = jamais).
     public long LastUpdateDetectedUnix { get; set; }
 
-    public bool IsRecentlyUpdated => LastUpdateDetectedUnix > 0
+    // La date de la patch note trouvée pour cette mise à jour (temps Unix, 0 = aucune trouvée).
+    public long UpdateNotesUnix { get; set; }
+
+    // La dernière fois que Wyrmhold a cherché cette patch note (temps Unix, 0 = jamais).
+    public long UpdateNotesCheckedUnix { get; set; }
+
+    // La version a changé ces 7 derniers jours (patch note trouvée ou non).
+    public bool IsUpdateDetectedRecently => LastUpdateDetectedUnix > 0
         && LastUpdateDetectedUnix >= DateTimeOffset.UtcNow.AddDays(-RecentUpdateDays).ToUnixTimeSeconds();
+
+    // Une patch note publiée au plus 7 jours avant la mise à jour (ou après) : elle parle sans doute de celle-ci.
+    public bool HasUpdateNotes => UpdateNotesUnix > 0
+        && UpdateNotesUnix >= LastUpdateDetectedUnix - RecentUpdateDays * 24 * 3600;
+
+    // Le badge « Mis à jour » : seulement si on peut lire ce qui a changé (choix de Val du 14 octobre 2026 :
+    // une mise à jour silencieuse, sans patch note, n'apprend rien).
+    public bool IsRecentlyUpdated => IsUpdateDetectedRecently && HasUpdateNotes;
 
     // Pour un jeu non Steam : l'appid Steam du même jeu, qui sert à lire ses patch notes.
     // null = pas encore cherché, "" = cherché mais introuvable sur Steam.

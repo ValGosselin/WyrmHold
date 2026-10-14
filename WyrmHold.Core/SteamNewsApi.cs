@@ -1,5 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace Wyrmhold.Core;
 
@@ -51,6 +52,15 @@ public class SteamNewsItem
     public List<string> Tags { get; set; } = new List<string>();
 
     public bool IsPatchNotes => Tags.Contains(PatchNotesTag);
+
+    // Beaucoup de studios n'étiquettent pas leurs notes : on reconnaît aussi un titre de mise à jour
+    // (« Update 1.4 », « Hotfix », « Patch notes », « v2.1.3 », « Mise à jour »…).
+    private static readonly Regex PatchTitle = new Regex(
+        @"\b(updates?|updated|patch(es)?|hotfix(es)?|changelog|fix(es|ed)?|bugfix(es)?|version|mise à jour|correctifs?)\b"
+        + @"|\bv\d+(\.\d+)+\b|\b\d+\.\d+\.\d+\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    public bool LooksLikePatchNotes => IsPatchNotes || PatchTitle.IsMatch(Title);
 }
 
 internal class SteamNewsResponse
