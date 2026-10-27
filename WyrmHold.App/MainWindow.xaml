@@ -864,6 +864,21 @@
                     <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
                                Text="Une seule tuile par jeu ; la liste « Plateforme » de la fiche choisit la copie à lancer. Les jeux sont reconnus par leur nom."/>
 
+                    <CheckBox x:Name="AutoRefreshCheck" Content="Actualisation automatique" Margin="0,12,0,0"
+                              Checked="AutoRefreshCheck_Changed" Unchecked="AutoRefreshCheck_Changed"/>
+                    <!-- Tag = minutes, enregistré dans settings.json (AppSettings.AutoRefreshMinutes) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock Text="Synchro complète avec les comptes en ligne :" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <ComboBox x:Name="AutoRefreshIntervalBox" Width="170" SelectionChanged="AutoRefreshIntervalBox_SelectionChanged">
+                            <ComboBoxItem Content="toutes les 15 min" Tag="15"/>
+                            <ComboBoxItem Content="toutes les 30 min" Tag="30"/>
+                            <ComboBoxItem Content="toutes les heures" Tag="60"/>
+                            <ComboBoxItem Content="toutes les 2 heures" Tag="120"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="Un jeu installé ou désinstallé par Steam ou Epic apparaît tout seul, quelques secondes après (sans internet). La synchro complète (comptes, jaquettes, succès) se fait aussi quand tu reviens sur Wyrmhold après plus de 10 minutes. Jamais pendant une partie, ni quand Wyrmhold est caché ou réduit : elle attend. Décoché = seulement le bouton « Actualiser »."/>
+
                     <TextBlock Text="Succès" Style="{StaticResource SettingsSection}"/>
                     <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"
                                Text="Décoche une plateforme pour que Wyrmhold arrête de lire ses succès. Les chiffres déjà connus restent affichés."/>

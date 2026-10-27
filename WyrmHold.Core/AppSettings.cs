@@ -56,6 +56,15 @@ public class AppSettings
     // Onglet « Pour toi » : les genres décochés (nom anglais, ex. « Roguelike »), écartés du calcul.
     public List<string> ExcludedRecommendationGenres { get; set; } = new List<string>();
 
+    // Actualisation automatique de la bibliothèque (27 octobre 2026) : surveillance des dossiers Steam et Epic,
+    // synchro en ligne complète toutes les AutoRefreshMinutes, et au retour sur la fenêtre. false = bouton seulement.
+    public bool AutoRefreshEnabled { get; set; } = true;
+
+    // Les choix proposés dans Réglages ; une valeur hors liste (fichier modifié à la main) est ramenée à 30.
+    public static readonly int[] AutoRefreshChoices = { 15, 30, 60, 120 };
+
+    public int AutoRefreshMinutes { get; set; } = 30;
+
     // Les lanceurs désactivés (ex. « Ea ») : plus lus, et leurs jeux masqués (pas supprimés). Vide = tous actifs.
     public List<string> DisabledLaunchers { get; set; } = new List<string>();
 

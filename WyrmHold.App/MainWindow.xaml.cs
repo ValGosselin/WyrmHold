@@ -68,6 +68,18 @@ public partial class MainWindow : Window
         _overlay = new OverlayController(_library);
         _playerCountsTimer.Tick += PlayerCountsTimer_Tick;
 
+        // Actualisation automatique : minuteur, retour sur la fenêtre, et fin de partie (synchro repoussée).
+        _autoRefreshTimer.Tick += AutoRefreshTimer_Tick;
+        Activated += MainWindow_Activated;
+        _library.Watcher.GameStopped += (running, end) =>
+        {
+            // Pas pour un jeu relancé : sa nouvelle partie démarre juste après.
+            if (_isFullRefreshDeferred && !_library.Watcher.IsRestarting)
+            {
+                TryAutoFullRefresh("fin de partie");
+            }
+        };
+
         // Une session de jeu vient d'être enregistrée : le temps de jeu affiché change.
         _library.PlaySessionRecorded += game => GamesList.Items.Refresh();
 
@@ -76,6 +88,7 @@ public partial class MainWindow : Window
             SaveUiState();
             _isExiting = true;
             _overlay.Dispose();
+            _folderWatcher?.Dispose();
             _trayIcon.Dispose();
         };
     }
@@ -102,17 +115,20 @@ public partial class MainWindow : Window
         _ = ShopsPanel.RefreshWatchListAsync();
         BuildSavedViews(null);
         RefreshAccountsTab();
-        await LoadGamesAsync();
-        RefreshAccountsTab();
+        await RefreshLibraryAsync(RefreshKind.Full);
+
+        // Après le 1er chargement : surveillance des dossiers et minuteur (si l'actualisation automatique est cochée).
+        ApplyAutoRefreshSettings();
 
         // (Les mises à jour sont cherchées AVANT l'ouverture de cette fenêtre, voir UpdateWindow.)
     }
 
     // ===================== Bibliothèque =====================
 
+    // Synchro COMPLÈTE (scan local + comptes en ligne + jaquettes, infos, succès). Ne pas l'appeler directement :
+    // passer par RefreshLibraryAsync, qui empêche deux actualisations en même temps.
     private async Task LoadGamesAsync()
     {
-        RefreshButton.IsEnabled = false;
         Title = "Wyrmhold — chargement…";
 
         List<Game> games = await _library.ScanAllAsync();
@@ -179,7 +195,216 @@ public partial class MainWindow : Window
         }
 
         await CompleteGamesAsync(games);
-        RefreshButton.IsEnabled = true;
+    }
+
+    // ----- Actualisation de la bibliothèque : un seul point d'entrée -----
+
+    // Local = jeux installés relus sur le disque, sans internet ; Full = synchro complète (LoadGamesAsync).
+    private enum RefreshKind { Local, Full }
+
+    // Le verrou : true pendant une actualisation (relâché dans le finally de RefreshLibraryAsync).
+    private bool _isRefreshing;
+
+    // Une actualisation demandée pendant qu'une autre tournait : faite juste après (Full l'emporte sur Local).
+    private RefreshKind? _pendingRefresh;
+
+    // La dernière synchro complète terminée (pour « fenêtre de nouveau active depuis plus de 10 min »).
+    private DateTime _lastFullRefresh = DateTime.MinValue;
+
+    // Une synchro automatique repoussée (partie en cours, ou Wyrmhold caché) : faite dès que possible.
+    private bool _isFullRefreshDeferred;
+
+    private static readonly TimeSpan RefreshOnActivationAfter = TimeSpan.FromMinutes(10);
+
+    private readonly System.Windows.Threading.DispatcherTimer _autoRefreshTimer = new System.Windows.Threading.DispatcherTimer();
+
+    private LibraryFolderWatcher? _folderWatcher;
+
+    /// <summary>
+    /// Le SEUL point d'entrée pour relire la bibliothèque : bouton « Actualiser », démarrage, lanceur réactivé,
+    /// clés API modifiées, fin d'une désinstallation, et les déclencheurs automatiques (dossiers, minuteur, retour
+    /// sur la fenêtre). Jamais deux en même temps : une demande qui arrive pendant une actualisation est retenue
+    /// et faite juste après. Aucune erreur ne s'affiche à l'écran : elle va dans le journal.
+    /// </summary>
+    private async Task RefreshLibraryAsync(RefreshKind kind)
+    {
+        if (_isRefreshing)
+        {
+            if (_pendingRefresh is null || kind == RefreshKind.Full)
+            {
+                _pendingRefresh = kind;
+            }
+            return;
+        }
+
+        _isRefreshing = true;
+        RefreshButton.IsEnabled = false;
+
+        try
+        {
+            if (kind == RefreshKind.Full)
+            {
+                await LoadGamesAsync();
+                _lastFullRefresh = DateTime.Now;
+                _isFullRefreshDeferred = false;
+                RefreshAccountsTab();
+
+                // Une bibliothèque Steam ajoutée entre-temps est surveillée elle aussi.
+                if (_library.Settings.AutoRefreshEnabled)
+                {
+                    _folderWatcher?.Start();
+                }
+            }
+            else
+            {
+                await RefreshInstalledGamesAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Actualisation de la bibliothèque ({kind}) impossible : {ex}");
+            Title = _summary;
+        }
+        finally
+        {
+            _isRefreshing = false;
+            RefreshButton.IsEnabled = true;
+
+            // Le minuteur repart de zéro après chaque synchro complète (bouton compris).
+            if (kind == RefreshKind.Full)
+            {
+                RestartAutoRefreshTimer();
+            }
+        }
+
+        if (_pendingRefresh is RefreshKind next)
+        {
+            _pendingRefresh = null;
+            await RefreshLibraryAsync(next);
+        }
+    }
+
+    /// <summary>
+    /// Actualisation locale : relit les jeux installés (disque et registre, sans internet). L'affichage n'est
+    /// refait que si un jeu a été installé, désinstallé, déplacé ou mis à jour.
+    /// </summary>
+    private async Task RefreshInstalledGamesAsync()
+    {
+        string before = InstallSignature(_allGames);
+        List<Game> games = await _library.ScanLocalAsync();
+
+        if (InstallSignature(games) == before)
+        {
+            // Rien n'a changé : on garde les jeux affichés (le détecteur de jeu les reprend, pour le temps de jeu).
+            _library.Watcher.SetGames(_allGames);
+            return;
+        }
+
+        Logger.Log("Actualisation locale : jeux installés changés, bibliothèque relue.");
+        ShowGames(games);
+    }
+
+    // Ce qui compte pour savoir si l'affichage doit changer : quels jeux sont installés, où, et en quelle version.
+    private static string InstallSignature(IEnumerable<Game> games)
+    {
+        return string.Join("\n", games
+            .Where(game => game.IsInstalled)
+            .Select(game => $"{GameWatcher.KeyOf(game)}|{game.InstallPath}|{game.InstalledVersion}")
+            .Order(StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// Synchro complète automatique (minuteur, retour sur la fenêtre, fin de partie). Jamais pendant une partie
+    /// (réseau, processeur et navigateurs cachés gêneraient le jeu) ni quand Wyrmhold est caché ou réduit :
+    /// elle est alors repoussée et faite dès que possible.
+    /// </summary>
+    private void TryAutoFullRefresh(string reason)
+    {
+        if (!_library.Settings.AutoRefreshEnabled)
+        {
+            return;
+        }
+
+        if (_library.Watcher.Current is not null || !IsVisible || WindowState == WindowState.Minimized)
+        {
+            if (!_isFullRefreshDeferred)
+            {
+                Logger.Log($"Synchro automatique ({reason}) repoussée : {(_library.Watcher.Current is not null ? "partie en cours" : "Wyrmhold caché ou réduit")}.");
+            }
+
+            _isFullRefreshDeferred = true;
+            return;
+        }
+
+        Logger.Log($"Synchro automatique : {reason}.");
+        _ = RefreshLibraryAsync(RefreshKind.Full);
+    }
+
+    private void RestartAutoRefreshTimer()
+    {
+        _autoRefreshTimer.Stop();
+
+        if (!_library.Settings.AutoRefreshEnabled)
+        {
+            return;
+        }
+
+        int minutes = AppSettings.AutoRefreshChoices.Contains(_library.Settings.AutoRefreshMinutes)
+            ? _library.Settings.AutoRefreshMinutes
+            : 30;
+        _autoRefreshTimer.Interval = TimeSpan.FromMinutes(minutes);
+        _autoRefreshTimer.Start();
+    }
+
+    /// <summary>
+    /// Allume ou éteint les trois déclencheurs automatiques selon le réglage (après le 1er chargement, et à chaque
+    /// changement dans Réglages).
+    /// </summary>
+    private void ApplyAutoRefreshSettings()
+    {
+        _folderWatcher ??= CreateFolderWatcher();
+
+        if (_library.Settings.AutoRefreshEnabled)
+        {
+            _folderWatcher.Start();
+        }
+        else
+        {
+            _folderWatcher.Stop();
+            _isFullRefreshDeferred = false;
+        }
+
+        RestartAutoRefreshTimer();
+    }
+
+    private LibraryFolderWatcher CreateFolderWatcher()
+    {
+        LibraryFolderWatcher watcher = new LibraryFolderWatcher(Dispatcher);
+        watcher.Changed += file =>
+        {
+            Logger.Log($"Actualisation locale : {file} a changé.");
+            _ = RefreshLibraryAsync(RefreshKind.Local);
+        };
+        return watcher;
+    }
+
+    private void AutoRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        TryAutoFullRefresh("minuteur");
+    }
+
+    // La fenêtre redevient active : synchro si la dernière date de plus de 10 min, ou si une synchro attendait.
+    private void MainWindow_Activated(object? sender, EventArgs e)
+    {
+        if (_lastFullRefresh == DateTime.MinValue)
+        {
+            return;   // 1er chargement pas encore fini
+        }
+
+        if (_isFullRefreshDeferred || DateTime.Now - _lastFullRefresh > RefreshOnActivationAfter)
+        {
+            TryAutoFullRefresh("retour sur la fenêtre");
+        }
     }
 
     // ----- Joueurs en jeu (Steam) -----
@@ -307,6 +532,93 @@ public partial class MainWindow : Window
     }
 
     private void ShowGames(List<Game> games)
+    {
+        // Les jeux relus sont de NOUVEAUX objets : on retient le jeu sélectionné par sa clé (et la copie
+        // affichée dans la fiche) et la position du défilement, pour tout remettre après (actualisation en fond).
+        string? selectedKey = GamesList.SelectedItem is Game selected ? GameWatcher.KeyOf(selected) : null;
+        string? shownKey = CurrentGame is Game shown ? GameWatcher.KeyOf(shown) : null;
+        ScrollViewer? scroll = FindScrollViewer(GamesList);
+        double scrollOffset = scroll?.VerticalOffset ?? 0;
+
+        _isReplacingGames = true;
+
+        try
+        {
+            ShowGamesCore(games);
+        }
+        finally
+        {
+            _isReplacingGames = false;
+        }
+
+        if (selectedKey is not null)
+        {
+            ReselectAfterReload(selectedKey, shownKey);
+        }
+
+        if (scroll is not null && scrollOffset > 0)
+        {
+            // Après la mise en page de la nouvelle liste, sinon le défilement serait ramené en haut.
+            Dispatcher.InvokeAsync(() => scroll.ScrollToVerticalOffset(scrollOffset),
+                System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+    }
+
+    // true pendant que la liste est remplacée : la sélection qui saute ne doit pas vider ni recharger la fiche.
+    private bool _isReplacingGames;
+
+    /// <summary>
+    /// Après une relecture : resélectionne le même jeu (par sa clé, dans la nouvelle liste) et remet la fiche sur
+    /// la même copie, SANS recharger patch notes ni jeux similaires (c'est le même jeu). S'il ne correspond plus
+    /// aux filtres (ex. désinstallé avec le filtre « Installés »), la fiche se vide comme avant.
+    /// </summary>
+    private void ReselectAfterReload(string selectedKey, string? shownKey)
+    {
+        Game? tile = _visibleGames.FirstOrDefault(g => g.CopiesOrSelf.Any(copy => GameWatcher.KeyOf(copy) == selectedKey));
+
+        if (tile is null)
+        {
+            ShowDetails(null, null);
+            return;
+        }
+
+        Game copy = tile.CopiesOrSelf.FirstOrDefault(c => GameWatcher.KeyOf(c) == shownKey) ?? tile;
+
+        _isReplacingGames = true;
+
+        try
+        {
+            GamesList.SelectedItem = tile;
+        }
+        finally
+        {
+            _isReplacingGames = false;
+        }
+
+        ShowDetails(tile, copy, reloadOnlineSections: false);
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject parent)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, i);
+
+            if (child is ScrollViewer viewer)
+            {
+                return viewer;
+            }
+
+            if (FindScrollViewer(child) is ScrollViewer found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    private void ShowGamesCore(List<Game> games)
     {
         _allGames = games;
         AssignCopies();
@@ -737,6 +1049,12 @@ public partial class MainWindow : Window
 
     private void GamesList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        // Liste remplacée par une actualisation : ShowGames remet lui-même la sélection et la fiche.
+        if (_isReplacingGames)
+        {
+            return;
+        }
+
         Game? tile = GamesList.SelectedItem as Game;
         ShowDetails(tile, tile);
     }
@@ -747,7 +1065,8 @@ public partial class MainWindow : Window
     // C'est lui qu'on lance, qu'on met en favori, dont on montre les succès et les patch notes.
     private Game? CurrentGame => DetailPanel.DataContext as Game;
 
-    private void ShowDetails(Game? tile, Game? copy)
+    // reloadOnlineSections = false : même jeu qu'avant une actualisation, patch notes et jeux similaires déjà affichés.
+    private void ShowDetails(Game? tile, Game? copy, bool reloadOnlineSections = true)
     {
         DetailPanel.DataContext = copy;
 
@@ -760,8 +1079,12 @@ public partial class MainWindow : Window
         _isBuildingCopySelector = false;
 
         BuildGameCollectionsPanel();
-        _ = LoadPatchNotesAsync(copy);
-        _ = LoadSimilarGamesAsync(copy);
+
+        if (reloadOnlineSections)
+        {
+            _ = LoadPatchNotesAsync(copy);
+            _ = LoadSimilarGamesAsync(copy);
+        }
     }
 
     // ===================== Jeux similaires =====================
@@ -1099,6 +1422,12 @@ public partial class MainWindow : Window
         DarkThemeRadio.IsChecked = ThemeManager.Current.Id == "dark";
         MergeDuplicatesCheck.IsChecked = _library.Settings.MergeDuplicates;
 
+        AutoRefreshCheck.IsChecked = _library.Settings.AutoRefreshEnabled;
+        AutoRefreshIntervalBox.SelectedItem = AutoRefreshIntervalBox.Items.OfType<ComboBoxItem>()
+            .FirstOrDefault(item => item.Tag is string tag && tag == _library.Settings.AutoRefreshMinutes.ToString())
+            ?? AutoRefreshIntervalBox.Items[1];   // valeur inconnue : 30 min
+        AutoRefreshIntervalBox.IsEnabled = _library.Settings.AutoRefreshEnabled;
+
         foreach (CheckBox checkBox in new[] { SteamAchievementsCheck, GogAchievementsCheck, EpicAchievementsCheck })
         {
             checkBox.IsChecked = checkBox.Tag is string name
@@ -1272,6 +1601,33 @@ public partial class MainWindow : Window
         UpdateResultCount();
     }
 
+    private void AutoRefreshCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        _library.Settings.AutoRefreshEnabled = AutoRefreshCheck.IsChecked == true;
+        AutoRefreshIntervalBox.IsEnabled = _library.Settings.AutoRefreshEnabled;
+        SaveSettings();
+        ApplyAutoRefreshSettings();
+        Logger.Log($"Actualisation automatique {(_library.Settings.AutoRefreshEnabled ? "activée" : "désactivée")}.");
+    }
+
+    private void AutoRefreshIntervalBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoadingSettings || AutoRefreshIntervalBox.SelectedItem is not ComboBoxItem { Tag: string tag }
+            || !int.TryParse(tag, out int minutes))
+        {
+            return;
+        }
+
+        _library.Settings.AutoRefreshMinutes = minutes;
+        SaveSettings();
+        RestartAutoRefreshTimer();
+    }
+
     private void AchievementSourceCheck_Changed(object sender, RoutedEventArgs e)
     {
         if (_isLoadingSettings || sender is not CheckBox { Tag: string name } checkBox
@@ -1297,11 +1653,11 @@ public partial class MainWindow : Window
         SaveSettings();
         RefreshAccountsTab();
 
-        // Réactivé : on relit ce lanceur (nouveaux jeux installés entre-temps…), sauf si une lecture est en cours.
-        // Désactivé : ses jeux disparaissent tout de suite de l'affichage, sans rien relire.
-        if (isEnabled && RefreshButton.IsEnabled)
+        // Réactivé : on relit ce lanceur (nouveaux jeux installés entre-temps…) ; si une lecture est en cours,
+        // la relecture est faite juste après. Désactivé : ses jeux disparaissent tout de suite, sans rien relire.
+        if (isEnabled)
         {
-            await LoadGamesAsync();
+            await RefreshLibraryAsync(RefreshKind.Full);
         }
         else
         {
@@ -1961,16 +2317,10 @@ public partial class MainWindow : Window
             _uninstallTimer.Stop();
         }
 
+        // Le dossier a disparu : un scan local suffit pour passer la tuile en « non installé ».
         if (anyFinished)
         {
-            try
-            {
-                ShowGames(await _library.ScanAllAsync());
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Bibliothèque impossible à relire après une désinstallation : {ex.Message}");
-            }
+            await RefreshLibraryAsync(RefreshKind.Local);
         }
     }
 
@@ -2007,8 +2357,7 @@ public partial class MainWindow : Window
 
     private async void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        await LoadGamesAsync();
-        RefreshAccountsTab();
+        await RefreshLibraryAsync(RefreshKind.Full);
     }
 
     private void GamesList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -2717,12 +3066,8 @@ public partial class MainWindow : Window
         RefreshAccountsTab();
 
         // Les nouvelles clés servent tout de suite : on relit la bibliothèque (jeux Steam non installés,
-        // jaquettes…). Si une lecture est déjà en cours (bouton Actualiser bloqué), elle s'en chargera.
-        if (RefreshButton.IsEnabled)
-        {
-            await LoadGamesAsync();
-            RefreshAccountsTab();
-        }
+        // jaquettes…). Si une lecture est déjà en cours, la relecture est faite juste après.
+        await RefreshLibraryAsync(RefreshKind.Full);
     }
 
     private void UpdateApiKeysSummary()

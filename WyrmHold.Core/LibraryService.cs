@@ -170,6 +170,49 @@ public class LibraryService
         return LoadGames();
     }
 
+    /// <summary>
+    /// Le scan LOCAL seulement : jeux installés lus sur le disque et dans le registre, sans aucun appel en ligne
+    /// (ni liste du compte Steam, ni GOG, ni synchros). Sert à l'actualisation automatique quand Steam ou Epic
+    /// installe ou désinstalle un jeu. Les jeux possédés mais non installés restent en base (SaveGames ne remet
+    /// à zéro que « installé » et le dossier). La lecture se fait à côté du fil de l'interface (Task.Run),
+    /// puis la liste est relue sur le fil de l'appelant.
+    /// </summary>
+    public async Task<List<Game>> ScanLocalAsync()
+    {
+        List<ILibraryProvider> providers = _providers.Where(p => IsLauncherEnabled(p.Platform)).ToList();
+        bool importUbisoftCache = IsLauncherEnabled(Platform.Ubisoft) && !IsUbisoftConnected;
+
+        await Task.Run(() =>
+        {
+            foreach (ILibraryProvider provider in providers)
+            {
+                try
+                {
+                    _database.SaveGames(provider.Platform, provider.GetInstalledGames());
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Scan local : erreur avec {provider.Platform} : {ex.Message}");
+                }
+            }
+
+            // Comme ScanAllAsync : sans compte Ubisoft connecté, le cache local du launcher complète la liste.
+            if (importUbisoftCache)
+            {
+                try
+                {
+                    ImportUbisoftLibrary(null);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Scan local : import d'Ubisoft Connect impossible : {ex.Message}");
+                }
+            }
+        });
+
+        return LoadGames();
+    }
+
     public List<Game> LoadGames()
     {
         // Les jeux d'un lanceur désactivé restent en base (temps de jeu, succès, collections),

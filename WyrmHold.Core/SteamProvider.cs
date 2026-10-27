@@ -6,9 +6,13 @@ namespace Wyrmhold.Core;
 public class SteamProvider : ILibraryProvider
 {
     public Platform Platform => Platform.Steam;
-    public List<Game> GetInstalledGames()
+    /// <summary>
+    /// Les dossiers « steamapps » de toutes les bibliothèques Steam (une par disque, listées dans libraryfolders.vdf),
+    /// là où Steam écrit un appmanifest_*.acf par jeu installé. Vide si Steam n'est pas installé.
+    /// </summary>
+    public static List<string> GetSteamappsFolders()
     {
-        List<Game> games = new List<Game>();
+        List<string> result = new List<string>();
 
         string? steamPath = Registry.GetValue(
             @"HKEY_CURRENT_USER\Software\Valve\Steam",
@@ -17,7 +21,7 @@ public class SteamProvider : ILibraryProvider
 
         if (steamPath is null)
         {
-            return games;
+            return result;
         }
 
         steamPath = Path.GetFullPath(steamPath);
@@ -25,18 +29,28 @@ public class SteamProvider : ILibraryProvider
 
         if (!File.Exists(vdfPath))
         {
-            return games;
+            return result;
         }
 
         foreach (string folder in GetLibraryFolders(vdfPath))
         {
             string steamappsPath = Path.Combine(folder, "steamapps");
 
-            if (!Directory.Exists(steamappsPath))
+            if (Directory.Exists(steamappsPath))
             {
-                continue;
+                result.Add(steamappsPath);
             }
+        }
 
+        return result;
+    }
+
+    public List<Game> GetInstalledGames()
+    {
+        List<Game> games = new List<Game>();
+
+        foreach (string steamappsPath in GetSteamappsFolders())
+        {
             foreach (string manifestPath in Directory.GetFiles(steamappsPath, "appmanifest_*.acf"))
             {
                 string[] lines = File.ReadAllLines(manifestPath);

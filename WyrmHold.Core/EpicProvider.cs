@@ -7,13 +7,15 @@ public class EpicProvider : ILibraryProvider
 {
     public Platform Platform => Platform.Epic;
 
+    // Le dossier où le launcher Epic écrit un fichier *.item par jeu installé.
+    public static string ManifestsFolder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Epic", "EpicGamesLauncher", "Data", "Manifests");
+
     public List<Game> GetInstalledGames()
     {
         List<Game> games = new List<Game>();
-
-        string manifestsFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "Epic", "EpicGamesLauncher", "Data", "Manifests");
+        string manifestsFolder = ManifestsFolder;
 
         if (!Directory.Exists(manifestsFolder))
         {
