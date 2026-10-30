@@ -43,7 +43,9 @@ public class SteamWebApi
 
     public Task<List<SteamOwnedGame>> GetOwnedGamesAsync()
     {
-        return GetGamesAsync("GetOwnedGames", "&include_appinfo=true&include_played_free_games=true");
+        // skip_unvetted_apps=false : sinon Steam écarte des jeux pourtant achetés. Vérifié le 31 octobre 2026
+        // (console mode 20) : Can 'Em All, sorti la veille, absent sans ce paramètre et donc masqué comme « plus à toi ».
+        return GetGamesAsync("GetOwnedGames", "&include_appinfo=true&include_played_free_games=true&skip_unvetted_apps=false");
     }
 
     public Task<List<SteamOwnedGame>> GetRecentlyPlayedGamesAsync()

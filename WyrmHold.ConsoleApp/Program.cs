@@ -33,6 +33,48 @@ if (args.Length > 0 && args[0] == "11")
     return;
 }
 
+// 20 = un jeu installé absent de GetOwnedGames : « dotnet run -- 20 5133900 » essaie plusieurs paramètres et GetRecentlyPlayedGames.
+if (args.Length > 1 && args[0] == "20")
+{
+    using HttpClient http = new HttpClient();
+    string appId = args[1];
+    string player = $"?key={Secrets.Current.SteamApiKey}&steamid={Secrets.Current.SteamId}";
+    string owned = "https://api.steampowered.com/IPlayerService/GetOwnedGames/v1/" + player + "&include_appinfo=true&include_played_free_games=true";
+
+    async Task ShowAsync(string label, string url)
+    {
+        using JsonDocument doc = JsonDocument.Parse(await http.GetStringAsync(url));
+        List<JsonElement> list = doc.RootElement.GetProperty("response").TryGetProperty("games", out JsonElement games)
+            ? games.EnumerateArray().ToList()
+            : new List<JsonElement>();
+        bool found = list.Any(g => g.GetProperty("appid").GetInt32().ToString() == appId);
+        Console.WriteLine($"{label,-45} {list.Count,5} jeux ; {appId} {(found ? "PRÉSENT" : "absent")}");
+    }
+
+    await ShowAsync("GetOwnedGames (paramètres actuels)", owned);
+    await ShowAsync("  + skip_unvetted_apps=false", owned + "&skip_unvetted_apps=false");
+    await ShowAsync("  + include_free_sub=true", owned + "&include_free_sub=true");
+    await ShowAsync("  + les deux", owned + "&skip_unvetted_apps=false&include_free_sub=true");
+    await ShowAsync("GetRecentlyPlayedGames", "https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/" + player);
+
+    // Les jeux que skip_unvetted_apps=false ajoute.
+    async Task<Dictionary<int, string>> ReadGamesAsync(string url)
+    {
+        using JsonDocument doc = JsonDocument.Parse(await http.GetStringAsync(url));
+        return doc.RootElement.GetProperty("response").GetProperty("games").EnumerateArray()
+            .ToDictionary(g => g.GetProperty("appid").GetInt32(), g => g.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? "" : "");
+    }
+
+    Dictionary<int, string> without = await ReadGamesAsync(owned);
+    Dictionary<int, string> with = await ReadGamesAsync(owned + "&skip_unvetted_apps=false");
+
+    foreach ((int id, string name) in with.Where(pair => !without.ContainsKey(pair.Key)))
+    {
+        Console.WriteLine($"   en plus : {id} {name}");
+    }
+    return;
+}
+
 // 19 = badge « Mis à jour », ESSAI À BLANC (rien n'est enregistré) : jeux dont la version a changé ces 7 jours,
 // et la patch note qui allumerait le badge. « dotnet run -- 19 405640 » = règle appliquée à un appid, comme s'il venait d'être mis à jour.
 if (args.Length > 0 && args[0] == "19")
