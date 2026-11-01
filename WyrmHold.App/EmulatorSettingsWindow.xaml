@@ -1,0 +1,48 @@
+<Window x:Class="WyrmHold.App.EmulatorSettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Height="600" Width="640"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
+        Loaded="Window_Loaded">
+
+    <DockPanel Margin="14">
+
+        <!-- En bas : fermer la fenêtre (Échap marche aussi grâce à IsCancel) -->
+        <Button DockPanel.Dock="Bottom" Content="Fermer" Width="90" Height="32"
+                HorizontalAlignment="Right" Margin="0,10,0,0" IsCancel="True"/>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Programme" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                <DockPanel Height="32">
+                    <Button DockPanel.Dock="Right" Content="Détecter" Width="90" Margin="8,0,0,0" Click="DetectButton_Click"/>
+                    <Button DockPanel.Dock="Right" Content="Choisir…" Width="90" Margin="8,0,0,0" Click="ChooseButton_Click"/>
+                    <TextBox x:Name="ExecutableBox" IsReadOnly="True" Padding="6,0" VerticalContentAlignment="Center"/>
+                </DockPanel>
+                <TextBlock x:Name="ExecutableStatusText" Foreground="{DynamicResource SecondaryTextBrush}"
+                           TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+                <TextBlock x:Name="ConfiguredFoldersTitle" FontWeight="SemiBold" Margin="0,18,0,6"/>
+                <ListBox x:Name="ConfiguredFoldersList" Height="70"/>
+
+                <TextBlock Text="Dossiers ajoutés dans Wyrmhold" FontWeight="SemiBold" Margin="0,18,0,6"/>
+                <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,6"
+                           Text="Les sous-dossiers sont lus aussi. Retirer un dossier ne supprime aucun fichier."/>
+                <DockPanel Height="104">
+                    <StackPanel DockPanel.Dock="Right" Margin="8,0,0,0">
+                        <Button Content="Ajouter…" Width="90" Height="32" Margin="0,0,0,8" Click="AddFolderButton_Click"/>
+                        <Button Content="Retirer" Width="90" Height="32" Click="RemoveFolderButton_Click"/>
+                    </StackPanel>
+                    <ListBox x:Name="AddedFoldersList"/>
+                </DockPanel>
+
+                <!-- RetroArch seulement : le cœur de chaque console, rempli par le code -->
+                <StackPanel x:Name="CoresPanel" Visibility="Collapsed">
+                    <TextBlock Text="Cœurs RetroArch" FontWeight="SemiBold" Margin="0,18,0,6"/>
+                    <TextBlock x:Name="CoresHelpText" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                    <StackPanel x:Name="CoreRows"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

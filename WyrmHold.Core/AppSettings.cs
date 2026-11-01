@@ -68,6 +68,22 @@ public class AppSettings
     // Les lanceurs désactivés (ex. « Ea ») : plus lus, et leurs jeux masqués (pas supprimés). Vide = tous actifs.
     public List<string> DisabledLaunchers { get; set; } = new List<string>();
 
+    // Les émulateurs, par nom de plateforme (ex. « Ryujinx ») : voir EmulatorSettings.
+    public Dictionary<string, EmulatorSettings> Emulators { get; set; } = new Dictionary<string, EmulatorSettings>();
+
+    public EmulatorSettings GetEmulator(Platform platform)
+    {
+        string name = platform.ToString();
+
+        if (!Emulators.TryGetValue(name, out EmulatorSettings? emulator))
+        {
+            emulator = new EmulatorSettings();
+            Emulators[name] = emulator;
+        }
+
+        return emulator;
+    }
+
     public bool IsLauncherEnabled(Platform platform)
     {
         return !DisabledLaunchers.Contains(platform.ToString());
@@ -120,6 +136,21 @@ public class AppSettings
         string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(FilePath, json);
     }
+}
+
+/// <summary>
+/// Les réglages d'un émulateur (Comptes → Émulateurs).
+/// </summary>
+public class EmulatorSettings
+{
+    // Le programme choisi à la main. null = détection automatique.
+    public string? ExecutablePath { get; set; }
+
+    // Les dossiers ajoutés dans Wyrmhold, en plus de ceux que l'émulateur déclare lui-même.
+    public List<string> GameFolders { get; set; } = new List<string>();
+
+    // RetroArch : le cœur choisi par console (« GameBoyAdvance » → « mgba_libretro.dll »). Absent = automatique.
+    public Dictionary<string, string> Cores { get; set; } = new Dictionary<string, string>();
 }
 
 /// <summary>

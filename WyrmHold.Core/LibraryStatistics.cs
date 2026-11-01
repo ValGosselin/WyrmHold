@@ -47,7 +47,7 @@ public class LibraryStatistics
         stats.TopGames = ToBars(topGames.Select(g => (g.Name, (long)g.PlaytimeMinutes)), FormatDuration);
 
         // Répartition par plateforme.
-        List<IGrouping<string, Game>> platforms = games.GroupBy(g => g.PlatformName).ToList();
+        List<IGrouping<string, Game>> platforms = games.GroupBy(g => g.SourceName).ToList();
 
         stats.GamesByPlatform = ToBars(
             platforms.Select(group => (group.Key, (long)group.Count())).OrderByDescending(p => p.Item2),

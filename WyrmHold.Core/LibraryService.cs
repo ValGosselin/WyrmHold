@@ -27,6 +27,9 @@ public class LibraryService
         new EaProvider()
     };
 
+    // Les émulateurs : ajoutés à _providers dans le constructeur, car ils ont besoin des réglages.
+    private readonly List<EmulatorProvider> _emulators;
+
     private readonly GameDatabase _database = new GameDatabase();
     private readonly CoverCache _covers = new CoverCache();
     private readonly MetadataFetcher _metadata = new MetadataFetcher();
@@ -72,6 +75,14 @@ public class LibraryService
         _steamAchievements = new SteamAchievementProvider(_steamApi);
         _epicAchievements = new EpicAchievementProvider(_epicCatalog);
         _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements, _epicAchievements };
+        _emulators = new List<EmulatorProvider>
+        {
+            new RetroArchProvider(Settings),
+            new DolphinProvider(Settings),
+            new RyujinxProvider(Settings),
+            new AzaharProvider(Settings)
+        };
+        _providers.AddRange(_emulators);
         _database.Initialize();
 
         Watcher.GameStarted += OnGameStarted;
@@ -84,6 +95,10 @@ public class LibraryService
     // ----- Propriétés -----
 
     public string SteamId => _secrets.SteamId;
+
+    public IReadOnlyList<EmulatorProvider> Emulators => _emulators;
+
+    public EmulatorProvider GetEmulator(Platform platform) => _emulators.First(emulator => emulator.Platform == platform);
 
     public bool HasActiveSessions => _activeSessions.Count > 0 || _expectedSessions.Count > 0;
 
@@ -118,7 +133,8 @@ public class LibraryService
         {
             try
             {
-                List<Game> games = provider.GetInstalledGames();
+                // À côté du fil de l'interface : un dossier de ROM peut contenir beaucoup de fichiers à ouvrir.
+                List<Game> games = await Task.Run(provider.GetInstalledGames);
                 HashSet<string>? keptSteamIds = null;
 
                 if (provider.Platform == Platform.Steam)
@@ -1367,6 +1383,12 @@ public class LibraryService
             return game.PlatformGameId;
         }
 
+        // Un jeu de console n'est pas sur Steam : un jeu du même nom y serait un autre jeu.
+        if (game.IsEmulated)
+        {
+            return null;
+        }
+
         if (game.SteamAppId is null)
         {
             string? foundAppId = await SteamStoreApi.FindAppIdByNameAsync(game.Name);
@@ -1422,7 +1444,7 @@ public class LibraryService
 
         // 1. Jeux hors Steam sans appid connu : quelques recherches dans la boutique Steam (voir plus haut).
         List<Game> unknown = games
-            .Where(game => game.Platform != Platform.Steam && game.SteamAppId is null
+            .Where(game => game.Platform != Platform.Steam && !game.IsEmulated && game.SteamAppId is null
                 && !steamNames.Contains(NameTools.Normalize(game.Name)))
             .GroupBy(game => NameTools.Normalize(game.Name))
             .Select(group => group.First())
@@ -1509,6 +1531,11 @@ public class LibraryService
     // L'appid d'un jeu : le sien, sinon celui d'une autre copie du même nom (null = introuvable).
     private static string? AppIdFor(Game game, Dictionary<string, string> appIdByName)
     {
+        if (game.IsEmulated)
+        {
+            return null;
+        }
+
         return KnownSteamAppId(game)
             ?? (appIdByName.TryGetValue(NameTools.Normalize(game.Name), out string? byName) ? byName : null);
     }
@@ -2024,8 +2051,13 @@ public class LibraryService
 
     // ----- Lancement et temps de jeu -----
 
+    // Pourquoi le dernier lancement a échoué, en clair pour l'utilisateur (null = pas de détail à montrer).
+    public string? LastLaunchError { get; private set; }
+
     public bool Launch(Game game)
     {
+        LastLaunchError = null;
+
         ILibraryProvider? provider = _providers.FirstOrDefault(p => p.Platform == game.Platform);
 
         if (provider is null)
@@ -2038,6 +2070,12 @@ public class LibraryService
         {
             provider.Launch(game);
             return true;
+        }
+        catch (EmulatorLaunchException ex)
+        {
+            Logger.Log($"Impossible de lancer {game.Name} : {ex.Message}");
+            LastLaunchError = ex.Message;
+            return false;
         }
         catch (Exception ex)
         {

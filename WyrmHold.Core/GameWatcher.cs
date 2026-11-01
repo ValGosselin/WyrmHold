@@ -25,6 +25,8 @@ public class RunningGame
 /// Repère les jeux en cours, quel que soit le lanceur, même lancés hors de Wyrmhold :
 /// toutes les 5 secondes, il regarde quels programmes tournent et si l'un d'eux est rangé
 /// dans le dossier d'installation d'un jeu de la bibliothèque.
+/// Un jeu émulé n'a pas de programme à lui : tous tournent dans l'émulateur. On reconnaît donc le fichier du jeu
+/// dans la ligne de commande de l'émulateur (un jeu ouvert depuis le menu de l'émulateur n'y figure pas).
 /// Il ne fait que regarder : il ne touche ni aux fichiers ni à la mémoire des jeux.
 /// À démarrer depuis le fil de l'interface : ses événements arrivent alors sur ce fil.
 /// </summary>
@@ -44,11 +46,17 @@ public class GameWatcher
     // Un dossier de jeu installé et le jeu qui va avec.
     private record GameFolder(string Folder, Game Game);
 
+    // Le fichier d'un jeu émulé et le jeu qui va avec.
+    private record RomFile(string Path, Game Game);
+
     // Un jeu trouvé à un passage, et les numéros (PID) de ses programmes qui tournent.
     private record FoundGame(Game Game, HashSet<int> ProcessIds);
 
     // Les dossiers des jeux installés, du plus long au plus court : le plus précis gagne.
     private List<GameFolder> _folders = new List<GameFolder>();
+
+    // Les fichiers des jeux émulés, eux aussi du plus long au plus court.
+    private List<RomFile> _roms = new List<RomFile>();
 
     // Les jeux en cours, par clé (voir KeyOf), et combien de fois de suite chacun a manqué à l'appel.
     private readonly Dictionary<string, RunningGame> _running = new Dictionary<string, RunningGame>();
@@ -91,14 +99,24 @@ public class GameWatcher
     public void SetGames(IEnumerable<Game> games)
     {
         List<GameFolder> all = new List<GameFolder>();
+        List<RomFile> roms = new List<RomFile>();
 
         foreach (Game game in games)
         {
-            if (game.IsInstalled && TryGetFolder(game.InstallPath, out string folder))
+            if (game.IsEmulated)
+            {
+                if (game.IsInstalled && !string.IsNullOrEmpty(game.InstallPath))
+                {
+                    roms.Add(new RomFile(game.InstallPath.Replace('/', '\\'), game));
+                }
+            }
+            else if (game.IsInstalled && TryGetFolder(game.InstallPath, out string folder))
             {
                 all.Add(new GameFolder(folder, game));
             }
         }
+
+        _roms = roms.OrderByDescending(rom => rom.Path.Length).ToList();
 
         // Un dossier qui contient le dossier d'un AUTRE jeu est une bibliothèque, pas un jeu
         // (ex. « steamapps\common » enregistré par erreur) : tous ses programmes passeraient pour ce jeu.
@@ -109,11 +127,11 @@ public class GameWatcher
             .ToList();
 
         // Les jeux déjà en cours pointent maintenant vers les nouvelles copies (temps de jeu à jour…).
-        foreach (GameFolder entry in _folders)
+        foreach (Game game in _folders.Select(entry => entry.Game).Concat(_roms.Select(rom => rom.Game)))
         {
-            if (_running.TryGetValue(KeyOf(entry.Game), out RunningGame? running))
+            if (_running.TryGetValue(KeyOf(game), out RunningGame? running))
             {
-                running.Game = entry.Game;
+                running.Game = game;
             }
         }
     }
@@ -162,10 +180,11 @@ public class GameWatcher
             try
             {
                 List<GameFolder> folders = _folders;
+                List<RomFile> roms = _roms;
 
                 // La lecture des programmes se fait à côté (Task.Run) pour ne pas figer la fenêtre ;
                 // la suite reprend sur le fil de l'interface.
-                Dictionary<string, FoundGame> found = await Task.Run(() => FindRunningGames(folders));
+                Dictionary<string, FoundGame> found = await Task.Run(() => FindRunningGames(folders, roms));
 
                 if (token.IsCancellationRequested)
                 {
@@ -315,11 +334,11 @@ public class GameWatcher
     /// Les jeux dont au moins un programme tourne, avec les numéros de ces programmes.
     /// Appelé à côté du fil de l'interface.
     /// </summary>
-    private static Dictionary<string, FoundGame> FindRunningGames(List<GameFolder> folders)
+    private static Dictionary<string, FoundGame> FindRunningGames(List<GameFolder> folders, List<RomFile> roms)
     {
         Dictionary<string, FoundGame> found = new Dictionary<string, FoundGame>();
 
-        if (folders.Count == 0)
+        if (folders.Count == 0 && roms.Count == 0)
         {
             return found;
         }
@@ -337,16 +356,16 @@ public class GameWatcher
                     continue;
                 }
 
-                GameFolder? match = folders.FirstOrDefault(entry =>
-                    exePath.StartsWith(entry.Folder, StringComparison.OrdinalIgnoreCase));
+                Game? match = FindEmulatedGame(process.Id, exePath, roms)
+                    ?? folders.FirstOrDefault(entry => exePath.StartsWith(entry.Folder, StringComparison.OrdinalIgnoreCase))?.Game;
 
                 if (match is not null)
                 {
-                    string key = KeyOf(match.Game);
+                    string key = KeyOf(match);
 
                     if (!found.TryGetValue(key, out FoundGame? entry))
                     {
-                        entry = new FoundGame(match.Game, new HashSet<int>());
+                        entry = new FoundGame(match, new HashSet<int>());
                         found[key] = entry;
                     }
 
@@ -363,6 +382,23 @@ public class GameWatcher
         }
 
         return found;
+    }
+
+    /// <summary>
+    /// Le jeu ouvert par ce processus si c'est un émulateur. Les autres programmes ne sont pas interrogés.
+    /// </summary>
+    private static Game? FindEmulatedGame(int processId, string exePath, List<RomFile> roms)
+    {
+        if (roms.Count == 0 || !EmulatorProvider.IsEmulatorProgram(exePath))
+        {
+            return null;
+        }
+
+        string? commandLine = NativeProcesses.GetCommandLine(processId)?.Replace('/', '\\');
+
+        return commandLine is null
+            ? null
+            : roms.FirstOrDefault(rom => commandLine.Contains(rom.Path, StringComparison.OrdinalIgnoreCase))?.Game;
     }
 
     /// <summary>

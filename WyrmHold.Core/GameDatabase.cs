@@ -67,6 +67,9 @@ public class GameDatabase
         AddColumnIfMissing(connection, "UpdateNotesUnix", "INTEGER NOT NULL DEFAULT 0");
         AddColumnIfMissing(connection, "UpdateNotesCheckedUnix", "INTEGER NOT NULL DEFAULT 0");
 
+        // Jeux émulés : la console (NULL pour un jeu PC).
+        AddColumnIfMissing(connection, "Console", "TEXT");
+
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
         using (SqliteCommand fillAddedDates = connection.CreateCommand())
         {
@@ -334,11 +337,12 @@ public class GameDatabase
             upsert.CommandText = """
             INSERT INTO Game (Platform, PlatformGameId, Name, IsInstalled, InstallPath,
                               PlaytimeMinutes, LastPlayedUnix, IsFamilyShared, OwnerSteamId,
-                              SizeOnDiskBytes, AddedUnix, InstalledVersion)
+                              SizeOnDiskBytes, AddedUnix, InstalledVersion, Console)
             VALUES ($platform, $gameId, $name, $isInstalled, $installPath,
                     $playtime, $lastPlayed, $isFamilyShared, $ownerSteamId,
-                    $size, CAST(strftime('%s', 'now') AS INTEGER), $version)
+                    $size, CAST(strftime('%s', 'now') AS INTEGER), $version, $console)
             ON CONFLICT (Platform, PlatformGameId) DO UPDATE SET
+                Console = COALESCE(excluded.Console, Game.Console),
                 LastUpdateDetectedUnix = CASE
                     WHEN excluded.InstalledVersion IS NOT NULL
                          AND Game.InstalledVersion IS NOT NULL
@@ -373,6 +377,7 @@ public class GameDatabase
             upsert.Parameters.AddWithValue("$lastPlayed", game.LastPlayedUnix);
             upsert.Parameters.AddWithValue("$size", game.SizeOnDiskBytes);
             upsert.Parameters.AddWithValue("$version", (object?)game.InstalledVersion ?? DBNull.Value);
+            upsert.Parameters.AddWithValue("$console", game.Console == GameConsole.None ? DBNull.Value : game.Console.ToString());
             upsert.ExecuteNonQuery();
         }
 
@@ -412,7 +417,7 @@ public class GameDatabase
         SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes,
                InstalledVersion, LastUpdateDetectedUnix, SteamAppId,
                AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix,
-               AchievementsAdded, AchievementsAddedUnix, UpdateNotesUnix, UpdateNotesCheckedUnix
+               AchievementsAdded, AchievementsAddedUnix, UpdateNotesUnix, UpdateNotesCheckedUnix, Console
         FROM Game
         WHERE (IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam') AND IsNotOwned = 0;
         """;
@@ -456,7 +461,8 @@ public class GameDatabase
                 AchievementsAdded = reader.GetInt32(reader.GetOrdinal("AchievementsAdded")),
                 AchievementsAddedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsAddedUnix")),
                 UpdateNotesUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesUnix")),
-                UpdateNotesCheckedUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesCheckedUnix"))
+                UpdateNotesCheckedUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesCheckedUnix")),
+                Console = Enum.TryParse(ReadNullableString(reader, "Console"), out GameConsole console) ? console : GameConsole.None
             });
         }
 

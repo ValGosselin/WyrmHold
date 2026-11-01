@@ -115,7 +115,8 @@ public class CoverCache
             {
                 string? coverUrl = null;
 
-                if (game.Platform != Platform.Steam)
+                // Un jeu de console ne passe pas par Steam : un jeu du même nom y serait un autre jeu.
+                if (game.Platform != Platform.Steam && !game.IsEmulated)
                 {
                     string? steamAppId = await SteamStoreApi.FindAppIdByNameAsync(game.Name);
 

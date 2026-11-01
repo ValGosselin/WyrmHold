@@ -14,6 +14,34 @@ public class Game : INotifyPropertyChanged
     public string Name { get; set; } = "";
     public bool IsInstalled { get; set; }
     public string? InstallPath { get; set; }
+
+    // ----- Jeux émulés -----
+
+    // La console du jeu (None pour un jeu PC). Pour un jeu émulé, InstallPath est le FICHIER du jeu, pas un dossier.
+    public GameConsole Console { get; set; }
+
+    public bool IsEmulated => Platform.IsEmulator();
+
+    public string ConsoleName => GameConsoles.Name(Console);
+
+    // Le nom montré à l'utilisateur : la console d'un jeu émulé (deux jeux RetroArch peuvent être sur deux consoles),
+    // sinon le lanceur. PlatformName garde le nom de l'émulateur, utile pour les messages sur le programme lui-même.
+    public string SourceName => ConsoleName.Length > 0 ? ConsoleName : PlatformName;
+
+    // La valeur d'un bouton de filtre, enregistrée dans les vues.
+    public string FilterKey => Console != GameConsole.None ? Console.ToString() : Platform.ToString();
+
+    // Le fichier sur le disque. RetroArch écrit « jeux.zip#jeu.gba » pour un jeu rangé dans une archive.
+    public string? RomFilePath => InstallPath?.Split('#')[0];
+
+    // Le dossier à ouvrir depuis le clic droit : celui du jeu, ou celui qui contient son fichier.
+    public string? FolderPath => IsEmulated && RomFilePath is string romFile
+        ? Path.GetDirectoryName(romFile)
+        : InstallPath;
+
+    // Wyrmhold ne supprime jamais de fichier : un jeu émulé n'a pas de désinstalleur officiel à lancer.
+    public bool CanUninstall => IsInstalled && !IsEmulated;
+
     public long LastPlayedUnix { get; set; }
     public string? Description { get; set; }
     public string? Developers { get; set; }
@@ -123,7 +151,7 @@ public class Game : INotifyPropertyChanged
     public string? CoverPath { get; set; }
 
     public string Subtitle => string.Join(" · ",
-        new[] { PlatformName, PlaytimeText, OriginText }.Where(text => text.Length > 0));
+        new[] { SourceName, PlaytimeText, OriginText }.Where(text => text.Length > 0));
     public string PlatformName => Platform switch
     {
         Platform.Steam => "Steam",
@@ -248,15 +276,17 @@ public class Game : INotifyPropertyChanged
     // Les pastilles de la tuile : une par plateforme, dorée si cette copie est à 100 %.
     public IEnumerable<CopyBadge> CopyBadges => CopiesOrSelf.Select(copy => new CopyBadge(copy.PlatformShortName, copy.IsAchievementsComplete));
 
-    public string PlatformShortName => Platform switch
-    {
-        Platform.Epic => "Epic",
-        _ => PlatformName
-    };
+    public string PlatformShortName => IsEmulated
+        ? GameConsoles.ShortName(Console)
+        : Platform switch
+        {
+            Platform.Epic => "Epic",
+            _ => PlatformName
+        };
 
     // Le texte d'une copie dans la liste « Plateforme » de la fiche.
     public string CopyLabel => string.Join(" · ",
-        new[] { PlatformName, InstallStatusText, PlaytimeText, AchievementsText }.Where(text => text.Length > 0));
+        new[] { ConsoleName, PlatformName, InstallStatusText, PlaytimeText, AchievementsText }.Where(text => text.Length > 0));
 
     public string LastUpdateText => LastUpdateDetectedUnix == 0
         ? ""

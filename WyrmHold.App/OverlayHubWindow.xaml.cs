@@ -225,7 +225,7 @@ public partial class OverlayHubWindow : Window
         Game game = _running.Game;
 
         GameNameText.Text = game.Name;
-        GameInfoText.Text = string.Join(" · ", new[] { game.PlatformName, game.Developers ?? "" }.Where(part => part.Length > 0));
+        GameInfoText.Text = string.Join(" · ", new[] { game.SourceName, game.Developers ?? "" }.Where(part => part.Length > 0));
         CoverLoader.SetPath(CoverImage, game.CoverPath);
 
         SessionStartText.Text = _running.Start.LocalDateTime.ToString("HH:mm");

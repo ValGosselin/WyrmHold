@@ -281,7 +281,7 @@ public partial class ShopsView : UserControl
         }
 
         IEnumerable<string> platforms = copies
-            .Select(game => game.IsFamilyShared == true ? $"{game.PlatformName} (famille)" : game.PlatformName)
+            .Select(game => game.IsFamilyShared == true ? $"{game.SourceName} (famille)" : game.SourceName)
             .Distinct();
 
         return string.Join(", ", platforms);

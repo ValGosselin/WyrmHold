@@ -37,7 +37,7 @@ public static class GameUninstaller
     /// <summary>Comment désinstaller ce jeu, ou null si aucune méthode n'a été trouvée.</summary>
     public static UninstallPlan? FindPlan(Game game)
     {
-        if (!game.IsInstalled)
+        if (!game.CanUninstall)
         {
             return null;
         }

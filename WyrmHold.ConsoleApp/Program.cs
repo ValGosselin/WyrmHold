@@ -13,6 +13,20 @@ if (args.Length > 0 && args[0] == "7")
     return;
 }
 
+// 21 = émulateurs, ESSAI À BLANC : programmes et dossiers trouvés, jeux lus et commande de lancement (rien n'est lancé ni enregistré).
+if (args.Length > 0 && args[0] == "21")
+{
+    ShowEmulators();
+    return;
+}
+
+// 22 = émulateurs : essai des lecteurs de formats sur de faux fichiers, du nettoyage des noms et de la lecture des lignes de commande.
+if (args.Length > 0 && args[0] == "22")
+{
+    await TestEmulationAsync();
+    return;
+}
+
 // 9 = succès Steam lus sur le disque, comparés à la Steam Web API : « dotnet run -- 9 4294490 ».
 if (args.Length > 1 && args[0] == "9")
 {
@@ -788,4 +802,281 @@ static async Task CountAsync(IsThereAnyDealApi itad, string label, string[]? tag
     string examples = string.Join(" | ", items.Take(4).Select(item => item.Title));
 
     Console.WriteLine($"{label,-40} {count,12} promo(s)   ex. : {examples}");
+}
+
+// Mode 21 : sans LibraryService, pour ne toucher ni à la base ni aux réglages.
+static void ShowEmulators()
+{
+    AppSettings settings = AppSettings.Load();
+    EmulatorProvider[] emulators =
+    {
+        new RetroArchProvider(settings), new DolphinProvider(settings), new RyujinxProvider(settings), new AzaharProvider(settings)
+    };
+
+    foreach (EmulatorProvider emulator in emulators)
+    {
+        string? executable = emulator.FindExecutable();
+        List<Game> games = emulator.GetInstalledGames();
+
+        Console.WriteLine($"=== {emulator.Name} : {executable ?? "NON TROUVÉ"}");
+        Console.WriteLine($"    Dossiers de l'émulateur : {string.Join(" | ", emulator.GetConfiguredFolders())}");
+        Console.WriteLine($"    Dossiers ajoutés : {string.Join(" | ", emulator.Settings.GameFolders)}");
+
+        if (emulator is RetroArchProvider retroArch)
+        {
+            Console.WriteLine($"    Cœurs installés : {retroArch.GetInstalledCores().Count}");
+        }
+
+        foreach (Game game in games)
+        {
+            Console.WriteLine($"    {game.Name} [{game.ConsoleName}] id={game.PlatformGameId} {game.SizeText} {game.PlaytimeText}");
+
+            try
+            {
+                System.Diagnostics.ProcessStartInfo start = emulator.BuildStartInfo(game, executable!);
+                Console.WriteLine($"      > {start.FileName} {string.Join(" ", start.ArgumentList.Select(argument => $"\"{argument}\""))}");
+            }
+            catch (EmulatorLaunchException ex)
+            {
+                Console.WriteLine($"      > IMPOSSIBLE : {ex.Message.Split('\n')[0]}");
+            }
+        }
+    }
+}
+
+// Mode 22 : de faux fichiers, écrits dans un dossier temporaire puis effacés.
+static async Task TestEmulationAsync()
+{
+    string folder = Path.Combine(Path.GetTempPath(), $"wyrmhold-test-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(folder);
+    int failures = 0;
+
+    void Check(string label, bool isOk, object? got = null)
+    {
+        Console.WriteLine($"{(isOk ? "✔" : "✘")} {label}{(isOk ? "" : $" → {got}")}");
+        failures += isOk ? 0 : 1;
+    }
+
+    static void Put(byte[] target, int offset, byte[] bytes) => bytes.CopyTo(target, offset);
+    static byte[] Ascii(string text) => System.Text.Encoding.ASCII.GetBytes(text);
+    static byte[] Utf16(string text) => System.Text.Encoding.Unicode.GetBytes(text);
+    static byte[] BigEndian(uint value) => new[] { (byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value };
+
+    // Un en-tête de disque : numéro de jeu, marque de la console, nom.
+    static byte[] Disc(string id, bool isWii, string name)
+    {
+        byte[] header = new byte[0x100];
+        Put(header, 0, Ascii(id));
+        Put(header, isWii ? 0x18 : 0x1C, BigEndian(isWii ? 0x5D1C9EA3 : 0xC2339F3D));
+        Put(header, 0x20, Ascii(name));
+        return header;
+    }
+
+    string Save(string name, byte[] bytes)
+    {
+        string path = Path.Combine(folder, name);
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    try
+    {
+        // --- Disques ---
+        byte[] gc = Disc("GALE01", false, "Super Smash Bros Melee");
+        byte[] wii = Disc("RMCP01", true, "MARIO KART Wii");
+
+        DiscImageInfo? iso = DiscImageHeader.TryRead(Save("a.iso", gc));
+        Check("ISO GameCube", iso is { GameId: "GALE01", Name: "Super Smash Bros Melee", Console: GameConsole.GameCube }, iso);
+
+        byte[] wbfs = new byte[0x400];
+        Put(wbfs, 0, Ascii("WBFS"));
+        wbfs[8] = 9;
+        Put(wbfs, 0x200, wii);
+        DiscImageInfo? wbfsInfo = DiscImageHeader.TryRead(Save("b.wbfs", wbfs));
+        Check("WBFS Wii", wbfsInfo is { GameId: "RMCP01", Console: GameConsole.Wii }, wbfsInfo);
+
+        byte[] rvz = new byte[0x200];
+        Put(rvz, 0, Ascii("RVZ\u0001"));
+        Put(rvz, 0x58, wii.Take(0x80).ToArray());
+        DiscImageInfo? rvzInfo = DiscImageHeader.TryRead(Save("c.rvz", rvz));
+        Check("RVZ Wii", rvzInfo is { GameId: "RMCP01", Name: "MARIO KART Wii" }, rvzInfo);
+
+        byte[] ciso = new byte[0x8100];
+        Put(ciso, 0, Ascii("CISO"));
+        Put(ciso, 0x8000, gc);
+        DiscImageInfo? cisoInfo = DiscImageHeader.TryRead(Save("d.ciso", ciso));
+        Check("CISO GameCube", cisoInfo is { GameId: "GALE01" }, cisoInfo);
+
+        // GCZ : un bloc compressé par zlib, après l'en-tête, sa position et sa somme de contrôle.
+        using (MemoryStream compressed = new MemoryStream())
+        {
+            using (System.IO.Compression.ZLibStream zlib = new System.IO.Compression.ZLibStream(compressed, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+            {
+                zlib.Write(gc.Concat(new byte[0x3F00]).ToArray());
+            }
+
+            byte[] gcz = new byte[32 + 8 + 4 + compressed.Length];
+            Put(gcz, 0, BitConverter.GetBytes(0xB10BC001));
+            Put(gcz, 20 + 4, BitConverter.GetBytes(0x4000));
+            Put(gcz, 28, BitConverter.GetBytes(1));
+            Put(gcz, 44, compressed.ToArray());
+            DiscImageInfo? gczInfo = DiscImageHeader.TryRead(Save("e.gcz", gcz));
+            Check("GCZ GameCube (compressé)", gczInfo is { GameId: "GALE01", Name: "Super Smash Bros Melee" }, gczInfo);
+        }
+
+        Check("Fichier qui n'est pas un disque", DiscImageHeader.TryRead(Save("f.iso", new byte[0x200])) is null);
+
+        // --- DS ---
+        byte[] nds = new byte[0x1000];
+        Put(nds, 0x68, BitConverter.GetBytes(0x400));
+        Put(nds, 0x400 + 0x340, Utf16("Pokemon Platinum\nVersion\nNintendo"));
+        string? dsTitle = DsRomHeader.TryReadTitle(Save("g.nds", nds));
+        Check("Titre DS sans l'éditeur", dsTitle == "Pokemon Platinum Version", dsTitle);
+
+        // --- 3DS : NCSD → NCCH (0x200) → ExeFS (0x400) → icon (0x600) ---
+        byte[] cci = new byte[0x4000];
+        Put(cci, 0x100, Ascii("NCSD"));
+        Put(cci, 0x120, BitConverter.GetBytes(1));
+        Put(cci, 0x300, Ascii("NCCH"));
+        Put(cci, 0x318, BitConverter.GetBytes(0x0004000000055D00UL));
+        cci[0x38F] = 4;
+        Put(cci, 0x3A0, BitConverter.GetBytes(1));
+        Put(cci, 0x400, Ascii("icon"));
+        Put(cci, 0x600, Ascii("SMDH"));
+        Put(cci, 0x600 + 8 + 0x200, Utf16("Pokemon X"));
+        ThreeDsRomInfo? threeDs = ThreeDsRomHeader.TryRead(Save("h.3ds", cci));
+        Check("3DS déchiffré", threeDs is { TitleId: "0004000000055d00", Title: "Pokemon X" }, threeDs);
+
+        cci[0x38F] = 0;
+        ThreeDsRomInfo? encrypted = ThreeDsRomHeader.TryRead(Save("i.3ds", cci));
+        Check("3DS chiffré : Title ID sans titre", encrypted is { TitleId: "0004000000055d00", Title: null }, encrypted);
+
+        // --- Switch ---
+        static byte[] Pfs0(params (string Name, byte[] Data)[] files)
+        {
+            byte[] names = files.SelectMany(file => Ascii(file.Name + "\0")).ToArray();
+            using MemoryStream stream = new MemoryStream();
+            using BinaryWriter writer = new BinaryWriter(stream);
+            writer.Write(Ascii("PFS0"));
+            writer.Write(files.Length);
+            writer.Write(names.Length);
+            writer.Write(0);
+
+            long offset = 0;
+            int nameOffset = 0;
+
+            foreach ((string name, byte[] data) in files)
+            {
+                writer.Write(offset);
+                writer.Write((long)data.Length);
+                writer.Write(nameOffset);
+                writer.Write(0);
+                offset += data.Length;
+                nameOffset += name.Length + 1;
+            }
+
+            writer.Write(names);
+
+            foreach ((_, byte[] data) in files)
+            {
+                writer.Write(data);
+            }
+
+            return stream.ToArray();
+        }
+
+        SwitchPackageInfo? xml = SwitchPackageReader.TryRead(Save("j.nsp", Pfs0(
+            ("abc.nca", new byte[64]),
+            ("abc.cnmt.xml", Ascii("<ContentMeta><Type>Application</Type><Id>0x010051f0207b2000</Id></ContentMeta>")))));
+        Check("NSP sans ticket (.cnmt.xml)", xml is { TitleId: "010051f0207b2000", IsBaseGame: true }, xml);
+
+        SwitchPackageInfo? update = SwitchPackageReader.TryRead(Save("k.nsp", Pfs0(
+            ("0100187003a368000000000000000007.tik", new byte[64]))));
+        Check("NSP de mise à jour (.tik)", update is { TitleId: "0100187003a36800", IsBaseGame: false }, update);
+
+        // --- Noms ---
+        foreach ((string input, string expected) in new[]
+        {
+            ("Pokemon - Emerald Version (USA, Europe)", "Pokemon - Emerald Version"),
+            ("Legend of Zelda, The - The Minish Cap (Europe) (En,Fr,De,Es,It)", "The Legend of Zelda - The Minish Cap"),
+            ("Super Mario World [!]", "Super Mario World"),
+            ("Pokémon Let’s Go, Eevee! [0100187003A36000][v0]", "Pokémon Let’s Go, Eevee!"),
+            ("Tomodachi Life Living the Dream", "Tomodachi Life Living the Dream"),
+            ("mario_kart_ds (U)", "mario kart ds"),
+            ("(Europe)", "(Europe)")
+        })
+        {
+            string cleaned = NameTools.CleanRomName(input);
+            Check($"Nom : {input}", cleaned == expected, cleaned);
+        }
+
+        Check("Title ID dans un nom", NameTools.FindSwitchTitleId("Pokemon__0100187003A36800__v131072") == "0100187003a36800");
+        Check("Identifiant sans accents", NameTools.ToSlug("Pokémon Émeraude (France)") == "pokemon-emeraude-france", NameTools.ToSlug("Pokémon Émeraude (France)"));
+
+        // --- Configurations ---
+        List<RetroArchProvider.PlaylistItem> items = RetroArchProvider.ParsePlaylist("""
+            { "version": "1.5", "default_core_path": "", "items": [
+              { "path": "D:\\GBA\\jeux.zip#Golden Sun (USA).gba", "label": "Golden Sun (USA)", "core_path": "DETECT", "core_name": "DETECT", "crc32": "DETECT", "db_name": "Nintendo - Game Boy Advance.lpl" }
+            ] }
+            """);
+        Check("Playlist .lpl", items.Count == 1 && items[0].Path.EndsWith("#Golden Sun (USA).gba") && items[0].Label == "Golden Sun (USA)", items.Count);
+
+        Check("retroarch.cfg", RetroArchProvider.ReadConfigValue(new[] { "a = \"b\"", "playlist_directory = \":\\playlists\"" }, "playlist_directory") == @":\playlists");
+
+        List<string> isoPaths = DolphinProvider.ReadIsoPaths(new[]
+        {
+            "[Core]", "ISOPath0 = C:\\Faux", "[General]", "ISOPaths = 2", "ISOPath0 = D:\\Wii", "ISOPath1 = E:\\GC", "RecursiveISOPaths = True"
+        });
+        Check("Dolphin.ini", isoPaths.SequenceEqual(new[] { @"D:\Wii", @"E:\GC" }), string.Join("|", isoPaths));
+
+        AzaharProvider.AzaharConfig config = AzaharProvider.ParseConfig(new[]
+        {
+            "[Data%20Storage]", "use_custom_storage=true", @"sdmc_directory=C:\\Users\\moi/Azahar/sdmc/",
+            "[UI]", @"Paths\gamedirs\1\path=INSTALLED", @"Paths\gamedirs\1\deep_scan\default=true", @"Paths\gamedirs\1\deep_scan=false",
+            @"Paths\gamedirs\2\path=D:\\3DS\\Jeux", @"Paths\gamedirs\2\deep_scan=true", @"Paths\gamedirs\size=2"
+        });
+        Check("qt-config.ini", config.GameFolders.Count == 2 && config.GameFolders[1] is { Path: @"D:\3DS\Jeux", IncludeSubfolders: true }
+            && config.SdmcFolder == @"C:\Users\moi/Azahar/sdmc/", config);
+
+        // --- Temps de jeu de bout en bout : une copie de cmd.exe appelée Ryujinx.exe joue l'émulateur ---
+        string romPath = @"D:\ROMS\Jeu Test é.nsp";
+        string fakeEmulator = Path.Combine(folder, RyujinxProvider.Executable);
+        File.Copy(Path.Combine(Environment.SystemDirectory, "cmd.exe"), fakeEmulator);
+
+        Game game = new Game { Platform = Platform.Ryujinx, PlatformGameId = "test", Name = "Jeu Test", IsInstalled = true, InstallPath = romPath };
+        Game other = new Game { Platform = Platform.Ryujinx, PlatformGameId = "autre", Name = "Autre", IsInstalled = true, InstallPath = @"D:\ROMS\Autre.nsp" };
+
+        using System.Diagnostics.Process emulator = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(fakeEmulator)
+        {
+            Arguments = $"/c ping -n 60 127.0.0.1 >nul & rem \"{romPath}\"",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        })!;
+
+        string? commandLine = NativeProcesses.GetCommandLine(emulator.Id);
+        Check("Ligne de commande lue (accent compris)", commandLine?.Contains(romPath) == true, commandLine);
+
+        TaskCompletionSource<string> started = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<string> stopped = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        GameWatcher watcher = new GameWatcher();
+        watcher.GameStarted += running => started.TrySetResult(running.Game.Name);
+        watcher.GameStopped += (running, _) => stopped.TrySetResult(running.Game.Name);
+        watcher.SetGames(new[] { other, game });
+        watcher.Start();
+
+        Task firstResult = await Task.WhenAny(started.Task, Task.Delay(TimeSpan.FromSeconds(8)));
+        Check("Détecteur : le bon jeu démarre", firstResult == started.Task && started.Task.Result == "Jeu Test");
+
+        emulator.Kill(entireProcessTree: true);
+        Task secondResult = await Task.WhenAny(stopped.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+        Check("Détecteur : le jeu s'arrête avec l'émulateur", secondResult == stopped.Task && stopped.Task.Result == "Jeu Test");
+        watcher.Stop();
+    }
+    finally
+    {
+        Directory.Delete(folder, recursive: true);
+    }
+
+    Console.WriteLine(failures == 0 ? "\nTout est bon." : $"\n{failures} essai(s) raté(s).");
 }

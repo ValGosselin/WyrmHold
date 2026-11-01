@@ -9,6 +9,9 @@ public class SteamGridDbApi
 {
     private const string BaseUrl = "https://www.steamgriddb.com/api/v2/";
 
+    // Une liste courte exprès : retirer n'importe quel dernier mot trouverait un autre jeu (« Mario Kart 7 » → « Mario Kart »).
+    private static readonly string[] GameVersionWords = { " Light", " Shadow" };
+
     private static readonly HttpClient Http = new HttpClient();
 
     // La clé est relue à chaque appel : une clé changée dans Réglages sert tout de suite.
@@ -25,8 +28,9 @@ public class SteamGridDbApi
     /// <summary>
     /// Vérifie la clé (assistant et Réglages) : la fiche d'un jeu connu (9022 = Portal).
     /// Lance une erreur si la clé est refusée.
-    /// Essai du 9 octobre 2026 : la recherche (search/autocomplete) répond même avec une fausse clé,
-    /// games/id répond 401 : c'est donc lui qui sert de test. Autre piège : une réponse déjà demandée
+    /// Essai du 9 octobre 2026 : la recherche (search/autocomplete) répondait même avec une fausse clé
+    /// (depuis, vérifié le 1er novembre 2026, elle répond 401 elle aussi), games/id répond 401 :
+    /// c'est donc lui qui sert de test. Autre piège : une réponse déjà demandée
     /// avec une bonne clé est gardée par le cache de Cloudflare (« cf-cache-status: HIT ») et renvoyée
     /// même avec une fausse clé. Un paramètre « _ » différent à chaque fois oblige à vraiment vérifier.
     /// </summary>
@@ -51,18 +55,46 @@ public class SteamGridDbApi
             }
         }
 
-        string cleanedName = CleanForSearch(game.Name);
-        List<SgdbGame>? results = await GetAsync<List<SgdbGame>>(
-            $"search/autocomplete/{Uri.EscapeDataString(cleanedName)}");
-
-        SgdbGame? match = results?.FirstOrDefault(r => NormalizeName(r.Name) == NormalizeName(cleanedName));
-
-        if (match is null)
+        foreach (string name in SearchNames(game))
         {
-            return null;
+            string cleanedName = CleanForSearch(name);
+            List<SgdbGame>? results = await GetAsync<List<SgdbGame>>(
+                $"search/autocomplete/{Uri.EscapeDataString(cleanedName)}");
+
+            SgdbGame? match = results?.FirstOrDefault(r => NormalizeName(r.Name) == NormalizeName(cleanedName));
+
+            if (match is not null)
+            {
+                return await FindVerticalGridAsync($"grids/game/{match.Id}");
+            }
         }
 
-        return await FindVerticalGridAsync($"grids/game/{match.Id}");
+        return null;
+    }
+
+    /// <summary>
+    /// Les noms à essayer : celui du jeu, puis pour un jeu émulé celui de son fichier, et son nom sans la version.
+    /// Le nom écrit sur un disque peut être plus court que le vrai titre (« PokePark Wii » pour
+    /// « PokéPark Wii: Pikachu's Adventure »), et un jeu vendu en deux versions n'a parfois qu'une fiche
+    /// (« Inazuma Eleven Go » pour Light et Shadow, vérifié le 1er novembre 2026).
+    /// </summary>
+    private static IEnumerable<string> SearchNames(Game game)
+    {
+        List<string> names = new List<string> { game.Name };
+
+        if (game.IsEmulated && !string.IsNullOrEmpty(game.RomFilePath))
+        {
+            names.Add(NameTools.CleanRomName(Path.GetFileNameWithoutExtension(game.RomFilePath)));
+
+            string? version = GameVersionWords.FirstOrDefault(word => game.Name.EndsWith(word, StringComparison.OrdinalIgnoreCase));
+
+            if (version is not null)
+            {
+                names.Add(game.Name.Substring(0, game.Name.Length - version.Length));
+            }
+        }
+
+        return names.DistinctBy(NormalizeName);
     }
 
     private async Task<string?> FindVerticalGridAsync(string gridsPath)
@@ -104,9 +136,10 @@ public class SteamGridDbApi
 
         return cleaned;
     }
+    // Sans les accents : une ROM s'appelle souvent « Pokemon », quand SteamGridDB écrit « Pokémon ».
     private static string NormalizeName(string name)
     {
-        return new string(name.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        return new string(NameTools.RemoveDiacritics(name).Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
     }
 }
 

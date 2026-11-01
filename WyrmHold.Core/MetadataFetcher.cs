@@ -24,7 +24,7 @@ public class MetadataFetcher
                     steamAppIds[game] = appId;
                 }
             }
-            else
+            else if (!game.IsEmulated)   // un jeu de console : la fiche Steam d'un jeu du même nom serait fausse
             {
                 string? foundAppId = await SteamStoreApi.FindAppIdByNameAsync(game.Name);
 

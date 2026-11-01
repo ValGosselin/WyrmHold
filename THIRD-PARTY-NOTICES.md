@@ -42,6 +42,11 @@ Certaines adresses de services ou méthodes de connexion ont été trouvées en 
 Playnite (https://github.com/JosefNemec/Playnite), son extension SuccessStory
 (https://github.com/Lacro59/playnite-successstory-plugin) et Legendary (outil libre de connexion à Epic Games).
 
+Pour les jeux émulés, les formats de fichiers et de configuration ont été vérifiés dans les fichiers et la
+documentation des émulateurs eux-mêmes (RetroArch, Dolphin, Ryujinx, Azahar), sur 3dbrew (https://www.3dbrew.org)
+et dans GBATEK (https://problemkaputt.de/gbatek.htm). Les noms de fichiers des cœurs RetroArch ont été vérifiés dans
+les définitions d'émulateurs de Playnite. Aucun code n'en a été copié, et Wyrmhold ne livre ni émulateur, ni jeu, ni clé.
+
 ## Marques
 
 Wyrmhold n'est pas affilié à Valve, Epic Games, GOG, Electronic Arts, Ubisoft ni Blizzard Entertainment.

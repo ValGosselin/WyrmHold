@@ -27,7 +27,8 @@ public partial class MainWindow : Window
     private List<Game> _visibleGames = new List<Game>();
     private bool _isBuildingCopySelector;
     private bool _isLoadingSettings;
-    private readonly HashSet<Platform> _selectedPlatforms = new HashSet<Platform>();
+    // Les valeurs de Game.FilterKey : « Steam », ou la console d'un jeu émulé (« Wii »).
+    private readonly HashSet<string> _selectedPlatforms = new HashSet<string>();
     private string _searchKey = "";
     private string _installFilter = "all";
     private string _originFilter = "all";
@@ -789,7 +790,7 @@ public partial class MainWindow : Window
 
     private bool MatchesFilters(Game game)
     {
-        if (_selectedPlatforms.Count > 0 && !_selectedPlatforms.Contains(game.Platform))
+        if (_selectedPlatforms.Count > 0 && !_selectedPlatforms.Contains(game.FilterKey))
         {
             return false;
         }
@@ -855,9 +856,11 @@ public partial class MainWindow : Window
 
     private void BuildPlatformFilters(List<Game> games)
     {
-        List<IGrouping<Platform, Game>> platforms = games
-            .GroupBy(g => g.Platform)
-            .OrderBy(group => group.First().PlatformName)
+        // Les lanceurs d'abord, puis les consoles.
+        List<IGrouping<string, Game>> platforms = games
+            .GroupBy(g => g.FilterKey)
+            .OrderBy(group => group.First().IsEmulated)
+            .ThenBy(group => group.First().SourceName)
             .ToList();
 
         // Une plateforme qui n'a plus aucun jeu ne doit pas rester cochée en cachant tout.
@@ -865,11 +868,11 @@ public partial class MainWindow : Window
 
         PlatformFilters.Children.Clear();
 
-        foreach (IGrouping<Platform, Game> group in platforms)
+        foreach (IGrouping<string, Game> group in platforms)
         {
             ToggleButton button = new ToggleButton
             {
-                Content = $"{group.First().PlatformName} ({group.Count()})",
+                Content = $"{group.First().SourceName} ({group.Count()})",
                 Tag = group.Key,
                 IsChecked = _selectedPlatforms.Contains(group.Key),
                 Padding = new Thickness(10, 4, 10, 4),
@@ -923,18 +926,18 @@ public partial class MainWindow : Window
 
     private void PlatformFilter_Changed(object sender, RoutedEventArgs e)
     {
-        if (sender is not ToggleButton { Tag: Platform platform } button)
+        if (sender is not ToggleButton { Tag: string filterKey } button)
         {
             return;
         }
 
         if (button.IsChecked == true)
         {
-            _selectedPlatforms.Add(platform);
+            _selectedPlatforms.Add(filterKey);
         }
         else
         {
-            _selectedPlatforms.Remove(platform);
+            _selectedPlatforms.Remove(filterKey);
         }
 
         RefreshFilters();
@@ -2181,7 +2184,8 @@ public partial class MainWindow : Window
 
         if (!found)
         {
-            MessageBox.Show($"Aucune jaquette trouvée pour {game.Name} (ni chez {game.PlatformName}, ni chez Steam, ni sur SteamGridDB). La tuile affiche son nom.", "Wyrmhold");
+            string searched = game.IsEmulated ? "sur SteamGridDB" : $"ni chez {game.PlatformName}, ni chez Steam, ni sur SteamGridDB";
+            MessageBox.Show($"Aucune jaquette trouvée pour {game.Name} ({searched}). La tuile affiche son nom.", "Wyrmhold");
         }
     }
 
@@ -2192,14 +2196,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (string.IsNullOrEmpty(game.InstallPath) || !Directory.Exists(game.InstallPath))
+        if (string.IsNullOrEmpty(game.FolderPath) || !Directory.Exists(game.FolderPath))
         {
             MessageBox.Show($"Le dossier de {game.Name} est introuvable. Clique sur Actualiser si le jeu a été déplacé ou désinstallé.", "Wyrmhold");
             return;
         }
 
         // Comme un double-clic sur le dossier : l'Explorateur de fichiers s'ouvre dedans.
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(game.InstallPath) { UseShellExecute = true })?.Dispose();
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(game.FolderPath) { UseShellExecute = true })?.Dispose();
     }
 
     /// <summary>
@@ -2342,7 +2346,7 @@ public partial class MainWindow : Window
 
         if (!_library.Launch(game))
         {
-            MessageBox.Show($"Impossible de lancer {game.Name}. Les détails sont dans le journal.", "Wyrmhold");
+            MessageBox.Show(_library.LastLaunchError ?? $"Impossible de lancer {game.Name}. Les détails sont dans le journal.", "Wyrmhold");
             return;
         }
 
@@ -2394,6 +2398,11 @@ public partial class MainWindow : Window
         ApplyLauncherState(Platform.Ubisoft, UbisoftStatusText, UbisoftAccountButton);
         ApplyLauncherState(Platform.Ea, EaStatusText, EaAccountButton);
         ApplyLauncherState(Platform.BattleNet, BattleNetStatusText, BattleNetAccountButton);
+
+        SetEmulatorRow(Platform.RetroArch, RetroArchStatusText, RetroArchButton);
+        SetEmulatorRow(Platform.Dolphin, DolphinStatusText, DolphinButton);
+        SetEmulatorRow(Platform.Ryujinx, RyujinxStatusText, RyujinxButton);
+        SetEmulatorRow(Platform.Azahar, AzaharStatusText, AzaharButton);
 
         // IsThereAnyDeal : facultatif, ne sert qu'à synchroniser la liste de suivi avec ta Waitlist.
         if (ShopsPanel.IsItadConfigured)
@@ -2499,6 +2508,47 @@ public partial class MainWindow : Window
         {
             statusText.Text = "Non connecté";
             button.Content = "Se connecter";
+        }
+    }
+
+    private void SetEmulatorRow(Platform platform, TextBlock statusText, Button button)
+    {
+        string? executable = _library.GetEmulator(platform).FindExecutable();
+        int gameCount = _allGames.Count(game => game.Platform == platform && game.IsInstalled);
+
+        statusText.Text = executable is null
+            ? "Non trouvé : clique sur Configurer"
+            : $"{gameCount} jeu{(gameCount > 1 ? "x" : "")} · {executable}";
+        statusText.ToolTip = executable;
+
+        // Désactivé dans Réglages : même présentation que les comptes.
+        ApplyLauncherState(platform, statusText, button);
+    }
+
+    private async void EmulatorButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name } || !Enum.TryParse(name, out Platform platform))
+        {
+            return;
+        }
+
+        EmulatorSettingsWindow window = new EmulatorSettingsWindow(_library, platform) { Owner = this };
+        window.ShowDialog();
+
+        if (window.HasChanges)
+        {
+            // Dossiers ou programme changés : les jeux sont relus sur le disque, sans internet.
+            await RefreshLibraryAsync(RefreshKind.Local);
+            RefreshAccountsTab();
+
+            // Une lecture locale ne cherche pas les jaquettes : les nouveaux jeux n'attendent pas la prochaine synchro.
+            List<Game> withoutCover = _allGames.Where(game => game.IsEmulated && game.CoverPath is null).ToList();
+
+            if (withoutCover.Count > 0)
+            {
+                await _library.DownloadCoversAsync(withoutCover);
+                GamesList.Items.Refresh();
+            }
         }
     }
 
@@ -3176,7 +3226,7 @@ public partial class MainWindow : Window
         return new SavedViewFilters
         {
             SearchText = SearchBox.Text,
-            Platforms = _selectedPlatforms.Select(p => p.ToString()).ToList(),
+            Platforms = _selectedPlatforms.ToList(),
             InstallFilter = _installFilter,
             OriginFilter = _originFilter,
             ActivityFilter = _activityFilter,
@@ -3200,8 +3250,7 @@ public partial class MainWindow : Window
 
         foreach (ToggleButton button in PlatformFilters.Children.OfType<ToggleButton>())
         {
-            button.IsChecked = button.Tag is Platform platform
-                && filters.Platforms.Contains(platform.ToString());
+            button.IsChecked = button.Tag is string filterKey && filters.Platforms.Contains(filterKey);
         }
 
         SelectByTag(InstallFilter, filters.InstallFilter);

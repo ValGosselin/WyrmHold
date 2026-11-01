@@ -478,9 +478,11 @@
                                         <!-- Ces deux-là : seulement pour un jeu installé -->
                                         <MenuItem Header="🖼  Re-télécharger la jaquette" Click="TileMenuRedownloadCover_Click"/>
                                         <MenuItem Header="📁  Ouvrir le dossier du jeu" Click="TileMenuOpenFolder_Click"
-                                                  Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>                                        <Separator Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
-                                        <MenuItem Header="🗑  Désinstaller…" Click="TileMenuUninstall_Click"
                                                   Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                        <!-- Pas pour un jeu émulé : Wyrmhold ne supprime jamais de fichier lui-même -->
+                                        <Separator Visibility="{Binding CanUninstall, Converter={StaticResource BoolToVisibility}}"/>
+                                        <MenuItem Header="🗑  Désinstaller…" Click="TileMenuUninstall_Click"
+                                                  Visibility="{Binding CanUninstall, Converter={StaticResource BoolToVisibility}}"/>
                                     </ContextMenu>
                                 </StackPanel.ContextMenu>
                                 <StackPanel.Style>
@@ -777,6 +779,11 @@
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="44"/>
+                            <RowDefinition Height="44"/>
+                            <RowDefinition Height="44"/>
+                            <RowDefinition Height="44"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Steam" FontWeight="SemiBold"/>
@@ -810,6 +817,29 @@
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="IsThereAnyDeal" FontWeight="SemiBold"/>
                         <TextBlock Grid.Row="7" Grid.Column="1" x:Name="ItadStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="7" Grid.Column="2" x:Name="ItadAccountButton" Click="ItadAccountButton_Click"/>
+
+                        <!-- Émulateurs : Tag = le nom de la plateforme (énumération Platform). -->
+                        <StackPanel Grid.Row="8" Grid.ColumnSpan="3" Margin="0,24,0,6">
+                            <TextBlock Text="Émulateurs" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                                       Text="Wyrmhold lit les dossiers de jeux de tes émulateurs et ceux que tu ajoutes ici. Tes jeux et tes sauvegardes ne sont jamais modifiés."/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="9" Grid.Column="0" Text="RetroArch" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="9" Grid.Column="1" x:Name="RetroArchStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="9" Grid.Column="2" x:Name="RetroArchButton" Content="Configurer…" Tag="RetroArch" Click="EmulatorButton_Click"/>
+
+                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Dolphin" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="10" Grid.Column="1" x:Name="DolphinStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="10" Grid.Column="2" x:Name="DolphinButton" Content="Configurer…" Tag="Dolphin" Click="EmulatorButton_Click"/>
+
+                        <TextBlock Grid.Row="11" Grid.Column="0" Text="Ryujinx" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="11" Grid.Column="1" x:Name="RyujinxStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="11" Grid.Column="2" x:Name="RyujinxButton" Content="Configurer…" Tag="Ryujinx" Click="EmulatorButton_Click"/>
+
+                        <TextBlock Grid.Row="12" Grid.Column="0" Text="Azahar" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="12" Grid.Column="1" x:Name="AzaharStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="12" Grid.Column="2" x:Name="AzaharButton" Content="Configurer…" Tag="Azahar" Click="EmulatorButton_Click"/>
                     </Grid>
                 </StackPanel>
             </ScrollViewer>
@@ -855,6 +885,10 @@
                         <CheckBox Content="GOG" Tag="Gog" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                         <CheckBox Content="EA app" Tag="Ea" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                         <CheckBox Content="Battle.net" Tag="BattleNet" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="RetroArch" Tag="RetroArch" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Dolphin" Tag="Dolphin" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Ryujinx" Tag="Ryujinx" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
+                        <CheckBox Content="Azahar" Tag="Azahar" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                     </WrapPanel>
 
                     <TextBlock Text="Bibliothèque" Style="{StaticResource SettingsSection}"/>
