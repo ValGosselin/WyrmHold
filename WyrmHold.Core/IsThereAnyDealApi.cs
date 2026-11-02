@@ -62,6 +62,21 @@ public class IsThereAnyDealApi
     }
 
     /// <summary>
+    /// Le nom de toutes les boutiques suivies par IsThereAnyDeal dans un pays. Pas besoin de clé.
+    /// Vérifié le 2 novembre 2026 : service/shops/v1?country=FR → 35 boutiques, sans clé.
+    /// </summary>
+    public async Task<List<string>> GetShopNamesAsync(string country = "FR")
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, BaseUrl + "service/shops/v1?country=" + country);
+        string json = await ReadResponseAsync(request);
+
+        List<ItadShopListItem> shops = JsonSerializer.Deserialize<List<ItadShopListItem>>(json)
+            ?? new List<ItadShopListItem>();
+
+        return shops.Select(shop => shop.Title).ToList();
+    }
+
+    /// <summary>
     /// Récupère les prix d'un ou plusieurs jeux (200 au plus par appel) dans un pays.
     /// Un seul appel suffit pour toute une liste : c'est ce qui permettra de vérifier
     /// tous les jeux suivis sans gaspiller la limite de requêtes.

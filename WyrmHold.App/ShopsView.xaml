@@ -18,7 +18,7 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Height="32" Margin="0,0,0,10">
             <Grid Width="320" Margin="0,0,10,0">
                 <TextBox x:Name="ShopSearchBox" Padding="6,0" VerticalContentAlignment="Center"
-                         KeyDown="ShopSearchBox_KeyDown"/>
+                         KeyDown="ShopSearchBox_KeyDown" TextChanged="ShopSearchBox_TextChanged"/>
                 <TextBlock Text="Chercher un jeu dans les boutiques…" Foreground="{DynamicResource SecondaryTextBrush}"
                            Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
                     <TextBlock.Style>
@@ -233,7 +233,7 @@
 
             <!-- Tout le reste (présentation, filtres, offres) défile d'un bloc : la présentation est grande,
                  elle ne doit pas écraser la liste des prix sur un petit écran. -->
-            <ScrollViewer x:Name="RightScroll" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer x:Name="RightScroll" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
             <StackPanel>
 
             <!-- Présentation du jeu choisi : jaquette, studio et date, genres, note Steam, description, médias.
@@ -323,13 +323,16 @@
                 <!-- Bouton qui ouvre une petite fenêtre flottante (Popup) avec une case par boutique.
                      IsOpen est relié à IsChecked : bouton enfoncé = liste ouverte. StaysOpen="False" la
                      referme quand on clique ailleurs, et la liaison relâche alors le bouton. -->
-                <ToggleButton x:Name="ShopFilterButton" Content="Boutiques ▾" Padding="12,0"/>
+                <ToggleButton x:Name="ShopFilterButton" Content="Boutiques ▾" Padding="12,0"
+                              Checked="ShopFilterButton_Checked"/>
                 <Popup IsOpen="{Binding IsChecked, ElementName=ShopFilterButton}" StaysOpen="False"
                        PlacementTarget="{Binding ElementName=ShopFilterButton}" Placement="Bottom">
                     <Border Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource PanelBorderBrush}"
                             BorderThickness="1" CornerRadius="6" Padding="12,8">
-                        <ScrollViewer MaxHeight="350" VerticalScrollBarVisibility="Auto">
-                            <StackPanel x:Name="ShopFilterPanel" MinWidth="200"/>
+                        <!-- UniformGrid : plusieurs colonnes quand il y a beaucoup de boutiques (réglé par le code),
+                             pour les voir toutes sans faire défiler (Steam arrive tout en bas de l'alphabet). -->
+                        <ScrollViewer MaxHeight="520" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
+                            <UniformGrid x:Name="ShopFilterPanel" MinWidth="200" Columns="1"/>
                         </ScrollViewer>
                     </Border>
                 </Popup>
@@ -338,7 +341,8 @@
                           Checked="DealsFilter_Changed" Unchecked="DealsFilter_Changed"/>
 
                 <TextBlock Text="Prix max :" Margin="16,0,6,0" VerticalAlignment="Center"/>
-                <TextBox x:Name="MaxPriceBox" Width="70" VerticalContentAlignment="Center" Padding="6,0"
+                <!-- MinWidth (et non Width) : la case s'élargit avec le texte, jusqu'à 9 caractères. -->
+                <TextBox x:Name="MaxPriceBox" MinWidth="70" MaxLength="9" VerticalContentAlignment="Center" Padding="6,0"
                          TextChanged="DealsFilter_Changed"/>
                 <TextBlock Text="€" Margin="6,0,0,0" VerticalAlignment="Center"/>
             </StackPanel>

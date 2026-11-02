@@ -8,9 +8,19 @@ namespace WyrmHold.App;
 
 public static class CoverLoader
 {
-    private const int MaxCachedImages = 300;
+    // Une image décodée pèse environ 0,2 Mo : 600 images, environ 130 Mo.
+    private const int MaxCachedImages = 600;
 
     private static readonly Dictionary<string, BitmapImage> Cache = new Dictionary<string, BitmapImage>();
+
+    // L'ordre d'arrivée dans le cache : quand il est plein, seule la plus ancienne image s'en va.
+    private static readonly Queue<string> CacheOrder = new Queue<string>();
+
+    // Pas plus de 3 images décodées à la fois : le défilement garde du processeur.
+    private static readonly SemaphoreSlim DecodeSlots = new SemaphoreSlim(3);
+
+    // Le temps qu'une tuile doit rester sur le même jeu avant qu'on décode sa jaquette.
+    private static readonly TimeSpan DecodeDelay = TimeSpan.FromMilliseconds(100);
 
     public static readonly DependencyProperty PathProperty =
         DependencyProperty.RegisterAttached(
@@ -62,20 +72,62 @@ public static class CoverLoader
             return;
         }
 
-        BitmapImage? loadedImage = await Task.Run(() => LoadImage(path));
+        // Barre tirée vite : une tuile change de jeu avant ce délai, on ne décode rien pour elle.
+        await Task.Delay(DecodeDelay);
 
-        if (loadedImage is null || GetPath(image) != path)
+        if (GetPath(image) != path)
         {
             return;
         }
 
-        if (Cache.Count >= MaxCachedImages)
+        BitmapImage? loadedImage;
+        await DecodeSlots.WaitAsync();
+
+        try
         {
-            Cache.Clear();
+            // Défilement rapide : pendant l'attente, la tuile a pu passer à un autre jeu. Inutile de décoder.
+            if (GetPath(image) != path)
+            {
+                return;
+            }
+
+            // Une autre tuile a pu décoder la même image pendant l'attente.
+            loadedImage = Cache.TryGetValue(path, out cachedImage)
+                ? cachedImage
+                : await Task.Run(() => LoadImage(path));
+        }
+        finally
+        {
+            DecodeSlots.Release();
         }
 
-        Cache[path] = loadedImage;
-        image.Source = loadedImage;
+        if (loadedImage is null)
+        {
+            return;
+        }
+
+        // Gardée même si la tuile a changé de jeu : revenir en arrière n'aura pas à la décoder de nouveau.
+        Remember(path, loadedImage);
+
+        if (GetPath(image) == path)
+        {
+            image.Source = loadedImage;
+        }
+    }
+
+    private static void Remember(string path, BitmapImage bitmap)
+    {
+        if (!Cache.ContainsKey(path))
+        {
+            if (Cache.Count >= MaxCachedImages)
+            {
+                Cache.Remove(CacheOrder.Dequeue());
+            }
+
+            CacheOrder.Enqueue(path);
+        }
+
+        Cache[path] = bitmap;
     }
 
     private static BitmapImage? LoadImage(string path)

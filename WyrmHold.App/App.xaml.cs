@@ -18,9 +18,40 @@ namespace WyrmHold.App
             // (sauf installer une mise à jour déjà téléchargée).
             VelopackApp.Build().Run();
 
+            // Une seule copie à la fois. Wyrmhold est déjà ouvert (même caché dans la zone de notification) :
+            // il vient de recevoir la demande de s'afficher, et cette copie-ci s'arrête sans rien ouvrir.
+            using SingleInstance? instance = SingleInstance.TryAcquire(InstanceName, TimeSpan.FromSeconds(3));
+
+            if (instance == null)
+            {
+                return;
+            }
+
             var app = new App();
             app.InitializeComponent();   // lit App.xaml (la 1re fenêtre est ouverte par OnStartup)
+
+            // Dispatcher : la demande arrive sur un autre fil ; on revient sur celui de l'interface.
+            instance.ListenForShowRequests(() => app.Dispatcher.BeginInvoke(app.BringWindowToFront));
             app.Run();
+        }
+
+        // La version de développement a son propre verrou : elle peut tourner à côté de l'appli installée.
+#if DEBUG
+        private const string InstanceName = "Wyrmhold.Dev";
+#else
+        private const string InstanceName = "Wyrmhold";
+#endif
+
+        private void BringWindowToFront()
+        {
+            if (MainWindow is MainWindow window)
+            {
+                window.ShowFromTray();
+            }
+            else
+            {
+                MainWindow?.Activate();   // encore sur la recherche de mise à jour
+            }
         }
 
         protected override void OnStartup(StartupEventArgs e)

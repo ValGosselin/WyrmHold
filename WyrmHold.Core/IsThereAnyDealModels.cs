@@ -112,6 +112,13 @@ public class ItadShop
     public string Name { get; set; } = "";
 }
 
+/// <summary>Une boutique de la liste service/shops/v1 (son nom s'y appelle « title », et non « name »).</summary>
+public class ItadShopListItem
+{
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = "";
+}
+
 public class ItadPrice
 {
     [JsonPropertyName("amount")]

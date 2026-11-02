@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using AngleSharp.Dom;
@@ -7,6 +8,11 @@ namespace Wyrmhold.Core;
 
 /// <summary>Une page de jeux gratuits Steam, et s'il en reste après.</summary>
 public record FreeGamesPage(List<FreeGame> Games, int TotalCount, int NextStart, bool HasMore);
+
+/// <summary>Steam refuse les demandes pour l'instant (code 429 : trop de demandes).</summary>
+public class SteamRateLimitedException : Exception
+{
+}
 
 /// <summary>
 /// Les démos et les jeux gratuits de la boutique Steam, lus page par page dans la recherche de la boutique
@@ -24,6 +30,11 @@ public static class SteamFreeCatalog
 
     private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
 
+    // Après un 429, on ne redemande rien à Steam pendant cette pause : insister prolongerait le blocage.
+    // Steam ne documente pas cette limite ; s'il donne le délai (en-tête Retry-After), on le suit.
+    private static readonly TimeSpan DefaultPause = TimeSpan.FromMinutes(2);
+    private static DateTime _pausedUntil = DateTime.MinValue;
+
     /// <summary>
     /// Une page de démos (source = SteamDemo), de jeux gratuits (SteamFreeToPlay) ou de tous les jeux (SteamGame,
     /// pour l'onglet Résultats filtré par tag).
@@ -33,6 +44,11 @@ public static class SteamFreeCatalog
     public static async Task<FreeGamesPage> GetPageAsync(FreeGameSource source, int start, bool newestFirst, string search,
         int? tagId = null, CancellationToken token = default)
     {
+        if (DateTime.UtcNow < _pausedUntil)
+        {
+            throw new SteamRateLimitedException();
+        }
+
         string filter = source switch
         {
             FreeGameSource.SteamDemo => "category1=10",
@@ -56,7 +72,18 @@ public static class SteamFreeCatalog
             url += "&term=" + Uri.EscapeDataString(search.Trim());
         }
 
-        string json = await Http.GetStringAsync(url, token);
+        using HttpResponseMessage response = await Http.GetAsync(url, token);
+
+        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            TimeSpan pause = response.Headers.RetryAfter?.Delta ?? DefaultPause;
+            _pausedUntil = DateTime.UtcNow + pause;
+            Logger.Log($"Boutique Steam : trop de demandes (429), pause de {pause.TotalSeconds:0} s.");
+            throw new SteamRateLimitedException();
+        }
+
+        response.EnsureSuccessStatusCode();
+        string json = await response.Content.ReadAsStringAsync(token);
 
         using JsonDocument document = JsonDocument.Parse(json);
         JsonElement root = document.RootElement;

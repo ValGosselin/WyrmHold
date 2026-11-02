@@ -413,6 +413,9 @@ internal class EpicCatalogItem
     [JsonPropertyName("title")]
     public string Title { get; set; } = "";
 
+    [JsonPropertyName("developer")]
+    public string? Developer { get; set; }
+
     [JsonPropertyName("categories")]
     public List<EpicCategory> Categories { get; set; } = new List<EpicCategory>();
 

@@ -233,7 +233,7 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     public void ShowTestToast()
     {
-        EnqueueToast(new ToastContent(
+        ShowTestNow(new ToastContent(
             "SUCCÈS DÉBLOQUÉ (TEST)",
             "Notification de test",
             "Si tu lis ceci, les notifications de succès marchent.",
@@ -246,7 +246,29 @@ public sealed class OverlayController : IDisposable
     /// </summary>
     public void ShowTestCompletedToast()
     {
-        EnqueueToast(new ToastContent("100 % — TOUS LES SUCCÈS ! (TEST)", "Jeu de test", "53 succès débloqués", null, true));
+        ShowTestNow(new ToastContent("100 % — TOUS LES SUCCÈS ! (TEST)", "Jeu de test", "53 succès débloqués", null, true));
+    }
+
+    /// <summary>
+    /// Un test s'affiche tout de suite, à la place de ce qui est à l'écran : cliquer 20 fois sur le bouton
+    /// ne crée pas 20 notifications à attendre (une notification laisse passer les clics, on ne peut pas la fermer).
+    /// Les vrais succès en attente restent dans la file et passent juste après.
+    /// </summary>
+    private void ShowTestNow(ToastContent content)
+    {
+        _toastTimer.Stop();
+        _toast.Hide();
+
+        ToastContent[] waiting = _toasts.ToArray();
+        _toasts.Clear();
+        _toasts.Enqueue(content);
+
+        foreach (ToastContent toast in waiting)
+        {
+            _toasts.Enqueue(toast);
+        }
+
+        ShowNextToast();
     }
 
     public void Dispose()

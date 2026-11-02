@@ -61,11 +61,34 @@ public class Game : INotifyPropertyChanged
     private const double BytesPerGigabyte = 1024.0 * 1024 * 1024;
     private const double BytesPerMegabyte = 1024.0 * 1024;
 
-    public string SizeText => !IsInstalled || SizeOnDiskBytes <= 0
+    // Jeu non installé : la place annoncée par la boutique Steam (0 = inconnue). Lue à l'ouverture de la fiche, pas en base.
+    private long _announcedSizeBytes;
+
+    public long AnnouncedSizeBytes
+    {
+        get => _announcedSizeBytes;
+        set
+        {
+            _announcedSizeBytes = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SizeText)));
+        }
+    }
+
+    public string SizeText => IsInstalled ? InstalledSizeText : AnnouncedSizeText;
+
+    private string InstalledSizeText => SizeOnDiskBytes <= 0
         ? ""
         : SizeOnDiskBytes >= BytesPerGigabyte
             ? $"{SizeOnDiskBytes / BytesPerGigabyte:0.00} Go"
             : $"{SizeOnDiskBytes / BytesPerMegabyte:0} Mo";
+
+    // « ≈ » : c'est ce que déclare le développeur, pas la taille exacte du jeu.
+    private string AnnouncedSizeText => AnnouncedSizeBytes <= 0
+        ? ""
+        : AnnouncedSizeBytes >= BytesPerGigabyte
+            ? $"≈ {AnnouncedSizeBytes / BytesPerGigabyte:0.#} Go"
+            : $"≈ {AnnouncedSizeBytes / BytesPerMegabyte:0} Mo";
+
     private bool _isFavorite;
 
     public bool IsFavorite
@@ -246,10 +269,10 @@ public class Game : INotifyPropertyChanged
         ? ""
         : $"{AchievementsUnlocked}/{AchievementsTotal} ({AchievementsRatio:P0})";
 
-    // Sur la vignette : « 🏆 37/60 · +10 » (ou sans le « +10 » pour un jeu terminé dont on ne connaît que le reste).
+    // Sur la vignette, après la coupe : « 37/60 · +10 » (ou sans le « +10 » pour un jeu terminé dont on ne connaît que le reste).
     public string AddedAchievementsTileText => AchievementsAdded > 0
-        ? $"🏆 {AchievementsText} · +{AchievementsAdded}"
-        : $"🏆 {AchievementsText}";
+        ? $"{AchievementsText} · +{AchievementsAdded}"
+        : AchievementsText;
 
     // Jeu terminé qui a reçu des succès : combien il en reste ; sinon, combien ont été ajoutés.
     public string NewAchievementsText => HasNewAchievements

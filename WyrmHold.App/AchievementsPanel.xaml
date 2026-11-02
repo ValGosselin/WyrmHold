@@ -13,7 +13,7 @@
 
             <DockPanel>
                 <TextBlock x:Name="ProgressText" DockPanel.Dock="Right" Margin="10,0,0,0" VerticalAlignment="Center"/>
-                <ProgressBar x:Name="ProgressBar" Height="12" Maximum="1"
+                <ProgressBar x:Name="ProgressBar" Height="12" Maximum="1" Style="{StaticResource RoundedProgressBar}"
                              Foreground="#FFC107" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
             </DockPanel>
 
@@ -65,7 +65,7 @@
             <StackPanel>
                 <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,4,0,6"
                            Text="Compteurs envoyés par le jeu à Steam, sans lien officiel avec les succès."/>
-                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
                     <ItemsControl x:Name="StatsList">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
@@ -109,7 +109,7 @@
                                 <TextBlock DockPanel.Dock="Right" Text="{Binding ProgressText}" FontSize="11"
                                            Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                                 <ProgressBar Height="6" Maximum="1" Value="{Binding ProgressRatio, Mode=OneWay}"
-                                             Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
+                                             Style="{StaticResource RoundedProgressBar}" Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
                             </DockPanel>
                         </StackPanel>
 

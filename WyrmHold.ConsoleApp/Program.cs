@@ -27,6 +27,20 @@ if (args.Length > 0 && args[0] == "22")
     return;
 }
 
+// 24 = place annoncée par la boutique Steam : « dotnet run -- 24 730 413150 ».
+if (args.Length > 1 && args[0] == "24")
+{
+    await ShowAnnouncedSizesAsync(args.Skip(1).ToArray());
+    return;
+}
+
+// 23 = une seule copie de Wyrmhold : essai du verrou (avec un nom à part, sans gêner l'appli).
+if (args.Length > 0 && args[0] == "23")
+{
+    TestSingleInstance();
+    return;
+}
+
 // 9 = succès Steam lus sur le disque, comparés à la Steam Web API : « dotnet run -- 9 4294490 ».
 if (args.Length > 1 && args[0] == "9")
 {
@@ -438,6 +452,57 @@ catch (Exception ex)
 {
     // Pas de réseau, clé refusée, limite dépassée… on affiche l'erreur au lieu de planter.
     Console.WriteLine($"Erreur : {ex.Message}");
+}
+
+// Une demande toutes les 2 secondes : appdetails limite le nombre de demandes.
+static async Task ShowAnnouncedSizesAsync(string[] appIds)
+{
+    int found = 0;
+
+    foreach (string appId in appIds)
+    {
+        long bytes = await SteamStoreApi.GetAnnouncedDiskBytesAsync(int.Parse(appId));
+        found += bytes > 0 ? 1 : 0;
+        Console.WriteLine($"{appId,-10} {bytes / 1024.0 / 1024 / 1024,8:0.00} Go");
+        await Task.Delay(2000);
+    }
+
+    Console.WriteLine($"Taille trouvée pour {found} jeu(x) sur {appIds.Length}.");
+}
+
+// Chaque copie est jouée par un fil à part : sur le même fil, un Mutex déjà pris se reprend sans attendre.
+static void TestSingleInstance()
+{
+    const string name = "Wyrmhold.Essai";
+    TimeSpan delay = TimeSpan.FromMilliseconds(300);
+    using var showRequested = new ManualResetEventSlim();
+
+    SingleInstance? TryInOtherThread()
+    {
+        SingleInstance? result = null;
+        var thread = new Thread(() => result = SingleInstance.TryAcquire(name, delay));
+        thread.Start();
+        thread.Join();
+        return result;
+    }
+
+    SingleInstance first = SingleInstance.TryAcquire(name, delay)
+        ?? throw new InvalidOperationException("La 1re copie aurait dû prendre le verrou.");
+    first.ListenForShowRequests(showRequested.Set);
+    Console.WriteLine("1re copie : verrou pris.");
+
+    bool secondRefused = TryInOtherThread() == null;
+    Console.WriteLine($"2e copie refusée : {secondRefused} (attendu : True)");
+    Console.WriteLine($"1re copie prévenue de s'afficher : {showRequested.Wait(2000)} (attendu : True)");
+
+    first.Dispose();
+
+    // Le fil se termine sans rendre le verrou : c'est ce qui se passe quand Wyrmhold plante.
+    bool afterClose = TryInOtherThread() != null;
+    Console.WriteLine($"Après la fermeture, une nouvelle copie démarre : {afterClose} (attendu : True)");
+
+    bool afterCrash = TryInOtherThread() != null;
+    Console.WriteLine($"Après un plantage, une nouvelle copie démarre : {afterCrash} (attendu : True)");
 }
 
 static async Task ComparePricesAsync(IsThereAnyDealApi itad)

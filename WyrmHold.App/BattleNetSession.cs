@@ -49,9 +49,32 @@ public static class BattleNetSession
 
         string? json = await capture.WaitForJsonAsync(TimeSpan.FromSeconds(20));
 
+        if (json is not null)
+        {
+            await KeepSessionCookiesAsync(webView);
+        }
+
         return json is null
             ? new BattleNetFetchResult(BattleNetFetchStatus.NoResponse, null)
             : new BattleNetFetchResult(BattleNetFetchStatus.Success, json);
+    }
+
+    /// <summary>
+    /// Battle.net pose des cookies « de session » (BA-tassadar-cl, cl…), jetés quand le navigateur se ferme : le site
+    /// redemandait alors le mot de passe, 15 secondes après un redémarrage (vérifié le 2 novembre 2026).
+    /// On leur donne une date de fin pour qu'ils restent. Ils ne servent qu'à ce profil, supprimé par « Se déconnecter ».
+    /// </summary>
+    private static async Task KeepSessionCookiesAsync(CoreWebView2 webView)
+    {
+        // null = tous les cookies du profil : ce dossier WebView2 ne sert qu'à Battle.net.
+        foreach (CoreWebView2Cookie cookie in await webView.CookieManager.GetCookiesAsync(null))
+        {
+            if (cookie.IsSession)
+            {
+                cookie.Expires = DateTime.Now.AddYears(1);   // comme BA-tassadar, le cookie principal
+                webView.CookieManager.AddOrUpdateCookie(cookie);
+            }
+        }
     }
 
     /// <summary>

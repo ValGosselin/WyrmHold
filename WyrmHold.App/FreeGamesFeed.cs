@@ -26,6 +26,9 @@ public class FreeGamesFeed
     public bool IsLoading { get; private set; }
     public bool LoadFailed { get; private set; }
 
+    // Vrai si le dernier échec vient de la limite de Steam (la liste de gauche l'explique autrement).
+    public bool RateLimited { get; private set; }
+
     /// <summary>
     /// reset = true : on repart du début (liste, tri ou recherche changés, ↻) ;
     /// reset = false : on ajoute la page suivante (« Charger plus »).
@@ -73,12 +76,23 @@ public class FreeGamesFeed
             HasMore = page.HasMore;
             IsLoaded = true;
             LoadFailed = false;
+            RateLimited = false;
+        }
+        catch (SteamRateLimitedException)
+        {
+            // Déjà noté dans le journal par SteamFreeCatalog, une seule fois par pause.
+            if (generation == _generation)
+            {
+                LoadFailed = true;
+                RateLimited = true;
+            }
         }
         catch (Exception ex)
         {
             if (generation == _generation)
             {
                 LoadFailed = true;
+                RateLimited = false;
                 Logger.Log($"Chargement des jeux gratuits impossible : {ex.Message}");
             }
         }

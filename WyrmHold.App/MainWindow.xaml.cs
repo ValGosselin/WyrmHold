@@ -634,6 +634,7 @@ public partial class MainWindow : Window
         //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
         BuildPlatformFilters(games);
         BuildTagFilter(games);
+        UpdateOriginFilter(games);
         _collections = _library.LoadCollections();
         BuildCollectionFilter();
 
@@ -647,6 +648,23 @@ public partial class MainWindow : Window
 
         UpdateResultCount();
     }
+
+    /// <summary>
+    /// Ce filtre sépare tes jeux de ceux de la famille Steam : sans jeu de la famille, il ne sert à rien.
+    /// On le cache alors, et on le remet sur « Toutes origines » (sinon la liste resterait vide, sans moyen de changer).
+    /// </summary>
+    private void UpdateOriginFilter(List<Game> games)
+    {
+        bool hasFamilyGames = games.Any(game => game.IsFamilyShared == true);
+        OriginFilter.Visibility = hasFamilyGames ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!hasFamilyGames)
+        {
+            OriginFilter.SelectedIndex = 0;
+            _originFilter = "all";
+        }
+    }
+
     private void MainTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         // SelectionChanged « remonte » depuis les listes et ComboBox contenues dans les onglets :
@@ -1083,10 +1101,43 @@ public partial class MainWindow : Window
 
         BuildGameCollectionsPanel();
 
+        // Même après une actualisation : les jeux relus sont de nouveaux objets, sans leur taille (déjà en mémoire).
+        _ = LoadAnnouncedSizeAsync(copy);
+
         if (reloadOnlineSections)
         {
             _ = LoadPatchNotesAsync(copy);
             _ = LoadSimilarGamesAsync(copy);
+        }
+    }
+
+    private int _announcedSizeRequest;
+
+    /// <summary>La ligne « Taille » d'un jeu non installé : si ça échoue, elle reste vide.</summary>
+    private async Task LoadAnnouncedSizeAsync(Game? game)
+    {
+        int request = ++_announcedSizeRequest;
+
+        if (game is null || game.IsInstalled)
+        {
+            return;
+        }
+
+        // Petite pause : si tu descends la liste avec les flèches, on ne demande que pour le jeu où tu t'arrêtes.
+        await Task.Delay(400);
+
+        if (request != _announcedSizeRequest)
+        {
+            return;
+        }
+
+        try
+        {
+            await _library.LoadAnnouncedSizeAsync(game);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Taille annoncée indisponible pour {game.Name} : {ex.Message}");
         }
     }
 
@@ -2666,7 +2717,7 @@ public partial class MainWindow : Window
             {
                 await ShopsPanel.ConnectItadAsync(loginWindow.LoginCode, loginWindow.CodeVerifier);
                 MessageBox.Show(
-                    "IsThereAnyDeal connecté. Ta liste de suivi (onglet Boutiques → Suivis) est maintenant "
+                    "IsThereAnyDeal connecté. Ta liste de suivi (onglet Boutique → Suivis) est maintenant "
                     + "synchronisée avec ta Waitlist.",
                     "Wyrmhold");
             }
@@ -2846,7 +2897,7 @@ public partial class MainWindow : Window
         _trayIcon.ContextMenuStrip = menu;
     }
 
-    private void ShowFromTray()
+    public void ShowFromTray()
     {
         Show();
 
@@ -2967,8 +3018,6 @@ public partial class MainWindow : Window
             }
             state.WindowMaximized = WindowState == WindowState.Maximized;
 
-            state.MainTab = MainTabs.SelectedIndex;
-
             // Avant le 1er chargement des jeux, les filtres affichés ne sont pas encore les tiens : on garde les anciens.
             if (_isLibraryStateRestored)
             {
@@ -3051,11 +3100,6 @@ public partial class MainWindow : Window
                     GamesList.SelectedItem = tile;
                     GamesList.ScrollIntoView(tile);
                 }
-            }
-
-            if (state.MainTab > 0 && state.MainTab < MainTabs.Items.Count)
-            {
-                MainTabs.SelectedIndex = state.MainTab;
             }
         }
         catch (Exception ex)
@@ -3140,6 +3184,25 @@ public partial class MainWindow : Window
     private void ReportBugButton_Click(object sender, RoutedEventArgs e)
     {
         new BugReportWindow(_library.Settings) { Owner = this }.Show();
+    }
+
+    // Les messages disent « détail dans le journal » : ce bouton permet de l'ouvrir, dans le Bloc-notes.
+    private void OpenLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!File.Exists(Logger.LogPath))
+            {
+                Logger.Log("Journal ouvert depuis Réglages.");   // crée le fichier
+            }
+
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo("notepad.exe", $"\"{Logger.LogPath}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Ouverture du journal impossible : {ex.Message}");
+        }
     }
 
     private void AboutButton_Click(object sender, RoutedEventArgs e)
@@ -3254,7 +3317,8 @@ public partial class MainWindow : Window
         }
 
         SelectByTag(InstallFilter, filters.InstallFilter);
-        SelectByTag(OriginFilter, filters.OriginFilter);
+        // Filtre caché (aucun jeu de la famille) : une vue enregistrée sur « Famille Steam » afficherait une liste vide.
+        SelectByTag(OriginFilter, OriginFilter.Visibility == Visibility.Visible ? filters.OriginFilter : "all");
         SelectByTag(ActivityFilter, filters.ActivityFilter);
         SelectByTag(TagFilter, filters.TagFilter);
         SelectByTag(AchievementFilter, filters.AchievementFilter);

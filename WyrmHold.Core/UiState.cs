@@ -3,7 +3,8 @@ namespace Wyrmhold.Core;
 /// <summary>
 /// L'état de la fenêtre principale quand on quitte Wyrmhold (ou qu'on le range en arrière-plan),
 /// enregistré dans settings.json et remis au démarrage : on retrouve la même config.
-/// La recherche tapée n'est pas gardée (au redémarrage, des jeux « disparus » seraient déroutants).
+/// La recherche tapée n'est pas gardée (au redémarrage, des jeux « disparus » seraient déroutants),
+/// ni l'onglet ouvert : Wyrmhold démarre toujours sur la Bibliothèque (choix de Val du 2 novembre 2026).
 /// </summary>
 public class UiState
 {
@@ -15,9 +16,6 @@ public class UiState
     public double? WindowWidth { get; set; }
     public double? WindowHeight { get; set; }
     public bool WindowMaximized { get; set; }
-
-    // L'onglet ouvert (0 = Bibliothèque, 1 = Statistiques, 2 = Boutiques…).
-    public int MainTab { get; set; }
 
     // ----- Bibliothèque -----
 

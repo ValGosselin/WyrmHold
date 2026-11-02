@@ -72,7 +72,7 @@
                         <TextBlock DockPanel.Dock="Right" Text="{Binding ProgressText}" FontSize="11"
                                    Foreground="{DynamicResource SecondaryTextBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         <ProgressBar Height="5" Maximum="1" Value="{Binding ProgressRatio, Mode=OneWay}"
-                                     Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
+                                     Style="{StaticResource RoundedProgressBar}" Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
                     </DockPanel>
                 </StackPanel>
 
@@ -152,15 +152,15 @@
 
                         <DockPanel DockPanel.Dock="Top" Margin="0,4,0,0">
                             <TextBlock x:Name="HomeProgressText" DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                            <ProgressBar x:Name="HomeProgressBar" Height="12" Maximum="1"
+                            <ProgressBar x:Name="HomeProgressBar" Height="12" Maximum="1" Style="{StaticResource RoundedProgressBar}"
                                          Foreground="#FFC107" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
                         </DockPanel>
 
                         <TextBlock x:Name="HomeAchievementsStatus" DockPanel.Dock="Top" Foreground="{DynamicResource SecondaryTextBrush}"
                                    TextWrapping="Wrap" Margin="0,10,0,0"/>
 
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,4,0,0">
-                            <StackPanel x:Name="HomeAchievementsSections" Margin="0,0,8,0">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,4,0,0" Padding="0,0,16,0">
+                            <StackPanel x:Name="HomeAchievementsSections">
                                 <TextBlock Text="★ DÉBLOQUÉS PENDANT CETTE SESSION" Style="{StaticResource SectionTitle}"/>
                                 <TextBlock x:Name="SessionUnlocksEmpty" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="12"
                                            Text="Aucun pour l'instant. Ils apparaîtront ici dès qu'ils seront débloqués."/>

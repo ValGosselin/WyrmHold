@@ -15,6 +15,18 @@
     <Window.Resources>
         <!-- true → visible, false → caché (menu clic droit des tuiles : options des jeux installés) -->
         <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+
+        <!-- Valeur d'une ligne d'infos de la fiche : cachée quand elle est vide -->
+        <Style x:Key="InfoValue" TargetType="TextBlock">
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <TabControl x:Name="MainTabs" Margin="10" SelectionChanged="MainTabs_SelectionChanged">
@@ -171,7 +183,9 @@
                             </TextBlock.Style>
                         </TextBlock>
 
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <!-- Padding : le thème Fluent pose la barre (12 pixels) par-dessus le contenu, sans lui
+                             garder de place. Même réglage sur les autres zones qui défilent jusqu'au bord. -->
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
                             <ScrollViewer.Style>
                                 <Style TargetType="ScrollViewer" BasedOn="{StaticResource {x:Type ScrollViewer}}">
                                     <Style.Triggers>
@@ -307,26 +321,35 @@
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Statut" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
                                     <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallStatusText}"/>
 
-                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Temps de jeu" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding PlaytimeText}"/>
+                                    <!-- Une ligne sans valeur disparaît : la valeur se cache toute seule (InfoValue),
+                                         et son libellé suit grâce à la liaison sur sa Visibility. -->
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Temps de jeu" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=PlaytimeValue}"/>
+                                    <TextBlock x:Name="PlaytimeValue" Grid.Row="1" Grid.Column="1" Text="{Binding PlaytimeText}" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Dernière partie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding LastPlayedText}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Dernière partie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=LastPlayedValue}"/>
+                                    <TextBlock x:Name="LastPlayedValue" Grid.Row="2" Grid.Column="1" Text="{Binding LastPlayedText}" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Sortie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ReleaseDateText}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Sortie" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=ReleaseDateValue}"/>
+                                    <TextBlock x:Name="ReleaseDateValue" Grid.Row="3" Grid.Column="1" Text="{Binding ReleaseDateText}" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Developers}" TextWrapping="Wrap"/>
+                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Développeur" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=DevelopersValue}"/>
+                                    <TextBlock x:Name="DevelopersValue" Grid.Row="4" Grid.Column="1" Text="{Binding Developers}" TextWrapping="Wrap" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SizeText}"/>
+                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Taille" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=SizeValue}"/>
+                                    <TextBlock x:Name="SizeValue" Grid.Row="5" Grid.Column="1" Text="{Binding SizeText}" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Succès" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding AchievementsDetailText}"/>
+                                    <TextBlock Grid.Row="6" Grid.Column="0" Text="Succès" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=AchievementsValue}"/>
+                                    <TextBlock x:Name="AchievementsValue" Grid.Row="6" Grid.Column="1" Text="{Binding AchievementsDetailText}" Style="{StaticResource InfoValue}"/>
 
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Mise à jour" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"/>
-                                    <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding LastUpdateText}"/>
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Mise à jour" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,12,4"
+                                               Visibility="{Binding Visibility, ElementName=LastUpdateValue}"/>
+                                    <TextBlock x:Name="LastUpdateValue" Grid.Row="7" Grid.Column="1" Text="{Binding LastUpdateText}" Style="{StaticResource InfoValue}"/>
                                 </Grid>
 
                                 <ItemsControl ItemsSource="{Binding TagList}" Margin="0,12,0,0">
@@ -341,7 +364,7 @@
                                                  Le tag (un texte) est rangé dans Tag : le code le relit au clic. -->
                                             <Button Tag="{Binding}" Click="GameTag_Click" Cursor="Hand" Padding="0"
                                                     Background="Transparent" BorderThickness="0" Margin="0,0,6,6"
-                                                    ToolTip="Voir les jeux avec ce tag dans Boutiques">
+                                                    ToolTip="Voir les jeux avec ce tag dans Boutique">
                                                 <Border Background="{DynamicResource SubtleBrush}" CornerRadius="10" Padding="8,2">
                                                     <TextBlock Text="{Binding}" FontSize="11"/>
                                                 </Border>
@@ -382,7 +405,7 @@
                                     </ItemsControl>
                                     <TextBlock x:Name="SimilarGamesHint" FontSize="11" TextWrapping="Wrap" Visibility="Collapsed"
                                                Foreground="{DynamicResource SecondaryTextBrush}"
-                                               Text="Ajoute ta clé IsThereAnyDeal (Réglages → Clés API) pour ouvrir leurs prix dans Boutiques."/>
+                                               Text="Ajoute ta clé IsThereAnyDeal (Réglages → Clés API) pour ouvrir leurs prix dans Boutique."/>
                                 </StackPanel>
 
                                 <!-- Patch notes : remplies par le code quand on sélectionne un jeu -->
@@ -395,7 +418,8 @@
                                             <Expander IsExpanded="{Binding IsExpanded, Mode=OneTime}" Margin="0,0,0,8">
                                                 <Expander.Header>
                                                     <StackPanel>
-                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="235"/>
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="235"
+                                                                   HorizontalAlignment="Left"/>
                                                         <TextBlock Text="{Binding DateText}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11"/>
                                                     </StackPanel>
                                                 </Expander.Header>
@@ -449,7 +473,7 @@
                          VirtualizingPanel.ScrollUnit="Pixel"
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.CacheLengthUnit="Page"
-                         VirtualizingPanel.CacheLength="1,1">
+                         VirtualizingPanel.CacheLength="0.25,0.25">
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
                             <vwp:VirtualizingWrapPanel/>
@@ -496,17 +520,33 @@
                                 </StackPanel.Style>
 
                                 <Grid Height="225" Background="#2A2A2A">
+                                    <!-- Le nom à la place de la jaquette, seulement pour un jeu qui n'en a pas : calculer
+                                         ce texte derrière chaque image coûtait plus de la moitié du temps de chaque tuile
+                                         (mesuré le 2 novembre 2026). -->
                                     <TextBlock Text="{Binding Name}" Foreground="White"
                                                TextWrapping="Wrap" TextAlignment="Center"
-                                               VerticalAlignment="Center" Margin="8"/>
+                                               VerticalAlignment="Center" Margin="8">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding CoverPath}" Value="{x:Null}">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                     <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
 
                                     <!-- En haut de la jaquette. 1re ligne : l'étoile des favoris à gauche, les joueurs en jeu à droite
                                          (si les deux ne tiennent pas, le chiffre finit par « … » ; l'infobulle le donne en entier).
                                          2e ligne, à gauche : « Mis à jour ». -->
                                     <StackPanel VerticalAlignment="Top" Margin="6,6,6,0">
-                                        <DockPanel LastChildFill="True">
-                                            <Border DockPanel.Dock="Left" Background="#AA000000" CornerRadius="12" Padding="6,1" Margin="0,0,4,0">
+                                        <!-- Hauteur fixe : avec ou sans l'étoile, plus haute que le badge, rien ne bouge. -->
+                                        <DockPanel LastChildFill="True" Height="24">
+                                            <Border DockPanel.Dock="Left" Background="#AA000000" CornerRadius="12" Padding="6,1" Margin="0,0,4,0"
+                                                    VerticalAlignment="Center">
                                                 <Border.Style>
                                                     <Style TargetType="Border">
                                                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -558,7 +598,9 @@
                                         </Border>
                                     </StackPanel>
 
-                                    <!-- Progression des succès (en bas à gauche) : « 🏆 37/50 », dorée à 100 %, orange si des succès ont été ajoutés -->
+                                    <!-- Progression des succès (en bas à gauche) : coupe + « 37/50 », dorée à 100 %, orange si des succès
+                                         ont été ajoutés. La coupe est dessinée : l'emoji 🏆 forçait WPF à chercher une police de secours
+                                         à chaque tuile, ce qui coûtait très cher au défilement (mesuré le 2 novembre 2026). -->
                                     <Border CornerRadius="10" Padding="6,1"
                                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="6,0,0,6">
                                         <Border.Style>
@@ -577,24 +619,29 @@
                                                 </Style.Triggers>
                                             </Style>
                                         </Border.Style>
-                                        <TextBlock FontSize="11" FontWeight="SemiBold">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Text" Value="{Binding AchievementsText, StringFormat='🏆 {0}'}"/>
-                                                    <Setter Property="Foreground" Value="White"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
-                                                            <Setter Property="Text" Value="🏆 100 %"/>
-                                                            <Setter Property="Foreground" Value="Black"/>
-                                                        </DataTrigger>
-                                                        <!-- Succès ajoutés pas encore regardés : « 🏆 37/60 · +10 » sur fond orange -->
-                                                        <DataTrigger Binding="{Binding HasAddedAchievements}" Value="True">
-                                                            <Setter Property="Text" Value="{Binding AddedAchievementsTileText}"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                        <StackPanel Orientation="Horizontal">
+                                            <Path Width="10" Height="10" Margin="0,0,4,0" Stretch="Uniform" VerticalAlignment="Center"
+                                                  Data="M4,1 H12 V2 H15 V5 C15,7 13,8 11.5,8.2 C11,9.5 10,10.2 9,10.5 V12 H11 V14 H5 V12 H7 V10.5 C6,10.2 5,9.5 4.5,8.2 C3,8 1,7 1,5 V2 H4 Z"
+                                                  Fill="{Binding Foreground, ElementName=AchievementsBadgeText}"/>
+                                            <TextBlock x:Name="AchievementsBadgeText" FontSize="11" FontWeight="SemiBold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Text" Value="{Binding AchievementsText}"/>
+                                                        <Setter Property="Foreground" Value="White"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsAchievementsComplete}" Value="True">
+                                                                <Setter Property="Text" Value="100 %"/>
+                                                                <Setter Property="Foreground" Value="Black"/>
+                                                            </DataTrigger>
+                                                            <!-- Succès ajoutés pas encore regardés : « 37/60 · +10 » sur fond orange -->
+                                                            <DataTrigger Binding="{Binding HasAddedAchievements}" Value="True">
+                                                                <Setter Property="Text" Value="{Binding AddedAchievementsTileText}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
                                     </Border>
                                 </Grid>
 
@@ -615,14 +662,17 @@
                                            TextTrimming="CharacterEllipsis"/>
 
                                 <!-- Une pastille par plateforme si le jeu est possédé plusieurs fois (dorée = copie à 100 %).
-                                     « Hidden » et pas « Collapsed » : la place reste réservée, toutes les tuiles ont la même hauteur. -->
-                                <ItemsControl ItemsSource="{Binding CopyBadges}" Height="17" Margin="0,3,0,0">
+                                     « Hidden » et pas « Collapsed » : la place reste réservée, toutes les tuiles ont la même hauteur.
+                                     ItemsSource seulement dans le déclencheur : sans pastille à montrer, rien n'est créé, ce qui
+                                     allège le défilement (presque tous les jeux n'ont qu'une copie). -->
+                                <ItemsControl Height="17" Margin="0,3,0,0">
                                     <ItemsControl.Style>
                                         <Style TargetType="ItemsControl">
                                             <Setter Property="Visibility" Value="Hidden"/>
                                             <Style.Triggers>
                                                 <DataTrigger Binding="{Binding HasOtherCopies}" Value="True">
                                                     <Setter Property="Visibility" Value="Visible"/>
+                                                    <Setter Property="ItemsSource" Value="{Binding CopyBadges}"/>
                                                 </DataTrigger>
                                             </Style.Triggers>
                                         </Style>
@@ -667,7 +717,7 @@
                         <TextBlock Grid.Column="0" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
                                    VerticalAlignment="Center" Margin="0,0,10,0"/>
                         <ProgressBar Grid.Column="1" Value="{Binding Ratio, Mode=OneWay}" Maximum="1" Height="14"
-                                     Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
+                                     Style="{StaticResource RoundedProgressBar}" Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
                         <TextBlock Grid.Column="2" Text="{Binding ValueText}" Foreground="{DynamicResource SecondaryTextBrush}"
                                    VerticalAlignment="Center" Margin="10,0,0,0"/>
                     </Grid>
@@ -742,7 +792,7 @@
         </TabItem>
         <!-- ===================== Onglet Boutiques ===================== -->
         <!-- Son contenu est dans ShopsView.xaml (un UserControl), pour ne pas alourdir ce fichier. -->
-        <TabItem x:Name="ShopsTab" Header="Boutiques">
+        <TabItem x:Name="ShopsTab" Header="Boutique">
             <local:ShopsView x:Name="ShopsPanel"/>
         </TabItem>
 
@@ -975,6 +1025,9 @@
                     <StackPanel Orientation="Horizontal">
                         <Button Content="🐞 Signaler un bug" Height="32" Padding="12,0" Margin="0,0,12,0"
                                 Click="ReportBugButton_Click"/>
+                        <Button Content="📄 Ouvrir le journal" Height="32" Padding="12,0" Margin="0,0,12,0"
+                                ToolTip="Le fichier où Wyrmhold note ce qui s'est mal passé"
+                                Click="OpenLogButton_Click"/>
                         <!-- Visible seulement en version Debug (voir Window_Loaded) : sert à tester le rapport de plantage. -->
                         <Button x:Name="TestCrashButton" Content="Tester un plantage" Height="32" Padding="12,0" Margin="0,0,12,0"
                                 Visibility="Collapsed" Click="TestCrashButton_Click"/>

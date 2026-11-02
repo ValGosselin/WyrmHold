@@ -1,5 +1,7 @@
-﻿using System.Net;
+﻿using System.Globalization;
+using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Wyrmhold.Core;
 
@@ -51,6 +53,57 @@ public static class SteamStoreApi
 
         return ImageServer + urlFormat.Replace("${FILENAME}", fileName);
     }
+    /// <summary>
+    /// La place annoncée dans la configuration requise de la boutique, en octets (0 = non indiquée).
+    /// C'est ce que déclare le développeur, pas la taille exacte du jeu. appdetails : sans clé, non documentée,
+    /// vérifiée le 2 novembre 2026 (« Espace disque : 85 GB d'espace disque disponible » dans pc_requirements).
+    /// </summary>
+    public static async Task<long> GetAnnouncedDiskBytesAsync(int appId)
+    {
+        string url = $"https://store.steampowered.com/api/appdetails?appids={appId}&filters=basic,pc_requirements&l=french&cc=fr";
+        string json = await Http.GetStringAsync(url);
+        using JsonDocument document = JsonDocument.Parse(json);
+
+        if (!document.RootElement.TryGetProperty(appId.ToString(), out JsonElement app)
+            || !app.TryGetProperty("data", out JsonElement data)
+            || !data.TryGetProperty("pc_requirements", out JsonElement requirements)
+            || requirements.ValueKind != JsonValueKind.Object)
+        {
+            return 0;
+        }
+
+        // Configuration recommandée et minimale : la plus grande (les jeux donnent parfois une seule des deux).
+        return new[] { "recommended", "minimum" }
+            .Select(name => requirements.TryGetProperty(name, out JsonElement text) && text.ValueKind == JsonValueKind.String
+                ? ReadDiskBytes(text.GetString() ?? "")
+                : 0)
+            .Max();
+    }
+
+    /// <summary>« &lt;strong&gt;Espace disque :&lt;/strong&gt; 85 GB d'espace… » → 85 Go en octets. Texte inattendu : 0 (rien d'affiché).</summary>
+    private static long ReadDiskBytes(string html)
+    {
+        string text = Regex.Replace(html, "<[^>]+>", " ");
+        Match match = Regex.Match(text,
+            @"(?:Espace disque|Stockage|Storage|Disque dur|Hard Drive|Hard Disk)[^:\d]{0,30}:?\s*(\d+(?:[.,]\d+)?)\s*(GB|Go|MB|Mo|TB|To)\b",
+            RegexOptions.IgnoreCase);
+
+        if (!match.Success
+            || !double.TryParse(match.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out double value))
+        {
+            return 0;
+        }
+
+        double perUnit = char.ToUpperInvariant(match.Groups[2].Value[0]) switch
+        {
+            'T' => 1024.0 * 1024 * 1024 * 1024,
+            'G' => 1024.0 * 1024 * 1024,
+            _ => 1024.0 * 1024
+        };
+
+        return (long)(value * perUnit);
+    }
+
     public static async Task<string?> FindAppIdByNameAsync(string gameName)
     {
         string cleanedName = NameTools.CleanForSearch(gameName);

@@ -11,7 +11,7 @@
         <Button DockPanel.Dock="Bottom" Content="Fermer" Width="90" Height="32"
                 HorizontalAlignment="Right" Margin="0,10,0,0" IsCancel="True"/>
 
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
             <StackPanel>
                 <TextBlock Text="Programme" FontWeight="SemiBold" Margin="0,0,0,6"/>
                 <DockPanel Height="32">

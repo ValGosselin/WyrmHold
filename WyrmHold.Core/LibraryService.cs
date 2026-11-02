@@ -295,6 +295,7 @@ public class LibraryService
     public async Task UpdateMetadataAsync(List<Game> games)
     {
         List<Game> updatedGames = await _metadata.FetchMissingAsync(games);
+        updatedGames = updatedGames.Union(FillEpicDevelopers(games)).ToList();
 
         if (updatedGames.Count > 0)
         {
@@ -648,10 +649,15 @@ public class LibraryService
                 {
                     Title = item.Title,
                     IsGame = item.MainGameItem is null && item.Categories.Any(c => c.Path == "games"),
-                    CoverUrl = FindEpicCoverUrl(item)
+                    CoverUrl = FindEpicCoverUrl(item),
+                    Developer = item.Developer ?? ""
                 };
 
                 _epicCatalog.Set(record.AppName, entry);
+            }
+            else if (entry.Developer is null)
+            {
+                await ReadEpicDeveloperAsync(entry, record, accessToken);
             }
 
             // Les jeux déjà en cache avant les succès n'ont pas encore leur namespace : on le complète.
@@ -677,6 +683,46 @@ public class LibraryService
         SecureStore.Save(EpicMarkerName, "connected");
 
         return games.Count;
+    }
+
+    /// <summary>
+    /// Une entrée du cache d'avant le 2 novembre 2026 n'a pas de développeur : on le lit une fois.
+    /// S'il ne répond pas, tant pis pour cette fois : la synchro continue, on réessaiera à la prochaine.
+    /// </summary>
+    private static async Task ReadEpicDeveloperAsync(EpicCatalogEntry entry, EpicLibraryRecord record, string accessToken)
+    {
+        try
+        {
+            EpicCatalogItem? item = await EpicApi.GetCatalogItemAsync(record.Namespace, record.CatalogItemId, accessToken);
+            entry.Developer = item?.Developer ?? "";
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Développeur du jeu Epic {record.AppName} illisible : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Steam ne connaît pas tous les jeux Epic sous le même nom (« HITMAN », « Control », « Fortnite ») :
+    /// pour ceux-là, on prend le développeur du catalogue Epic. Pas sa date (releaseInfo.dateAdded) : ce n'est
+    /// pas la date de sortie (HITMAN : 2019 au lieu de 2016 ; Rocket League : 2020 au lieu de 2015, vu le 2 novembre 2026).
+    /// </summary>
+    private List<Game> FillEpicDevelopers(List<Game> games)
+    {
+        var filled = new List<Game>();
+
+        foreach (Game game in games.Where(g => g.Platform == Platform.Epic && string.IsNullOrEmpty(g.Developers)))
+        {
+            string? developer = _epicCatalog.Find(game.PlatformGameId)?.Developer;
+
+            if (!string.IsNullOrEmpty(developer))
+            {
+                game.Developers = developer;
+                filled.Add(game);
+            }
+        }
+
+        return filled;
     }
 
     /// <summary>
@@ -1279,6 +1325,29 @@ public class LibraryService
     public Task<string?> GetSteamAppIdAsync(Game game)
     {
         return FindSteamAppIdAsync(game);
+    }
+
+    // Tailles déjà lues pendant cette session, par appid (0 = la boutique n'en indique pas).
+    private readonly Dictionary<int, long> _announcedSizes = new Dictionary<int, long>();
+
+    /// <summary>
+    /// La fiche d'un jeu non installé : la place annoncée par la boutique Steam (un jeu Epic ou autre : celle du jeu
+    /// du même nom sur Steam). Rien si le jeu n'est pas sur Steam. Une erreur de Steam remonte : l'appelant la note.
+    /// </summary>
+    public async Task LoadAnnouncedSizeAsync(Game game)
+    {
+        if (game.IsInstalled || !int.TryParse(await FindSteamAppIdAsync(game), out int appId))
+        {
+            return;
+        }
+
+        if (!_announcedSizes.TryGetValue(appId, out long bytes))
+        {
+            bytes = await SteamStoreApi.GetAnnouncedDiskBytesAsync(appId);
+            _announcedSizes[appId] = bytes;
+        }
+
+        game.AnnouncedSizeBytes = bytes;
     }
 
     /// <summary>

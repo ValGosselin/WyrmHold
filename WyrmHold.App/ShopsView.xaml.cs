@@ -69,6 +69,11 @@ public partial class ShopsView : UserControl
     private string _freeSearch = "";
     private readonly Dictionary<int, SteamGameMedia?> _freeMedia = new Dictionary<int, SteamGameMedia?>();
 
+    // Filtre « Boutiques » : toutes les boutiques d'IsThereAnyDeal, lues à la 1re ouverture de la liste.
+    private List<string> _allShops = new List<string>();
+
+    private const string SteamLimitText = "Steam limite les demandes pour le moment : réessaie dans quelques minutes.";
+
     // Onglet Pour toi : la bibliothèque (pour calculer tes genres), le calcul, et les genres retenus.
     private List<Game> _libraryGames = new List<Game>();
     private readonly GenreRecommender _recommender = new GenreRecommender();
@@ -95,6 +100,7 @@ public partial class ShopsView : UserControl
         {
             _settings = value;
             _hiddenShops = new HashSet<string>(value?.HiddenShops ?? new List<string>());
+            UpdateShopFilterButton();
         }
     }
 
@@ -318,6 +324,12 @@ public partial class ShopsView : UserControl
             : ForYouTabButton?.IsChecked == true ? LeftListMode.ForYou
             : FreeTabButton?.IsChecked == true ? LeftListMode.Free
             : LeftListMode.Results;
+
+        // Changer d'onglet = changer de liste : le jeu ouvert depuis l'ancienne liste ne reste pas affiché.
+        if (_currentGame != null)
+        {
+            ClearCurrentGame();
+        }
 
         RefreshLeftList();
 
@@ -742,6 +754,42 @@ public partial class ShopsView : UserControl
         await SearchAsync();
     }
 
+    /// <summary>
+    /// La case de recherche vidée = recherche annulée : les résultats et le jeu affiché à droite s'en vont,
+    /// et un tag choisi remontre tous ses jeux (avant, le nom restait appliqué quels que soient les filtres).
+    /// Dans un autre onglet, le jeu de droite vient de cet onglet, pas de la recherche : on le garde.
+    /// </summary>
+    private async void ShopSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (ShopSearchBox.Text.Trim().Length > 0 || (!_hasSearched && _tagSearch.Length == 0))
+        {
+            return;
+        }
+
+        if (_leftMode == LeftListMode.Results)
+        {
+            ClearCurrentGame();
+        }
+
+        if (_hasSearched)
+        {
+            _searchResults = new List<ItadSearchResult>();
+            _hasSearched = false;
+            UpdateKeyStatus();
+            RefreshLeftList();
+        }
+
+        if (_tagSearch.Length > 0)
+        {
+            _tagSearch = "";
+
+            if (_tag != null)
+            {
+                await LoadTagResultsAsync(reset: true);
+            }
+        }
+    }
+
     private async Task SearchAsync()
     {
         string title = ShopSearchBox.Text.Trim();
@@ -938,9 +986,10 @@ public partial class ShopsView : UserControl
         _isSettingTag = false;
         _tag = (SteamTag)item.Tag;
 
-        // On repart d'une recherche vide : tous les jeux du tag.
-        ShopSearchBox.Text = "";
+        // On repart d'une recherche vide : tous les jeux du tag. _tagSearch d'abord : vider la case
+        // ne doit pas lancer un chargement en plus de celui d'ApplyTagAsync.
         _tagSearch = "";
+        ShopSearchBox.Text = "";
         ResultsTabButton.IsChecked = true;
         await ApplyTagAsync();
     }
@@ -1131,7 +1180,7 @@ public partial class ShopsView : UserControl
             ShopStatusText.Text = _tagResults.IsLoading
                 ? "Recherche des jeux du tag…"
                 : _tagResults.LoadFailed
-                    ? "La boutique Steam ne répond pas (détail dans le journal)."
+                    ? _tagResults.RateLimited ? SteamLimitText : "La boutique Steam ne répond pas (détail dans le journal)."
                     : shown.Count == 0
                         ? $"Aucun jeu trouvé{(_tagSearch.Length > 0 ? $" pour « {_tagSearch} »" : "")}{tagNote}."
                         : $"{Count(shown.Count)} jeu(x) Steam sur {Count(_tagResults.TotalCount)}{tagNote}";
@@ -1148,7 +1197,7 @@ public partial class ShopsView : UserControl
             ShopStatusText.Text = _free.IsLoading
                 ? "Chargement des jeux gratuits…"
                 : _free.LoadFailed
-                    ? "Impossible de charger la liste (détail dans le journal)."
+                    ? _free.RateLimited ? SteamLimitText : "Impossible de charger la liste (détail dans le journal)."
                     : shown.Count == 0
                         ? _freeSearch.Length > 0 ? $"Aucun jeu trouvé pour « {_freeSearch} »." : $"Aucun jeu pour l'instant{tagNote}."
                         : isEpic
@@ -1177,17 +1226,19 @@ public partial class ShopsView : UserControl
             int hiddenCount = feed.Items.Count - shown.Count;
             string hiddenReason = isForYou ? "déjà possédée(s) ou masquée(s)" : "masquée(s) par les filtres";
 
-            ShopStatusText.Text = isForYou && _genresFailed
-                ? "Impossible de calculer tes genres (détail dans le journal)."
-                : isForYou && _genresComputed && _preferredGenres.Count == 0
-                    ? "Pas encore assez de temps de jeu sur des jeux avec des genres connus."
-                    : feed.IsLoading
-                        ? "Chargement des promos…"
-                        : feed.LoadFailed
-                            ? "Impossible de charger les promos (détail dans le journal)."
-                            : hiddenCount > 0
-                                ? $"{shown.Count} promo(s), {hiddenCount} {hiddenReason}{tagNote}"
-                                : $"{shown.Count} promo(s){tagNote}";
+            ShopStatusText.Text = !_itad.IsConfigured
+                ? "Pour voir les promos, ajoute ta clé IsThereAnyDeal dans Réglages → Clés API."
+                : isForYou && _genresFailed
+                    ? "Impossible de calculer tes genres (détail dans le journal)."
+                    : isForYou && _genresComputed && _preferredGenres.Count == 0
+                        ? "Pas encore assez de temps de jeu sur des jeux avec des genres connus."
+                        : feed.IsLoading
+                            ? "Chargement des promos…"
+                            : feed.LoadFailed
+                                ? "Impossible de charger les promos (détail dans le journal)."
+                                : hiddenCount > 0
+                                    ? $"{shown.Count} promo(s), {hiddenCount} {hiddenReason}{tagNote}"
+                                    : $"{shown.Count} promo(s){tagNote}";
 
             LoadMorePromosButton.IsEnabled = feed.HasMore && !feed.IsLoading;
             PromosSortMode.IsEnabled = !_promos.IsLoading;
@@ -1291,6 +1342,29 @@ public partial class ShopsView : UserControl
 
     // ===================== Offres d'un jeu =====================
 
+    /// <summary>Plus aucun jeu à droite : la partie droite redevient vide, avec ses filtres visibles.</summary>
+    private void ClearCurrentGame()
+    {
+        ++_pricesRequest;   // une réponse encore en route pour ce jeu sera ignorée
+        _currentGame = null;
+        _deals = new List<DealRow>();
+        DealsList.ItemsSource = null;
+        MaxPriceBox.Text = "";
+
+        SelectedGameTitle.Text = "";
+        DealsStatusText.Text = "";
+        HistoryLowText.Text = "";
+        HistoryCompareText.Text = "";
+        StopTrailer();
+        PresentationPanel.Visibility = Visibility.Collapsed;
+        PricesPanel.Visibility = Visibility.Visible;
+        DealsSortMode.Visibility = Visibility.Visible;
+
+        UpdateOwnedText();
+        UpdateFollowButton();
+        UpdateInstallButton();
+    }
+
     private async void SearchResultsList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isRebuildingResults || SearchResultsList.SelectedItem is not SearchResultRow game)
@@ -1299,6 +1373,12 @@ public partial class ShopsView : UserControl
         }
 
         int request = ++_pricesRequest;
+
+        // Le prix max vaut pour un jeu, pas pour les suivants (« En promo seulement » et les boutiques, si).
+        if (_currentGame?.Id != game.Id)
+        {
+            MaxPriceBox.Text = "";
+        }
 
         // Un jeu trouvé par tag dans la boutique Steam (onglet Résultats) : on cherche son identifiant
         // IsThereAnyDeal par son numéro Steam, puis on l'affiche comme un résultat normal (présentation et prix).
@@ -1907,13 +1987,40 @@ public partial class ShopsView : UserControl
         return price.Amount == 0 ? "gratuit" : DealRow.FormatPrice(price);
     }
 
-    /// <summary>Une case à cocher par boutique présente dans les offres du jeu affiché.</summary>
+    /// <summary>La liste s'ouvre : on la refait, et on lit toutes les boutiques la première fois.</summary>
+    private async void ShopFilterButton_Checked(object sender, RoutedEventArgs e)
+    {
+        BuildShopFilter();
+
+        if (_allShops.Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _allShops = await _itad.GetShopNamesAsync();
+            BuildShopFilter();
+        }
+        catch (Exception ex)
+        {
+            // On garde ce qui est connu (offres, promos) ; on réessaiera à la prochaine ouverture.
+            Logger.Log($"Liste des boutiques IsThereAnyDeal impossible à lire : {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Une case à cocher par boutique : celles d'IsThereAnyDeal, celles vues dans les offres et les promos,
+    /// et celles déjà masquées. Le filtre vaut aussi pour Promos et Pour toi : il doit marcher sans jeu choisi.
+    /// </summary>
     private void BuildShopFilter()
     {
         ShopFilterPanel.Children.Clear();
 
-        IEnumerable<string> shopNames = _deals
-            .Select(deal => deal.ShopName)
+        IEnumerable<string> shopNames = _allShops
+            .Concat(_deals.Select(deal => deal.ShopName))
+            .Concat(_promos.Items.Concat(_forYou.Items).Select(item => item.Deal.Shop.Name))
+            .Concat(_hiddenShops)
             .Distinct()
             .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase);
 
@@ -1923,7 +2030,7 @@ public partial class ShopsView : UserControl
             {
                 Content = shopName,
                 IsChecked = !_hiddenShops.Contains(shopName),
-                Margin = new Thickness(0, 2, 0, 2)
+                Margin = new Thickness(0, 2, 12, 2)
             };
 
             // On abonne les événements APRÈS avoir réglé IsChecked : sinon la création
@@ -1934,6 +2041,12 @@ public partial class ShopsView : UserControl
             ShopFilterPanel.Children.Add(check);
         }
 
+        if (ShopFilterPanel.Children.Count == 0)
+        {
+            ShopFilterPanel.Children.Add(new TextBlock { Text = "Aucune boutique à afficher pour l'instant." });
+        }
+
+        ShopFilterPanel.Columns = ShopFilterPanel.Children.Count > 12 ? 3 : 1;
         UpdateShopFilterButton();
     }
 
@@ -1987,13 +2100,11 @@ public partial class ShopsView : UserControl
         }
     }
 
-    /// <summary>Le bouton indique combien de boutiques de ce jeu sont masquées.</summary>
+    /// <summary>Le bouton indique combien de boutiques sont masquées (offres, Promos et Pour toi).</summary>
     private void UpdateShopFilterButton()
     {
-        int hiddenHere = _deals.Select(deal => deal.ShopName).Distinct().Count(_hiddenShops.Contains);
-
-        ShopFilterButton.Content = hiddenHere > 0
-            ? $"Boutiques ({hiddenHere} masquée(s)) ▾"
+        ShopFilterButton.Content = _hiddenShops.Count > 0
+            ? $"Boutiques ({_hiddenShops.Count} masquée(s)) ▾"
             : "Boutiques ▾";
     }
 

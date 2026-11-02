@@ -2,7 +2,7 @@ namespace Wyrmhold.Core;
 
 public static class Logger
 {
-    private static readonly string LogPath = Path.Combine(AppPaths.DataFolder, "wyrmhold.log");
+    public static readonly string LogPath = Path.Combine(AppPaths.DataFolder, "wyrmhold.log");
 
     // Quand le journal dépasse 1 Mo, il devient « wyrmhold.old.log » (l'ancien est écrasé) et on repart de zéro :
     // le journal ne grossit plus sans limite, et on garde quand même l'historique récent.
