@@ -72,12 +72,18 @@ public class BattleNetProvider : ILibraryProvider
         return games;
     }
 
-    public void Launch(Game game)
+    /// <summary>Le chemin de Battle.net.exe (dossier lu dans le registre, sinon le dossier habituel).</summary>
+    public static string GetClientPath()
     {
         string? folder = RegistryHelper.ReadLocalMachineValue($@"{UninstallPath}\Battle.net", "InstallLocation");
         folder ??= Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Battle.net");
 
-        string exePath = Path.Combine(folder, "Battle.net.exe");
+        return Path.Combine(folder, "Battle.net.exe");
+    }
+
+    public void Launch(Game game)
+    {
+        string exePath = GetClientPath();
 
         if (!LaunchCodes.TryGetValue(game.PlatformGameId, out string? code))
         {

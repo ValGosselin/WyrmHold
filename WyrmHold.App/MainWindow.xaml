@@ -44,7 +44,11 @@
                                 Click="RandomGameButton_Click"/>
                         <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
                                 Click="RefreshButton_Click"/>
-                        <Button Content="Jouer" Width="100"
+                        <!-- Le bouton principal : couleur d'accent du thème Fluent (DynamicResource, car le thème
+                             est choisi par le code au démarrage). Son texte suit le jeu choisi (UpdatePlayButton). -->
+                        <Button x:Name="PlayButton" Content="▶ Jouer" Width="110"
+                                Style="{DynamicResource AccentButtonStyle}"
+                                ToolTipService.ShowOnDisabled="True"
                                 Click="PlayButton_Click"/>
                     </StackPanel>
 
@@ -201,8 +205,28 @@
                                        Width="200" Height="300" Stretch="UniformToFill"
                                        HorizontalAlignment="Center"/>
 
-                                <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold"
-                                           TextWrapping="Wrap" Margin="0,12,0,0"/>
+                                <!-- Le nom, et à sa droite l'étoile des favoris : jaune si le jeu est favori, vide sinon -->
+                                <DockPanel Margin="0,12,0,0">
+                                    <Button DockPanel.Dock="Right" VerticalAlignment="Top" Margin="8,0,0,0"
+                                            Padding="6,0" FontSize="20" Background="Transparent" BorderThickness="0"
+                                            Click="FavoriteButton_Click">
+                                        <Button.Style>
+                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                <Setter Property="Content" Value="☆"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                                                <Setter Property="ToolTip" Value="Ajouter aux favoris"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                                        <Setter Property="Content" Value="★"/>
+                                                        <Setter Property="Foreground" Value="Gold"/>
+                                                        <Setter Property="ToolTip" Value="Retirer des favoris"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Button.Style>
+                                    </Button>
+                                    <TextBlock Text="{Binding Name}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
+                                </DockPanel>
                                 <TextBlock Text="{Binding Subtitle}" Foreground="{DynamicResource SecondaryTextBrush}"/>
 
                                 <!-- Jeu possédé sur plusieurs plateformes : choix de la copie (lancement, temps, succès) -->
@@ -212,18 +236,6 @@
                                     <ComboBox x:Name="CopySelector" DisplayMemberPath="CopyLabel"
                                               SelectionChanged="CopySelector_SelectionChanged"/>
                                 </DockPanel>
-                                <Button HorizontalAlignment="Left" Margin="0,8,0,0" Padding="10,4" Click="FavoriteButton_Click">
-                                    <Button.Style>
-                                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                            <Setter Property="Content" Value="☆ Ajouter aux favoris"/>
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                                                    <Setter Property="Content" Value="★ Favori"/>
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
 
                                 <Border Background="#FFB300" CornerRadius="4" Padding="6,2"
                                         HorizontalAlignment="Left" Margin="0,8,0,0">
@@ -465,7 +477,8 @@
                     </Grid>
                 </Border>
 
-                <!-- Grille de jaquettes -->
+                <!-- Grille de jaquettes, et par-dessus le message affiché quand elle est vide (UpdateEmptyLibraryMessage) -->
+                <Grid>
                 <ListBox x:Name="GamesList"
                          SelectionChanged="GamesList_SelectionChanged"
                          MouseDoubleClick="GamesList_MouseDoubleClick"
@@ -486,7 +499,23 @@
                                 <!-- Clic droit sur la tuile. Le menu reçoit le jeu de la tuile (DataContext) tout seul. -->
                                 <StackPanel.ContextMenu>
                                     <ContextMenu>
-                                        <MenuItem Header="▶  Jouer" Click="TileMenuPlay_Click"/>
+                                        <MenuItem Click="TileMenuPlay_Click">
+                                            <MenuItem.Style>
+                                                <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                                    <Setter Property="Header" Value="▶  Jouer"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding IsInstalled}" Value="False">
+                                                            <Setter Property="Header" Value="⬇  Installer"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </MenuItem.Style>
+                                        </MenuItem>
+                                        <!-- Rempli à l'ouverture (TileMenuCollections_SubmenuOpened). La ligne de départ
+                                             sert seulement à afficher la flèche du sous-menu. -->
+                                        <MenuItem Header="🗂  Collections" SubmenuOpened="TileMenuCollections_SubmenuOpened">
+                                            <MenuItem Header="…"/>
+                                        </MenuItem>
                                         <MenuItem Click="TileMenuFavorite_Click">
                                             <MenuItem.Style>
                                                 <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
@@ -503,6 +532,8 @@
                                         <MenuItem Header="🖼  Re-télécharger la jaquette" Click="TileMenuRedownloadCover_Click"/>
                                         <MenuItem Header="📁  Ouvrir le dossier du jeu" Click="TileMenuOpenFolder_Click"
                                                   Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                                        <MenuItem Header="🏆  Jeu RetroAchievements…" Click="TileMenuRetroAchievements_Click"
+                                                  Visibility="{Binding CanHaveRetroAchievements, Converter={StaticResource BoolToVisibility}}"/>
                                         <!-- Pas pour un jeu émulé : Wyrmhold ne supprime jamais de fichier lui-même -->
                                         <Separator Visibility="{Binding CanUninstall, Converter={StaticResource BoolToVisibility}}"/>
                                         <MenuItem Header="🗑  Désinstaller…" Click="TileMenuUninstall_Click"
@@ -701,6 +732,18 @@
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
+
+                <StackPanel x:Name="EmptyLibraryPanel" Visibility="Collapsed" MaxWidth="420"
+                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <TextBlock x:Name="EmptyLibraryText" FontSize="16" FontWeight="SemiBold"
+                               TextWrapping="Wrap" TextAlignment="Center"/>
+                    <TextBlock x:Name="EmptyLibraryHint" Margin="0,6,0,0" TextWrapping="Wrap" TextAlignment="Center"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Button x:Name="ClearFiltersButton" Content="Effacer la recherche et les filtres"
+                            HorizontalAlignment="Center" Margin="0,14,0,0" Padding="12,6"
+                            Click="ClearFiltersButton_Click"/>
+                </StackPanel>
+                </Grid>
             </DockPanel>
         </TabItem>
         <!-- ===================== Onglet Statistiques ===================== -->
@@ -834,6 +877,7 @@
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
                             <RowDefinition Height="44"/>
+                            <RowDefinition Height="44"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Steam" FontWeight="SemiBold"/>
@@ -890,6 +934,11 @@
                         <TextBlock Grid.Row="12" Grid.Column="0" Text="Azahar" FontWeight="SemiBold"/>
                         <TextBlock Grid.Row="12" Grid.Column="1" x:Name="AzaharStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
                         <Button Grid.Row="12" Grid.Column="2" x:Name="AzaharButton" Content="Configurer…" Tag="Azahar" Click="EmulatorButton_Click"/>
+
+                        <!-- Facultatif : les succès des jeux émulés (GB, GBC, GBA, DS, GameCube, Wii) -->
+                        <TextBlock Grid.Row="13" Grid.Column="0" Text="RetroAchievements" FontWeight="SemiBold"/>
+                        <TextBlock Grid.Row="13" Grid.Column="1" x:Name="RetroAchievementsStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <Button Grid.Row="13" Grid.Column="2" x:Name="RetroAchievementsButton" Click="RetroAchievementsButton_Click"/>
                     </Grid>
                 </StackPanel>
             </ScrollViewer>
@@ -970,7 +1019,15 @@
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
                     <CheckBox x:Name="GogAchievementsCheck" Content="GOG" Tag="Gog" Margin="0,0,0,6"
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
-                    <CheckBox x:Name="EpicAchievementsCheck" Content="Epic Games" Tag="Epic"
+                    <CheckBox x:Name="EpicAchievementsCheck" Content="Epic Games" Tag="Epic" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="RetroArchAchievementsCheck" Content="RetroArch (RetroAchievements)" Tag="RetroArch" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="DolphinAchievementsCheck" Content="Dolphin (RetroAchievements)" Tag="Dolphin" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="RyujinxAchievementsCheck" Content="Ryujinx (succès maison, lus dans la sauvegarde)" Tag="Ryujinx" Margin="0,0,0,6"
+                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <CheckBox x:Name="AzaharAchievementsCheck" Content="Azahar (succès maison, lus dans la sauvegarde)" Tag="Azahar"
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
 
                     <!-- Tag = la valeur enregistrée dans settings.json (voir CloseActions) -->

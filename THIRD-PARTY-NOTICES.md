@@ -35,6 +35,7 @@ SQLite lui-même (moteur de base de données inclus par SQLitePCLRaw) est dans l
 - **SteamGridDB** (https://www.steamgriddb.com/) : jaquettes faites par la communauté.
 - **Steam Web API** (https://steamcommunity.com/dev) : bibliothèque, succès, patch notes, guides.
   Ce produit n'est pas approuvé par Valve.
+- **RetroAchievements** (https://retroachievements.org/) : succès des jeux émulés, avec le compte de l'utilisateur.
 
 ## Idées reprises d'autres projets (sans copie de code)
 
@@ -46,6 +47,17 @@ Pour les jeux émulés, les formats de fichiers et de configuration ont été v�
 documentation des émulateurs eux-mêmes (RetroArch, Dolphin, Ryujinx, Azahar), sur 3dbrew (https://www.3dbrew.org)
 et dans GBATEK (https://problemkaputt.de/gbatek.htm). Les noms de fichiers des cœurs RetroArch ont été vérifiés dans
 les définitions d'émulateurs de Playnite. Aucun code n'en a été copié, et Wyrmhold ne livre ni émulateur, ni jeu, ni clé.
+
+L'empreinte des jeux Game Boy, Game Boy Advance et DS est réécrite en C# d'après rcheevos
+(https://github.com/RetroAchievements/rcheevos, licence MIT, Copyright (c) 2018 RetroAchievements.org). Le mode d'essai 26
+du projet WyrmHold.ConsoleApp, qui n'est pas livré avec l'appli, reprend sa fonction de test `fill_image`.
+Pour la GameCube et la Wii, l'empreinte est calculée par DolphinTool, livré avec Dolphin et installé par l'utilisateur.
+
+Les emplacements des données dans une save de Pokémon Let's Go et les numéros de ses événements viennent de PKHeX
+(https://github.com/kwsch/PKHeX) et de FlagsEditorEX (https://github.com/fattard/FlagsEditorEXPlugin), sous licence GPL-3.0.
+Le déchiffrement des saves d'Inazuma Eleven GO et l'emplacement de leurs données sont réécrits en C# d'après
+InazumaElevenSaveEditor (https://github.com/Tiniifan/InazumaElevenSaveEditor), licence MIT, Copyright (c) 2022 Tiniifan.
+Les textes des succès maison sont écrits pour Wyrmhold.
 
 ## Marques
 

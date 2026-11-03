@@ -21,6 +21,12 @@ public class Secrets
     public string IsThereAnyDealClientId { get; set; } = "";
     public string IsThereAnyDealClientSecret { get; set; } = "";
 
+    // RetroAchievements : le pseudo et la clé Web API du compte (succès des jeux émulés).
+    // L'ULID identifie le compte même si le pseudo change : il est lu au moment de la connexion.
+    public string RetroAchievementsUser { get; set; } = "";
+    public string RetroAchievementsApiKey { get; set; } = "";
+    public string RetroAchievementsUlid { get; set; } = "";
+
     // Le nom du fichier chiffré dans le dossier « tokens » (tokens\api-keys.bin).
     private const string StoreName = "api-keys";
 
@@ -55,13 +61,17 @@ public class Secrets
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasAnyKey => SteamApiKey.Length > 0 || SteamGridDbApiKey.Length > 0 || IsThereAnyDealApiKey.Length > 0;
 
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasRetroAchievements => RetroAchievementsUser.Length > 0 && RetroAchievementsApiKey.Length > 0;
+
     // Toutes les valeurs remplies : le rapport de bug les masque si elles apparaissent dans le journal.
     public IEnumerable<string> AllValues()
     {
         string[] values =
         {
             SteamApiKey, SteamId, SteamGridDbApiKey,
-            IsThereAnyDealApiKey, IsThereAnyDealClientId, IsThereAnyDealClientSecret
+            IsThereAnyDealApiKey, IsThereAnyDealClientId, IsThereAnyDealClientSecret,
+            RetroAchievementsUser, RetroAchievementsApiKey, RetroAchievementsUlid
         };
 
         return values.Where(value => !string.IsNullOrWhiteSpace(value));
@@ -76,6 +86,8 @@ public class Secrets
         SteamGridDbApiKey = SteamGridDbApiKey.Trim();
         IsThereAnyDealApiKey = IsThereAnyDealApiKey.Trim();
         IsThereAnyDealClientId = IsThereAnyDealClientId.Trim();
+        RetroAchievementsUser = RetroAchievementsUser.Trim();
+        RetroAchievementsApiKey = RetroAchievementsApiKey.Trim();
 
         SecureStore.Save(StoreName, JsonSerializer.Serialize(this));
         Changed?.Invoke();

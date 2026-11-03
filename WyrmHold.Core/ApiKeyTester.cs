@@ -107,6 +107,39 @@ public static class ApiKeyTester
         }
     }
 
+    /// <summary>Renvoie le profil lu si le pseudo et la clé sont acceptés, sinon null et un message.</summary>
+    public static async Task<(KeyTestResult Result, RetroAchievementsProfile? Profile)> TestRetroAchievementsAsync(string user, string apiKey)
+    {
+        user = user.Trim();
+        apiKey = apiKey.Trim();
+
+        if (user.Length == 0 || apiKey.Length == 0)
+        {
+            return (new KeyTestResult(false, "Remplis ton pseudo et ta clé Web API."), null);
+        }
+
+        try
+        {
+            RetroAchievementsProfile profile = await new RetroAchievementsApi(new Secrets { RetroAchievementsApiKey = apiKey })
+                .GetUserProfileAsync(user);
+
+            return (new KeyTestResult(true, $"✔ Compte {profile.User} : {profile.TotalPoints} points hardcore, {profile.TotalSoftcorePoints} points normaux."), profile);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+        {
+            return (new KeyTestResult(false, "RetroAchievements refuse cette clé. Vérifie que tu as copié la « Web API Key »."), null);
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is System.Net.HttpStatusCode.NotFound or System.Net.HttpStatusCode.UnprocessableEntity)
+        {
+            // 404 = pseudo inconnu ; 422 = pseudo impossible (vu le 2 novembre 2026 avec un nom de 28 caractères et des tirets).
+            return (new KeyTestResult(false, $"Aucun compte RetroAchievements ne s'appelle « {user} »."), null);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or AchievementSourceUnavailableException)
+        {
+            return (new KeyTestResult(false, $"RetroAchievements ne répond pas : {ex.Message}"), null);
+        }
+    }
+
     /// <summary>« ••••••••3F2A » : de quoi reconnaître une clé sans l'afficher.</summary>
     public static string Mask(string value)
     {

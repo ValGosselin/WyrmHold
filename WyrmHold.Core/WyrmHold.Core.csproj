@@ -13,4 +13,14 @@
     <PackageReference Include="UbiParser" Version="1.3.0" />
   </ItemGroup>
 
+  <!-- Les succès maison : rangés dans la DLL, le nom de la ressource reste simple grâce à LogicalName. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Data\CustomAchievements\*.json" LogicalName="CustomAchievements/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Les nouveautés de chaque version, à la racine du dépôt car publier.ps1 s'en sert aussi. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\notes-de-version.md" LogicalName="notes-de-version.md" />
+  </ItemGroup>
+
 </Project>

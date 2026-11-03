@@ -25,6 +25,8 @@ public class RetroArchProvider : EmulatorProvider
     // Les playlists que RetroArch écrit lui-même (historique, favoris…) : ce ne sont pas des bibliothèques.
     private const string BuiltInPlaylistPrefix = "content_";
 
+    private static readonly string QuietConfigPath = Path.Combine(AppPaths.DataFolder, "RetroAchievements", "retroarch-sans-notifications.cfg");
+
     private static readonly Dictionary<string, GameConsole> ConsoleByExtension = new Dictionary<string, GameConsole>(StringComparer.OrdinalIgnoreCase)
     {
         { ".gb", GameConsole.GameBoy },
@@ -42,11 +44,12 @@ public class RetroArchProvider : EmulatorProvider
     };
 
     // Les cœurs essayés pour chaque console, dans cet ordre (noms de fichiers vérifiés dans les définitions
-    // d'émulateurs de Playnite). Leur compatibilité avec RetroAchievements reste à vérifier à la phase 10.
+    // d'émulateurs de Playnite). D'abord ceux que RetroAchievements déclare compatibles (liste lue le
+    // 2 novembre 2026) : sameboy et gpsp n'y sont pas, ils ne servent que si aucun autre n'est installé.
     private static readonly Dictionary<GameConsole, string[]> DefaultCores = new Dictionary<GameConsole, string[]>
     {
-        { GameConsole.GameBoy, new[] { "gambatte_libretro.dll", "sameboy_libretro.dll", "mgba_libretro.dll" } },
-        { GameConsole.GameBoyColor, new[] { "gambatte_libretro.dll", "sameboy_libretro.dll", "mgba_libretro.dll" } },
+        { GameConsole.GameBoy, new[] { "gambatte_libretro.dll", "mgba_libretro.dll", "sameboy_libretro.dll" } },
+        { GameConsole.GameBoyColor, new[] { "gambatte_libretro.dll", "mgba_libretro.dll", "sameboy_libretro.dll" } },
         { GameConsole.GameBoyAdvance, new[] { "mgba_libretro.dll", "gpsp_libretro.dll" } },
         { GameConsole.NintendoDs, new[] { "melondsds_libretro.dll", "melonds_libretro.dll", "desmume_libretro.dll" } }
     };
@@ -136,7 +139,34 @@ public class RetroArchProvider : EmulatorProvider
     protected override IEnumerable<string> BuildArguments(Game game, string executablePath)
     {
         // --load-menu-on-error : si le jeu ne charge pas, le menu de RetroArch explique pourquoi (sinon il se ferme sans rien dire).
-        return new[] { "-L", FindCore(game, executablePath), "--load-menu-on-error", game.InstallPath ?? "" };
+        List<string> arguments = new List<string> { "-L", FindCore(game, executablePath), "--load-menu-on-error" };
+
+        if (WyrmholdAnnouncesAchievements(game))
+        {
+            arguments.Add($"--appendconfig={WriteQuietConfig()}");
+        }
+
+        arguments.Add(game.InstallPath ?? "");
+        return arguments;
+    }
+
+    /// <summary>
+    /// Le fichier ajouté à la configuration de RetroArch pour ce lancement : pas de notification de succès.
+    /// Vérifié le 2 novembre 2026 sur une copie de retroarch.cfg : sans la ligne config_save_on_exit, RetroArch recopie
+    /// ces valeurs dans sa configuration en quittant ; avec elle, le fichier reste identique octet par octet.
+    /// Conséquence : un réglage changé dans le menu de RetroArch pendant cette partie n'est pas gardé.
+    /// </summary>
+    private static string WriteQuietConfig()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(QuietConfigPath)!);
+        File.WriteAllLines(QuietConfigPath, new[]
+        {
+            "config_save_on_exit = \"false\"",
+            "cheevos_visibility_unlock = \"false\"",
+            "cheevos_visibility_mastery = \"false\""
+        });
+
+        return QuietConfigPath;
     }
 
     /// <summary>

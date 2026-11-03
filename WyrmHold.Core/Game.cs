@@ -246,6 +246,31 @@ public class Game : INotifyPropertyChanged
     // Dernière fois que les succès ont été lus (temps Unix, 0 = jamais).
     public long AchievementsCheckedUnix { get; set; }
 
+    // Jeu émulé : son empreinte pour RetroAchievements (null = pas encore calculée, ou impossible à calculer),
+    // et l'état du fichier au moment du calcul (voir RetroAchievementsHasher.GetFileStamp).
+    public string? RetroAchievementsHash { get; set; }
+    public string? RetroAchievementsHashStamp { get; set; }
+
+    // Le numéro du jeu sur RetroAchievements (0 = aucun) et la façon dont il a été trouvé.
+    public int RetroAchievementsGameId { get; set; }
+    public RetroAchievementsMatch RetroAchievementsMatch { get; set; }
+
+    public bool CanHaveRetroAchievements => IsEmulated && IsInstalled && RetroAchievementsHasher.IsSupported(Console);
+
+    // Le jeu est associé, mais pas par l'empreinte : l'émulateur ne reconnaîtra sans doute pas cette version.
+    public bool IsRetroAchievementsVersionUnknown => RetroAchievementsGameId > 0 && RetroAchievementsMatch != RetroAchievementsMatch.Hash;
+
+    // Le jeu RetroAchievements a changé : les anciens chiffres parlent d'un autre jeu.
+    public void ForgetAchievements()
+    {
+        AchievementsUnlocked = 0;
+        AchievementsTotal = 0;
+        HasNewAchievements = false;
+        AchievementsAdded = 0;
+        AchievementsAddedUnix = 0;
+        AchievementsCheckedUnix = 0;
+    }
+
     // Badge « +10 succès » : nouveaux succès pas encore regardés, ou jeu terminé qui en a reçu.
     public bool HasAddedAchievements => AchievementsAdded > 0 || HasNewAchievements;
 

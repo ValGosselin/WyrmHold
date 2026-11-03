@@ -16,6 +16,9 @@ public class AppSettings
     // L'assistant des clés API a déjà été proposé (terminé ou fermé) : on ne le rouvre plus tout seul.
     public bool SetupWizardDone { get; set; }
 
+    // La dernière version dont les nouveautés ont été montrées. Vide = jamais (nouvelle installation, ou version avant la 1.1.0).
+    public string? LastSeenVersion { get; set; }
+
     // Regrouper un même jeu possédé sur plusieurs plateformes en une seule tuile.
     public bool MergeDuplicates { get; set; } = true;
 

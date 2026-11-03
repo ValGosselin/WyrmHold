@@ -122,4 +122,13 @@ But : des succès automatiques pour des jeux choisis un par un, en lisant leur s
 
 ### Jeux suivants
 
-Même méthode, un jeu à la fois, à la demande de l'utilisateur.
+Un jeu à la fois, à la demande de l'utilisateur, sans lui demander de finir le jeu d'abord.
+Pas de succès de temps de jeu (refusés par Val le 3 novembre 2026).
+
+1. **Quoi :** chercher sur internet ce qui mérite un succès (wikis, guides, pages du jeu ou du mod ; une vidéo ne se lit
+   que par sa page et sa transcription si elle en a une). Écrire les textes pour Wyrmhold, sans copier de listes ni de phrases.
+2. **Où dans la save :** chercher des repères déjà documentés (éditeurs de saves libres, listes d'événements, wikis techniques).
+   Vérifier la licence avant de reprendre quoi que ce soit, sinon s'en servir seulement comme piste, et citer la source.
+3. **Essayer :** lire la vraie save de l'utilisateur en lecture seule. Une save terminée montre tout ce qui est allumé.
+4. **Ce qui reste :** l'outil de surveillance (mode 28) pour les repères introuvables. Un succès non détectable n'est pas livré
+   comme automatique ; une liste à cocher n'est proposée que si l'utilisateur l'accepte pour ce jeu.

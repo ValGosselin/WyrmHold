@@ -56,6 +56,9 @@
                           VerticalAlignment="Center" Checked="RevealHidden_Changed" Unchecked="RevealHidden_Changed"/>
             </StackPanel>
 
+            <!-- RetroAchievements : le jeu est associé par son nom ou à la main, pas par sa version -->
+            <TextBlock x:Name="VersionWarningText" Foreground="#FFC107" TextWrapping="Wrap" Margin="0,10,0,0" Visibility="Collapsed"
+                       Text="Ta version de ce jeu n'est pas reconnue par RetroAchievements : ses succès ne se débloqueront probablement pas. Clic droit sur le jeu → « Jeu RetroAchievements… » pour voir la version acceptée."/>
             <TextBlock x:Name="StatusText" Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,10,0,0"/>
             <TextBlock x:Name="RefreshInfoText" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11" Margin="0,4,0,0"/>
         </StackPanel>

@@ -11,6 +11,10 @@ internal class EpicCatalogEntry
     // Le « namespace » (ou sandboxId) du jeu chez Epic : il sert à demander la liste de ses succès.
     public string? Namespace { get; set; }
 
+    // L'identifiant du jeu dans le catalogue Epic (catalogItemId) : avec le namespace et l'AppName, il forme
+    // l'adresse qui ouvre la fenêtre d'installation d'Epic. null = pas encore lu (cache d'avant le 3 novembre 2026).
+    public string? CatalogItemId { get; set; }
+
     // Le développeur selon Epic. null = pas encore lu ; "" = Epic n'en donne pas.
     public string? Developer { get; set; }
 }

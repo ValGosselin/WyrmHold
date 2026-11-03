@@ -21,6 +21,14 @@
         <!-- Indéterminée (elle « défile ») pendant la recherche, puis le pourcentage du téléchargement -->
         <ProgressBar x:Name="Progress" Height="8" Maximum="100" IsIndeterminate="True"/>
 
+        <!-- Le résumé de la version téléchargée : caché tant qu'il n'y en a pas -->
+        <StackPanel x:Name="NotesPanel" Visibility="Collapsed" Margin="0,16,0,0">
+            <TextBlock x:Name="NotesTitle" FontSize="15" FontWeight="SemiBold"/>
+            <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
+                <StackPanel x:Name="NotesList"/>
+            </ScrollViewer>
+        </StackPanel>
+
         <Button x:Name="SkipButton" Content="Passer" HorizontalAlignment="Right" Padding="16,4" Margin="0,16,0,0"
                 ToolTip="Ouvrir Wyrmhold sans attendre (la mise à jour sera cherchée au prochain démarrage)"
                 Click="SkipButton_Click"/>

@@ -5,6 +5,7 @@
 #
 # Avant de publier : augmenter <Version> dans Directory.Build.props (0.9.0 → 0.9.1…).
 # Velopack refuse de publier deux fois le même numéro, et les testeurs ne verraient pas la mise à jour.
+# Écrire aussi la partie de cette version dans notes-de-version.md : sans elle, la publication est refusée.
 #
 # Le jeton GitHub est demandé à chaque fois et n'est jamais enregistré.
 # Pour le créer : GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens,
@@ -27,6 +28,30 @@ $packId = "WyrmholdApp"
 [xml]$props = Get-Content "Directory.Build.props"
 $version = $props.Project.PropertyGroup.Version
 Write-Host "Version : $version" -ForegroundColor Cyan
+
+# Les notes de cette version : les lignes entre « ## 1.1.0 » et le « ## » suivant de notes-de-version.md.
+# Vérifié avant de compiler : pas la peine d'attendre pour découvrir qu'elles manquent.
+$notesLines = New-Object System.Collections.Generic.List[string]
+$inSection = $false
+foreach ($line in Get-Content "notes-de-version.md" -Encoding UTF8) {
+    if ($line.StartsWith("## ")) {
+        $inSection = $line.Substring(3).Trim() -eq $version
+    } elseif ($inSection) {
+        $notesLines.Add($line)
+    }
+}
+
+$notesArgs = @()
+if (($notesLines -join "").Trim().Length -gt 0) {
+    # Dans le dossier temporaire : Releases\ et publish\ sont vidés juste après, et publish\ part dans l'installateur.
+    $notesFile = Join-Path $env:TEMP "wyrmhold-notes-$version.md"
+    $notesLines | Set-Content $notesFile -Encoding UTF8
+    $notesArgs = @("--releaseNotes", $notesFile)
+} elseif ($LocalOnly) {
+    Write-Host "Pas de notes pour la version $version dans notes-de-version.md (essai local : on continue)." -ForegroundColor Yellow
+} else {
+    throw "Pas de notes pour la version $version : ajoute « ## $version » dans notes-de-version.md."
+}
 
 # --- 2. L'outil vpk (version notée dans dotnet-tools.json). ---
 dotnet tool restore
@@ -64,7 +89,8 @@ dotnet vpk pack `
     --icon "WyrmHold.App\Assets\wyrmhold.ico" `
     --splashImage "WyrmHold.App\Assets\logo-512.png" `
     --framework "webview2" `
-    --outputDir "Releases"
+    --outputDir "Releases" `
+    @notesArgs
 if ($LASTEXITCODE -ne 0) { throw "La fabrication de l'installateur a échoué." }
 
 if ($LocalOnly) {

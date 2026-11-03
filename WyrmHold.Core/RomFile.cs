@@ -11,6 +11,15 @@ internal static class RomFile
         return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
     }
 
+    // Tout le fichier en mémoire : c'est cette copie qui est lue, le fichier d'origine n'est qu'ouvert en lecture.
+    public static byte[] ReadAll(string path)
+    {
+        using FileStream file = OpenRead(path);
+        byte[] content = new byte[file.Length];
+        file.ReadExactly(content);
+        return content;
+    }
+
     // Lit jusqu'à « count » octets à cet endroit (moins si le fichier se termine avant).
     public static byte[] ReadAt(FileStream file, long offset, int count)
     {

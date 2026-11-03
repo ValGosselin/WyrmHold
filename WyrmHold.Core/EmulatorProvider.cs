@@ -32,8 +32,11 @@ public abstract class EmulatorProvider : ILibraryProvider
         AzaharProvider.Executable
     };
 
+    private readonly AppSettings _appSettings;
+
     protected EmulatorProvider(AppSettings settings, Platform platform)
     {
+        _appSettings = settings;
         Platform = platform;
         Settings = settings.GetEmulator(platform);
     }
@@ -160,6 +163,24 @@ public abstract class EmulatorProvider : ILibraryProvider
         }
 
         return start;
+    }
+
+    /// <summary>
+    /// Le fichier de save d'un jeu, pour les succès maison (null s'il n'y en a pas ou si l'émulateur ne le sait pas).
+    /// </summary>
+    public virtual string? FindSaveFile(string titleId, string fileName) => null;
+
+    /// <summary>
+    /// Vrai si Wyrmhold annoncera lui-même les succès de ce jeu : l'émulateur n'a alors pas à les annoncer aussi
+    /// (choix de Val du 2 novembre 2026). Faux si le suivi est coupé : on laisse ses notifications à l'émulateur,
+    /// pour ne jamais se retrouver sans aucune notification.
+    /// </summary>
+    protected bool WyrmholdAnnouncesAchievements(Game game)
+    {
+        return _appSettings.OverlayEnabled
+            && _appSettings.IsAchievementSourceEnabled(Platform)
+            && Secrets.Current.HasRetroAchievements
+            && game.RetroAchievementsGameId > 0;
     }
 
     protected Game CreateGame(string gameId, string name, GameConsole console, string romPath)

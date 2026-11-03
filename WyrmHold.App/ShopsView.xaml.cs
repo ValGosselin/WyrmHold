@@ -1678,6 +1678,8 @@ public partial class ShopsView : UserControl
 
         if (free.SteamInstallUrl is not string installUrl)
         {
+            // Le site, pas le launcher : « store/product/<slug> » (doc d'Epic) n'ouvre plus aucune page de jeu
+            // dans le launcher, même « store/product/fortnite » (essais du 3 novembre 2026, journal d'Epic et capture).
             BrowserHelper.Open(free.StoreUrl);
             return;
         }

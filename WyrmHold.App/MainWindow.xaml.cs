@@ -82,7 +82,7 @@ public partial class MainWindow : Window
         };
 
         // Une session de jeu vient d'être enregistrée : le temps de jeu affiché change.
-        _library.PlaySessionRecorded += game => GamesList.Items.Refresh();
+        _library.PlaySessionRecorded += OnPlaySessionRecorded;
 
         Application.Current.SessionEnding += (sender, e) =>
         {
@@ -94,9 +94,29 @@ public partial class MainWindow : Window
         };
     }
 
+    // Partie terminée : un jeu à succès maison est relu tout de suite, sa dernière sauvegarde compte.
+    private async void OnPlaySessionRecorded(Game game)
+    {
+        if (CustomAchievementCatalog.Find(game.PlatformGameId) is not null
+            && _library.Settings.IsAchievementSourceEnabled(game.Platform))
+        {
+            try
+            {
+                await _library.GetAchievementDetailsAsync(game);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Succès de {game.Name} non relus : {ex.Message}");
+            }
+        }
+
+        GamesList.Items.Refresh();
+    }
+
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
         UpdateThemeButton();
+        UpdatePlayButton(null);
         LoadSettingsTab();
         ApplyOverlaySettings();
         VersionText.Text = $"Wyrmhold {AppInfo.Version}";
@@ -106,6 +126,9 @@ public partial class MainWindow : Window
 
         // Plantage lors de la dernière utilisation : on propose de le signaler (rien n'est envoyé sans accord).
         OfferCrashReport();
+
+        // Avant l'assistant : c'est lui qui permet de distinguer une nouvelle installation d'une mise à jour.
+        OfferWhatsNew();
 
         // Premier lancement : l'assistant des clés API, AVANT de lire la bibliothèque (pour qu'elle soit complète).
         OfferSetupWizard();
@@ -727,6 +750,39 @@ public partial class MainWindow : Window
 
         _visibleGames = SortGames(shown);
         GamesList.ItemsSource = _visibleGames;
+        UpdateEmptyLibraryMessage();
+    }
+
+    /// <summary>
+    /// Une grille vide ressemblait à un plantage : on dit pourquoi elle est vide.
+    /// Aucun jeu du tout = rien n'est connecté ; sinon, c'est la recherche ou les filtres qui cachent tout.
+    /// </summary>
+    private void UpdateEmptyLibraryMessage()
+    {
+        bool isEmpty = _visibleGames.Count == 0;
+        EmptyLibraryPanel.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!isEmpty)
+        {
+            return;
+        }
+
+        bool noGameAtAll = _allGames.Count == 0;
+        string search = SearchBox.Text.Trim();
+
+        EmptyLibraryText.Text = noGameAtAll
+            ? "Aucun jeu pour l'instant"
+            : search.Length > 0 ? $"Aucun jeu trouvé pour « {search} »" : "Aucun jeu ne correspond à ces filtres";
+        EmptyLibraryHint.Text = noGameAtAll
+            ? "Connecte un compte dans l'onglet Comptes, puis clique sur Actualiser."
+            : "Vérifie l'orthographe, ou retire des filtres. La touche Échap efface tout.";
+        ClearFiltersButton.Visibility = noGameAtAll ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ClearFiltersButton_Click(object sender, RoutedEventArgs e)
+    {
+        ClearFilters();
+        SearchBox.Focus();
     }
 
     /// <summary>
@@ -1031,7 +1087,12 @@ public partial class MainWindow : Window
 
         foreach (GameCollection collection in _collections)
         {
-            int count = _allGames.Count(g => g.CollectionIds.Contains(collection.Id));
+            // Un jeu regroupé (Steam + Epic) compte une fois, comme sa tuile : on compte la première copie de chaque groupe.
+            int count = _allGames
+                .Where(g => g.CollectionIds.Contains(collection.Id))
+                .Select(g => g.CopiesOrSelf.First())
+                .Distinct()
+                .Count();
 
             ComboBoxItem item = new ComboBoxItem
             {
@@ -1090,6 +1151,7 @@ public partial class MainWindow : Window
     private void ShowDetails(Game? tile, Game? copy, bool reloadOnlineSections = true)
     {
         DetailPanel.DataContext = copy;
+        UpdatePlayButton(copy);
 
         // La liste « Plateforme » n'apparaît que pour un jeu possédé sur plusieurs plateformes.
         _isBuildingCopySelector = true;
@@ -1408,19 +1470,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        SetGameInCollection(game, collection, checkBox.IsChecked == true);
+    }
+
+    /// <summary>
+    /// Range un jeu dans une collection, ou l'en retire. Utilisé par les cases de la fiche
+    /// et par le sous-menu « Collections » du clic droit. Renvoie false si la base a refusé.
+    /// </summary>
+    private bool SetGameInCollection(Game game, GameCollection collection, bool isMember)
+    {
         try
         {
             // Un jeu regroupé est « un seul jeu » pour toi : toutes ses copies entrent ou sortent ensemble.
             foreach (Game copy in game.CopiesOrSelf)
             {
-                _library.SetGameInCollection(copy, collection, checkBox.IsChecked == true);
+                _library.SetGameInCollection(copy, collection, isMember);
             }
         }
         catch (Exception ex)
         {
             Logger.Log($"Collection impossible à modifier pour {game.Name} : {ex.Message}");
             MessageBox.Show("La collection n'a pas pu être modifiée. Les détails sont dans le journal.", "Wyrmhold");
-            return;
+            return false;
         }
 
         // Met à jour le nombre de jeux affiché à côté de chaque collection.
@@ -1430,6 +1501,118 @@ public partial class MainWindow : Window
         if (_collectionFilter == collection.Id)
         {
             RefreshFilters();
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Clic droit → « Collections » : une case par collection, cochée si le jeu y est déjà.
+    /// Le menu est refait à chaque ouverture, car les collections ont pu changer (bouton « Gérer… »).
+    /// </summary>
+    private void TileMenuCollections_SubmenuOpened(object sender, RoutedEventArgs e)
+    {
+        // L'événement remonte aussi depuis les sous-menus : on ne réagit qu'à celui de « Collections ».
+        if (e.OriginalSource != sender || sender is not MenuItem menu || menu.DataContext is not Game game)
+        {
+            return;
+        }
+
+        menu.Items.Clear();
+
+        foreach (GameCollection collection in _collections)
+        {
+            MenuItem item = new MenuItem
+            {
+                Header = collection.Name,
+                Tag = collection,
+                IsCheckable = true,
+                IsChecked = game.CollectionIds.Contains(collection.Id),
+                // Le menu reste ouvert : on peut cocher plusieurs collections d'affilée.
+                StaysOpenOnClick = true
+            };
+
+            item.Click += TileMenuCollectionItem_Click;
+            menu.Items.Add(item);
+        }
+
+        if (_collections.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+        }
+
+        MenuItem newItem = new MenuItem { Header = "➕  Nouvelle collection…" };
+        newItem.Click += TileMenuNewCollection_Click;
+        menu.Items.Add(newItem);
+    }
+
+    /// <summary>
+    /// Clic droit → « Collections » → « Nouvelle collection… » : demande un nom, crée la collection
+    /// et y range tout de suite le jeu (avec ses autres copies).
+    /// </summary>
+    private void TileMenuNewCollection_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { DataContext: Game game })
+        {
+            return;
+        }
+
+        TextInputWindow dialog = new TextInputWindow(
+            "Nouvelle collection",
+            $"Nom de la collection où ranger « {game.Name} » :")
+        { Owner = this };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        GameCollection collection;
+
+        try
+        {
+            collection = _library.CreateCollection(dialog.Text);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Nom vide ou déjà pris : LibraryService donne un message prêt à afficher.
+            MessageBox.Show(ex.Message, "Wyrmhold");
+            return;
+        }
+
+        // La nouvelle collection doit apparaître dans le filtre, le menu et la fiche.
+        _collections = _library.LoadCollections();
+
+        if (!SetGameInCollection(game, collection, true))
+        {
+            BuildCollectionFilter();
+        }
+
+        // Quel que soit le jeu affiché, sa fiche doit montrer la case de la nouvelle collection.
+        if (CurrentGame is not null)
+        {
+            BuildGameCollectionsPanel();
+        }
+    }
+
+    private void TileMenuCollectionItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: GameCollection collection, DataContext: Game game } item)
+        {
+            return;
+        }
+
+        // IsCheckable : la case a déjà changé d'état au moment du clic.
+        if (!SetGameInCollection(game, collection, item.IsChecked))
+        {
+            item.IsChecked = !item.IsChecked;
+            return;
+        }
+
+        // Si la fiche montre ce jeu (ou une autre de ses copies), ses cases doivent suivre.
+        if (CurrentGame is Game shown && game.CopiesOrSelf.Contains(shown))
+        {
+            BuildGameCollectionsPanel();
         }
     }
 
@@ -1482,7 +1665,7 @@ public partial class MainWindow : Window
             ?? AutoRefreshIntervalBox.Items[1];   // valeur inconnue : 30 min
         AutoRefreshIntervalBox.IsEnabled = _library.Settings.AutoRefreshEnabled;
 
-        foreach (CheckBox checkBox in new[] { SteamAchievementsCheck, GogAchievementsCheck, EpicAchievementsCheck })
+        foreach (CheckBox checkBox in new[] { SteamAchievementsCheck, GogAchievementsCheck, EpicAchievementsCheck, RetroArchAchievementsCheck, DolphinAchievementsCheck, RyujinxAchievementsCheck, AzaharAchievementsCheck })
         {
             checkBox.IsChecked = checkBox.Tag is string name
                 && Enum.TryParse(name, out Platform platform)
@@ -2258,6 +2441,44 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// « Jeu RetroAchievements… » : voir ou corriger le jeu associé à un jeu émulé.
+    /// </summary>
+    private async void TileMenuRetroAchievements_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not Game game)
+        {
+            return;
+        }
+
+        if (!Secrets.Current.HasRetroAchievements)
+        {
+            MessageBox.Show("Connecte d'abord ton compte RetroAchievements dans l'onglet Comptes.", "Wyrmhold");
+            return;
+        }
+
+        if (new RetroAchievementsMatchWindow(_library, game) { Owner = this }.ShowDialog() != true)
+        {
+            return;
+        }
+
+        // Le jeu associé a pu changer : on relit ses chiffres, puis on redessine la tuile et la fiche.
+        try
+        {
+            await _library.GetAchievementDetailsAsync(game);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Succès de {game.Name} non relus : {ex.Message}");
+        }
+
+        GamesList.Items.Refresh();
+
+        object shown = DetailPanel.DataContext;
+        DetailPanel.DataContext = null;
+        DetailPanel.DataContext = shown;
+    }
+
+    /// <summary>
     /// « Désinstaller… » : Wyrmhold demande confirmation, puis lance le désinstalleur officiel du launcher
     /// (il ne supprime jamais de fichier lui-même). Pour Epic, il ouvre son launcher et explique où cliquer.
     /// </summary>
@@ -2387,11 +2608,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (!game.IsInstalled && game.Platform != Platform.Steam)
+        if (!game.IsInstalled)
         {
-            MessageBox.Show(
-                $"{game.Name} n'est pas installé. Installe-le depuis {game.PlatformName}, puis clique sur Actualiser.",
-                "Wyrmhold");
+            InstallGame(game);
             return;
         }
 
@@ -2403,6 +2622,50 @@ public partial class MainWindow : Window
 
         // Le détecteur de jeu repère sa session ; elle sera enregistrée à sa fermeture.
         _library.ExpectPlaySession(game);
+    }
+
+    /// <summary>
+    /// Un jeu pas installé : on passe la main à son launcher (GameInstaller), qui fait l'installation.
+    /// Une fois le jeu installé, la surveillance des dossiers Steam et Epic l'affiche toute seule
+    /// (Ubisoft et Battle.net : à la prochaine actualisation).
+    /// </summary>
+    private void InstallGame(Game game)
+    {
+        if (_library.FindInstallCommand(game) is not InstallCommand command)
+        {
+            MessageBox.Show($"{game.Name} n'est pas installé. {_library.ExplainInstall(game)}", "Wyrmhold");
+            return;
+        }
+
+        try
+        {
+            // UseShellExecute = true : comme un double-clic, Windows passe l'adresse au launcher qui la gère.
+            System.Diagnostics.ProcessStartInfo start = command.Arguments is null
+                ? new System.Diagnostics.ProcessStartInfo(command.FileName) { UseShellExecute = true }
+                : new System.Diagnostics.ProcessStartInfo(command.FileName, command.Arguments) { UseShellExecute = true };
+            System.Diagnostics.Process.Start(start)?.Dispose();
+            Logger.Log($"Installation demandée à {game.PlatformName} : {game.Name} ({command}).");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Launcher impossible à ouvrir pour installer {game.Name} ({command}) : {ex.Message}");
+            MessageBox.Show($"{game.PlatformName} n'a pas pu être ouvert : est-il installé ? Les détails sont dans le journal.", "Wyrmhold");
+        }
+    }
+
+    /// <summary>
+    /// Le texte du bouton suit le jeu affiché dans la fiche : « Jouer » s'il est installé, « Installer » si son
+    /// launcher sait l'installer, et grisé sinon (l'infobulle dit quoi faire, même sur le bouton grisé).
+    /// </summary>
+    private void UpdatePlayButton(Game? game)
+    {
+        bool canInstall = game is not null && !game.IsInstalled && _library.FindInstallCommand(game) is not null;
+
+        PlayButton.Content = canInstall ? "⬇ Installer" : "▶ Jouer";
+        PlayButton.IsEnabled = game is not null && (game.IsInstalled || canInstall);
+        PlayButton.ToolTip = game is null
+            ? "Sélectionne d'abord un jeu dans la liste."
+            : game.IsInstalled ? null : _library.ExplainInstall(game);
     }
 
     private void PlayButton_Click(object sender, RoutedEventArgs e)
@@ -2454,6 +2717,13 @@ public partial class MainWindow : Window
         SetEmulatorRow(Platform.Dolphin, DolphinStatusText, DolphinButton);
         SetEmulatorRow(Platform.Ryujinx, RyujinxStatusText, RyujinxButton);
         SetEmulatorRow(Platform.Azahar, AzaharStatusText, AzaharButton);
+
+        // RetroAchievements : facultatif, ne sert qu'aux succès des jeux émulés.
+        Secrets keys = Secrets.Current;
+        SetAccountRow(RetroAchievementsStatusText, RetroAchievementsButton, keys.HasRetroAchievements);
+        RetroAchievementsStatusText.Text = keys.HasRetroAchievements
+            ? $"Connecté : {keys.RetroAchievementsUser}"
+            : "Facultatif : succès des jeux GB, GBA, DS, GameCube et Wii";
 
         // IsThereAnyDeal : facultatif, ne sert qu'à synchroniser la liste de suivi avec ta Waitlist.
         if (ShopsPanel.IsItadConfigured)
@@ -2601,6 +2871,36 @@ public partial class MainWindow : Window
                 GamesList.Items.Refresh();
             }
         }
+    }
+
+    private void RetroAchievementsButton_Click(object sender, RoutedEventArgs e)
+    {
+        Secrets keys = Secrets.Current;
+
+        if (keys.HasRetroAchievements)
+        {
+            MessageBoxResult answer = MessageBox.Show(
+                "Se déconnecter de RetroAchievements ? Ta clé sera oubliée sur ce PC. Ton compte et tes succès ne changent pas.",
+                "Wyrmhold",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            if (answer != MessageBoxResult.Yes)
+            {
+                return;
+            }
+
+            keys.RetroAchievementsUser = "";
+            keys.RetroAchievementsApiKey = "";
+            keys.RetroAchievementsUlid = "";
+            keys.Save();
+        }
+        else
+        {
+            new RetroAchievementsWindow { Owner = this }.ShowDialog();
+        }
+
+        RefreshAccountsTab();
     }
 
     private void ApplyLauncherState(Platform platform, TextBlock statusText, Button? button)
@@ -3127,6 +3427,35 @@ public partial class MainWindow : Window
         }
 
         Application.Current.Shutdown();
+    }
+
+    // ===================== Nouveautés =====================
+
+    // Premier lancement d'une nouvelle version : une seule fois, et avec Show pour que la bibliothèque se charge derrière.
+    private void OfferWhatsNew()
+    {
+        AppSettings settings = _library.Settings;
+        string? lastSeen = settings.LastSeenVersion;
+
+        // Une version de développement plus récente partage ce réglage : l'appli installée ne doit pas le faire reculer.
+        if (lastSeen is not null && !ReleaseNotes.IsNewer(AppInfo.Version, lastSeen))
+        {
+            return;
+        }
+
+        // Rien de vu et assistant jamais proposé = nouvelle installation : tout est nouveau, pas de liste à montrer.
+        if (lastSeen is not null || settings.SetupWizardDone)
+        {
+            List<ReleaseNote> notes = ReleaseNotes.Since(lastSeen, AppInfo.Version);
+
+            if (notes.Count > 0)
+            {
+                new WhatsNewWindow(notes) { Owner = this }.Show();
+            }
+        }
+
+        settings.LastSeenVersion = AppInfo.Version;
+        _library.SaveSettings();
     }
 
     // ===================== Clés API =====================

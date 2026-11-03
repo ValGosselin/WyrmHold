@@ -70,6 +70,12 @@ public class GameDatabase
         // Jeux émulés : la console (NULL pour un jeu PC).
         AddColumnIfMissing(connection, "Console", "TEXT");
 
+        // Jeux émulés : l'empreinte pour RetroAchievements (2 novembre 2026).
+        AddColumnIfMissing(connection, "RetroAchievementsHash", "TEXT");
+        AddColumnIfMissing(connection, "RetroAchievementsHashStamp", "TEXT");
+        AddColumnIfMissing(connection, "RetroAchievementsGameId", "INTEGER NOT NULL DEFAULT 0");
+        AddColumnIfMissing(connection, "RetroAchievementsMatch", "TEXT");
+
         // Les jeux déjà présents avant l'ajout de la colonne reçoivent la date d'aujourd'hui.
         using (SqliteCommand fillAddedDates = connection.CreateCommand())
         {
@@ -417,7 +423,8 @@ public class GameDatabase
         SELECT Platform, PlatformGameId, Name, IsInstalled, InstallPath, PlaytimeMinutes, IsFamilyShared, OwnerSteamId, LastPlayedUnix, Description, Developers, ReleaseDateUnix, IsEarlyAccess, Tags, MetadataUpdatedUnix, IsFavorite, AddedUnix, SizeOnDiskBytes,
                InstalledVersion, LastUpdateDetectedUnix, SteamAppId,
                AchievementsUnlocked, AchievementsTotal, HasNewAchievements, AchievementsCheckedUnix,
-               AchievementsAdded, AchievementsAddedUnix, UpdateNotesUnix, UpdateNotesCheckedUnix, Console
+               AchievementsAdded, AchievementsAddedUnix, UpdateNotesUnix, UpdateNotesCheckedUnix, Console,
+               RetroAchievementsHash, RetroAchievementsHashStamp, RetroAchievementsGameId, RetroAchievementsMatch
         FROM Game
         WHERE (IsInstalled = 1 OR IsOwned = 1 OR Platform = 'Steam') AND IsNotOwned = 0;
         """;
@@ -462,7 +469,11 @@ public class GameDatabase
                 AchievementsAddedUnix = reader.GetInt64(reader.GetOrdinal("AchievementsAddedUnix")),
                 UpdateNotesUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesUnix")),
                 UpdateNotesCheckedUnix = reader.GetInt64(reader.GetOrdinal("UpdateNotesCheckedUnix")),
-                Console = Enum.TryParse(ReadNullableString(reader, "Console"), out GameConsole console) ? console : GameConsole.None
+                Console = Enum.TryParse(ReadNullableString(reader, "Console"), out GameConsole console) ? console : GameConsole.None,
+                RetroAchievementsHash = ReadNullableString(reader, "RetroAchievementsHash"),
+                RetroAchievementsHashStamp = ReadNullableString(reader, "RetroAchievementsHashStamp"),
+                RetroAchievementsGameId = reader.GetInt32(reader.GetOrdinal("RetroAchievementsGameId")),
+                RetroAchievementsMatch = Enum.TryParse(ReadNullableString(reader, "RetroAchievementsMatch"), out RetroAchievementsMatch match) ? match : RetroAchievementsMatch.None
             });
         }
 
@@ -504,6 +515,60 @@ public class GameDatabase
             update.Parameters.AddWithValue("$total", game.AchievementsTotal);
             update.Parameters.AddWithValue("$hasNew", game.HasNewAchievements ? 1 : 0);
             update.Parameters.AddWithValue("$checked", game.AchievementsCheckedUnix);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public void SaveRetroAchievementsHashes(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE Game SET
+                RetroAchievementsHash      = $hash,
+                RetroAchievementsHashStamp = $stamp
+            WHERE Platform = $platform AND PlatformGameId = $gameId;
+            """;
+            update.Parameters.AddWithValue("$hash", (object?)game.RetroAchievementsHash ?? DBNull.Value);
+            update.Parameters.AddWithValue("$stamp", (object?)game.RetroAchievementsHashStamp ?? DBNull.Value);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+    }
+
+    public void SaveRetroAchievementsMatches(List<Game> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach (Game game in games)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE Game SET
+                RetroAchievementsGameId = $gameNumber,
+                RetroAchievementsMatch  = $match
+            WHERE Platform = $platform AND PlatformGameId = $gameId;
+            """;
+            update.Parameters.AddWithValue("$gameNumber", game.RetroAchievementsGameId);
+            update.Parameters.AddWithValue("$match", game.RetroAchievementsMatch.ToString());
             update.Parameters.AddWithValue("$platform", game.Platform.ToString());
             update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
             update.ExecuteNonQuery();

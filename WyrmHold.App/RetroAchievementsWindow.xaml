@@ -1,0 +1,32 @@
+<Window x:Class="WyrmHold.App.RetroAchievementsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Compte RetroAchievements"
+        Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Loaded="Window_Loaded">
+
+    <StackPanel Margin="18">
+        <TextBlock TextWrapping="Wrap" Margin="0,0,0,10"
+                   Text="RetroAchievements ajoute des succès aux jeux Game Boy, Game Boy Color, Game Boy Advance, DS, GameCube et Wii. Ton compte sert à lire ta progression."/>
+        <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,0,0,14"
+                   Text="Connecte-toi sur le site, copie ta clé Web API dans la section « Keys » de tes réglages, puis colle-la ici. Pour débloquer des succès, connecte aussi ce compte dans RetroArch et Dolphin."/>
+
+        <Button Content="Ouvrir mes réglages RetroAchievements" Height="32" Padding="12,0" HorizontalAlignment="Left"
+                Margin="0,0,0,14" Click="OpenSettingsButton_Click"/>
+
+        <TextBlock Text="Pseudo" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox x:Name="UserBox" Height="32" Padding="6,0" VerticalContentAlignment="Center" Margin="0,0,0,12"/>
+
+        <TextBlock Text="Clé Web API" FontWeight="SemiBold" Margin="0,0,0,6"/>
+        <TextBox x:Name="ApiKeyBox" Height="32" Padding="6,0" VerticalContentAlignment="Center"/>
+
+        <TextBlock x:Name="ResultText" TextWrapping="Wrap" Margin="0,10,0,0"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button x:Name="SaveButton" Content="Vérifier et enregistrer" Height="32" Padding="12,0" Margin="0,0,8,0"
+                    IsDefault="True" Click="SaveButton_Click"/>
+            <Button Content="Annuler" Width="90" Height="32" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

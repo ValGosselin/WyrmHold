@@ -15,6 +15,7 @@ public class DolphinProvider : EmulatorProvider
 {
     public const string Executable = "Dolphin.exe";
 
+    private const string ToolName = "DolphinTool.exe";
     private const string UserFolderName = "Dolphin Emulator";
     private const string PortableFolderName = "User";
     private const string RegistryKeyPath = @"Software\Dolphin Emulator";
@@ -107,7 +108,30 @@ public class DolphinProvider : EmulatorProvider
 
     protected override IEnumerable<string> BuildArguments(Game game, string executablePath)
     {
-        return new[] { "-b", "-e", game.InstallPath ?? "" };
+        List<string> arguments = new List<string> { "-b", "-e", game.InstallPath ?? "" };
+
+        // -C ne vaut que pour ce lancement : rien n'est écrit dans les fichiers de Dolphin (CommandLineParse.cpp, lu le
+        // 2 novembre 2026). Dolphin n'a pas de réglage pour ses notifications de succès : elles passent par ses messages
+        // à l'écran, tous cachés pendant cette partie. SoundFeedback coupe son son de déblocage.
+        if (WyrmholdAnnouncesAchievements(game))
+        {
+            arguments.AddRange(new[] { "-C", "Dolphin.Interface.OnScreenDisplayMessages=False" });
+            arguments.AddRange(new[] { "-C", "Achievements.Achievements.SoundFeedback=False" });
+        }
+
+        return arguments;
+    }
+
+    /// <summary>
+    /// DolphinTool, l'outil en ligne de commande livré à côté de Dolphin.exe (null si absent).
+    /// </summary>
+    public string? FindTool()
+    {
+        string? tool = FindExecutable() is string executablePath
+            ? Path.Combine(Path.GetDirectoryName(executablePath) ?? "", ToolName)
+            : null;
+
+        return File.Exists(tool) ? tool : null;
     }
 
     private static string FindUserFolder(string executablePath)

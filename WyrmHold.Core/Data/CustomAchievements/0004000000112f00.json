@@ -1,0 +1,26 @@
+{
+  "titleId": "0004000000112f00",
+  "title": "Inazuma Eleven GO : Light",
+  "saveFile": "game.ie4",
+  "reader": "inazuma",
+  "achievements": [
+    { "id": "recrue-victor", "title": "Le rival devenu allié", "description": "Recruter Victor Blade.", "rule": { "type": "flag", "key": "player.FF7FE96D" }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor/blob/main/InazumaElevenSaveEditor/InazumaEleven/Common/GO/Players/Players.cs" },
+    { "id": "recrue-riccardo", "title": "Le maestro", "description": "Recruter Riccardo Di Rigo.", "rule": { "type": "flag", "key": "player.9FB86088" }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor/blob/main/InazumaElevenSaveEditor/InazumaEleven/Common/GO/Players/Players.cs" },
+    { "id": "legende-jude", "title": "Le stratège revient", "description": "Recruter Jude Sharp.", "rule": { "type": "flag", "key": "player.107D73EA" }, "source": "https://inazuma-eleven.fandom.com/wiki/Inazuma_Eleven_GO_(game)" },
+    { "id": "legende-nathan", "title": "Le vent de Raimon", "description": "Recruter Nathan Swift.", "rule": { "type": "flag", "key": "player.B599C8E0" }, "source": "https://inazuma-eleven.fandom.com/wiki/Inazuma_Eleven_GO_(game)" },
+    { "id": "legende-shawn", "title": "Zéro absolu", "description": "Recruter Shawn Froste.", "rule": { "type": "flag", "key": "player.5F3CE52D" }, "source": "https://inazuma-eleven.fandom.com/wiki/Inazuma_Eleven_GO_(game)" },
+    { "id": "legende-caleb", "title": "Le rebelle", "description": "Recruter Caleb Stonewall.", "rule": { "type": "flag", "key": "player.64BCCB84" }, "source": "https://inazuma-eleven.fandom.com/wiki/Inazuma_Eleven_GO_(game)" },
+    { "id": "legende-jack", "title": "Le mur de Raimon", "description": "Recruter Jack Wallside.", "rule": { "type": "flag", "key": "player.C29EF876" }, "source": "https://inazuma-eleven.fandom.com/wiki/Inazuma_Eleven_GO_(game)" },
+    { "id": "legende-axel", "title": "La flamme de Raimon", "description": "Recruter Axel Blaze.", "hidden": true, "rule": { "type": "flag", "key": "player.428C988D" }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor/blob/main/InazumaElevenSaveEditor/InazumaEleven/Common/GO/Players/Players.cs" },
+    { "id": "legende-byron", "title": "L'ange déchu", "description": "Recruter Byron Love.", "hidden": true, "rule": { "type": "flag", "key": "player.6ECC0F57" }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor/blob/main/InazumaElevenSaveEditor/InazumaEleven/Common/GO/Players/Players.cs" },
+    { "id": "keshin-1", "title": "L'esprit se réveille", "description": "Avoir un joueur doté d'un Keshin.", "rule": { "type": "atLeast", "key": "keshin.count", "value": 1 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "keshin-3", "title": "Une équipe d'esprits", "description": "Avoir 3 Keshin différents dans ton effectif.", "rule": { "type": "atLeast", "key": "keshin.count", "value": 3 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "onze-30", "title": "Un onze solide", "description": "Avoir 11 joueurs au niveau 30 ou plus.", "rule": { "type": "atLeast", "key": "players.eleventhLevel", "value": 30 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "onze-50", "title": "Un onze d'élite", "description": "Avoir 11 joueurs au niveau 50 ou plus.", "rule": { "type": "atLeast", "key": "players.eleventhLevel", "value": 50 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "equipe-sur-mesure", "title": "Ton équipe, tes règles", "description": "Remplir une équipe personnalisée avec 11 joueurs.", "rule": { "type": "atLeast", "key": "customteam.players", "value": 11 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "joueurs-11", "title": "Onze de départ", "description": "Avoir 11 joueurs dans ton effectif.", "rule": { "type": "atLeast", "key": "players.count", "value": 11 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "joueurs-25", "title": "Un vrai club", "description": "Avoir 25 joueurs dans ton effectif.", "rule": { "type": "atLeast", "key": "players.count", "value": 25 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "prestige-1000", "title": "On parle de toi", "description": "Atteindre 1 000 points de Prestige.", "rule": { "type": "atLeast", "key": "prestige", "value": 1000 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" },
+    { "id": "amitie-1000", "title": "Copains de vestiaire", "description": "Atteindre 1 000 points d'Amitié.", "rule": { "type": "atLeast", "key": "friendship", "value": 1000 }, "source": "https://github.com/Tiniifan/InazumaElevenSaveEditor" }
+  ]
+}

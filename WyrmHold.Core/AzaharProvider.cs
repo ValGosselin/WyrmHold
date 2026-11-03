@@ -24,6 +24,8 @@ public class AzaharProvider : EmulatorProvider
 
     private const string CiaExtension = ".cia";
 
+    private const int TitleIdLength = 16;
+
     // Les jeux que l'on peut lancer directement (liste de game_list.cpp, sans les programmes .elf et .axf).
     private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -98,6 +100,33 @@ public class AzaharProvider : EmulatorProvider
     protected override IEnumerable<string> BuildArguments(Game game, string executablePath)
     {
         return new[] { game.InstallPath ?? "" };
+    }
+
+    /// <summary>
+    /// La save d'un jeu sur la carte SD émulée (vérifié le 3 novembre 2026 sur Azahar 2126.2) :
+    /// Nintendo 3DS\&lt;id&gt;\&lt;id&gt;\title\&lt;8 premiers chiffres&gt;\&lt;8 derniers&gt;\data\00000001\&lt;fichier&gt;.
+    /// </summary>
+    public override string? FindSaveFile(string titleId, string fileName)
+    {
+        if (FindExecutable() is not string executablePath || titleId.Length != TitleIdLength)
+        {
+            return null;
+        }
+
+        string sdmc = ReadConfig(executablePath).SdmcFolder ?? Path.Combine(FindDataFolder(executablePath), "sdmc");
+        string root = Path.Combine(sdmc, "Nintendo 3DS");
+
+        if (!Directory.Exists(root))
+        {
+            return null;
+        }
+
+        return Directory.EnumerateDirectories(root)
+            .SelectMany(Directory.EnumerateDirectories)
+            .Select(folder => Path.Combine(folder, "title", titleId[..8], titleId[8..], "data", "00000001", fileName))
+            .Where(File.Exists)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
     }
 
     /// <summary>

@@ -13,7 +13,7 @@ namespace Wyrmhold.Core;
 public class LiveAchievementTracker
 {
     // Lecture par internet : Steam a son fichier local (instantané), internet n'y sert que de secours ;
-    // Epic et GOG n'ont qu'internet, donc on les interroge plus souvent (4 petites requêtes par minute de jeu).
+    // Epic, GOG et RetroAchievements n'ont qu'internet, donc on les interroge plus souvent (4 petites requêtes par minute de jeu).
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan FastPollInterval = TimeSpan.FromSeconds(15);
 

@@ -34,10 +34,59 @@ if (args.Length > 1 && args[0] == "24")
     return;
 }
 
+// 25 = compte RetroAchievements : essai du compte enregistré et d'une fausse clé (rien n'est enregistré).
+if (args.Length > 0 && args[0] == "25")
+{
+    await TestRetroAchievementsAccountAsync();
+    return;
+}
+
+// 26 = empreintes RetroAchievements : essai de l'algorithme DS, puis les vrais jeux comparés aux listes du site (rien n'est enregistré).
+// Les mots ajoutés après le 26 sont cherchés dans les titres de ces listes : « dotnet run -- 26 Clubhouse Classics ».
+if (args.Length > 0 && args[0] == "26")
+{
+    await ShowRetroAchievementsHashesAsync(args.Skip(1).ToArray());
+    return;
+}
+
+// 27 = progression RetroAchievements d'un compte : « dotnet run -- 27 » (ton compte) ou « dotnet run -- 27 <pseudo public> <n° de jeu> ».
+if (args.Length > 0 && args[0] == "27")
+{
+    await ShowRetroAchievementsProgressAsync(args.Length > 1 ? args[1] : null, args.Length > 2 ? int.Parse(args[2]) : null);
+    return;
+}
+
+// 28 = surveillance d'une save de succès maison : « dotnet run -- 28 » (Let's Go, reste ouvert, Ctrl + C pour arrêter), « 28 une » (une seule lecture),
+// « 28 inazuma » et « 28 inazuma une » pour Inazuma Eleven GO.
+// « dotnet run -- 28 essai » : les règles sur une copie en mémoire de la save, avec un badge et des captures ajoutés à la main.
+if (args.Length > 1 && args[0] == "28" && args[1] == "essai")
+{
+    TestCustomRules();
+    return;
+}
+
+if (args.Length > 0 && args[0] == "28")
+{
+    bool isInazuma = args.Contains("inazuma");
+
+    await WatchCustomSaveAsync(
+        isInazuma ? Platform.Azahar : Platform.Ryujinx,
+        isInazuma ? "0004000000112f00" : "0100187003a36000",
+        args.Contains("une"));
+    return;
+}
+
 // 23 = une seule copie de Wyrmhold : essai du verrou (avec un nom à part, sans gêner l'appli).
 if (args.Length > 0 && args[0] == "23")
 {
     TestSingleInstance();
+    return;
+}
+
+// 29 = notes de version : le fichier lu dans la DLL, puis ce que verrait chaque personne selon sa dernière version vue.
+if (args.Length > 0 && args[0] == "29")
+{
+    TestReleaseNotes();
     return;
 }
 
@@ -470,6 +519,34 @@ static async Task ShowAnnouncedSizesAsync(string[] appIds)
     Console.WriteLine($"Taille trouvée pour {found} jeu(x) sur {appIds.Length}.");
 }
 
+static void TestReleaseNotes()
+{
+    Console.WriteLine($"Version de l'appli : {AppInfo.Version}");
+
+    List<ReleaseNote> all = ReleaseNotes.UpTo("99.0.0");
+    Console.WriteLine($"Dans le fichier : {string.Join(", ", all.Select(note => note.Version))}");
+
+    foreach (ReleaseNote note in all)
+    {
+        Console.WriteLine($"  {note.Version} : {note.Markdown.Split('\n').Length} lignes, commence par « {note.Markdown.Split('\n')[0]} »");
+    }
+
+    string Shown(string? lastSeen, string current) =>
+        string.Join(", ", ReleaseNotes.Since(lastSeen, current).Select(note => note.Version)) is { Length: > 0 } text ? text : "rien";
+
+    Console.WriteLine("\nCe que verrait quelqu'un en 1.1.0 :");
+    Console.WriteLine($"  rien de vu (venu d'avant cette fonction) → {Shown(null, "1.1.0")}");
+    Console.WriteLine($"  1.0.9 vue → {Shown("1.0.9", "1.1.0")}");
+    Console.WriteLine($"  1.0.7 vue (versions sautées) → {Shown("1.0.7", "1.1.0")}");
+    Console.WriteLine($"  1.1.0 vue → {Shown("1.1.0", "1.1.0")}");
+    Console.WriteLine($"  numéro illisible → {Shown("abc", "1.1.0")}");
+
+    Console.WriteLine("\nComparaisons de numéros (10 après 9, pas avant) :");
+    Console.WriteLine($"  1.0.10 plus récent que 1.0.9 : {ReleaseNotes.IsNewer("1.0.10", "1.0.9")}");
+    Console.WriteLine($"  1.0.9 plus récent que 1.0.10 : {ReleaseNotes.IsNewer("1.0.9", "1.0.10")}");
+    Console.WriteLine($"  inconnue plus récent que 1.0.9 : {ReleaseNotes.IsNewer("inconnue", "1.0.9")}");
+}
+
 // Chaque copie est jouée par un fil à part : sur le même fil, un Mutex déjà pris se reprend sans attendre.
 static void TestSingleInstance()
 {
@@ -798,6 +875,429 @@ static async Task TestApiKeysAsync()
     Console.WriteLine($"Fausse clé Steam : {(await ApiKeyTester.TestSteamAsync(new string('0', 32), keys.SteamId)).Message}");
     Console.WriteLine($"Fausse clé SGDB  : {(await ApiKeyTester.TestSteamGridDbAsync("faussecle")).Message}");
     Console.WriteLine($"Fausse clé ITAD  : {(await ApiKeyTester.TestIsThereAnyDealAsync("faussecle")).Message}");
+}
+
+// Phase 10 des émulateurs : le compte enregistré, s'il y en a un, puis les réponses aux erreurs.
+static async Task TestRetroAchievementsAccountAsync()
+{
+    Secrets keys = Secrets.Current;
+
+    if (keys.HasRetroAchievements)
+    {
+        (KeyTestResult result, RetroAchievementsProfile? profile) =
+            await ApiKeyTester.TestRetroAchievementsAsync(keys.RetroAchievementsUser, keys.RetroAchievementsApiKey);
+
+        Console.WriteLine($"Clé {ApiKeyTester.Mask(keys.RetroAchievementsApiKey)} : {result.Message}");
+        Console.WriteLine($"ULID : {(string.IsNullOrEmpty(profile?.Ulid) ? "absent" : "présent")}");
+
+        (KeyTestResult unknown, _) = await ApiKeyTester.TestRetroAchievementsAsync("WyrmInconnu0000", keys.RetroAchievementsApiKey);
+        Console.WriteLine($"Pseudo inconnu : {unknown.Message}");
+
+        (KeyTestResult invalid, _) = await ApiKeyTester.TestRetroAchievementsAsync("wyrmhold-pseudo-inconnu-0000", keys.RetroAchievementsApiKey);
+        Console.WriteLine($"Pseudo impossible : {invalid.Message}");
+    }
+    else
+    {
+        Console.WriteLine("Aucun compte RetroAchievements enregistré.");
+    }
+
+    // Une mauvaise clé doit être reconnue comme telle (et pas comme « pas de réseau »).
+    (KeyTestResult fake, _) = await ApiKeyTester.TestRetroAchievementsAsync("MaxMilyin", "faussecle");
+    Console.WriteLine($"Fausse clé : {fake.Message}");
+
+    (KeyTestResult empty, _) = await ApiKeyTester.TestRetroAchievementsAsync("", "");
+    Console.WriteLine($"Champs vides : {empty.Message}");
+}
+
+// Phase 10 des émulateurs : l'empreinte de chaque jeu émulé, cherchée dans les listes de RetroAchievements.
+static async Task ShowRetroAchievementsHashesAsync(string[] searchWords)
+{
+    TestDsHash();
+
+    LibraryService library = new LibraryService();
+    Secrets keys = Secrets.Current;
+    RetroAchievementsApi api = new RetroAchievementsApi(keys);
+    string? dolphinTool = ((DolphinProvider)library.GetEmulator(Platform.Dolphin)).FindTool();
+
+    Console.WriteLine($"DolphinTool : {dolphinTool ?? "introuvable"}");
+
+    RetroAchievementsCatalog catalog = new RetroAchievementsCatalog(api);
+    HashSet<RetroAchievementsGame> searched = new HashSet<RetroAchievementsGame>();
+
+    foreach (Game game in library.LoadGames().Where(g => g.CanHaveRetroAchievements))
+    {
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        string? hash = await RetroAchievementsHasher.ComputeAsync(game, dolphinTool);
+
+        Console.WriteLine();
+        Console.WriteLine($"{game.Name} ({GameConsoles.ShortName(game.Console)}, {watch.ElapsedMilliseconds} ms)");
+        Console.WriteLine($"  Empreinte : {hash ?? "impossible"}");
+
+        if (hash is null || !keys.HasRetroAchievements)
+        {
+            continue;
+        }
+
+        // La même recherche que l'appli, avec l'empreinte qu'on vient de calculer (rien n'est enregistré en base).
+        game.RetroAchievementsHash = hash;
+
+        List<RetroAchievementsGame> games = await catalog.GetGamesAsync(game.Console);
+        searched.UnionWith(games);
+
+        (int gameId, RetroAchievementsMatch match) = RetroAchievementsCatalog.FindMatch(game, games);
+        RetroAchievementsGame? found = games.FirstOrDefault(entry => entry.Id == gameId);
+
+        Console.WriteLine($"  Base      : n° {game.RetroAchievementsGameId} ({game.RetroAchievementsMatch})");
+
+        // La commande de l'appli : le jeu vient de la base, avec son association (le mode 21 repart des jeux scannés, sans elle).
+        EmulatorProvider emulator = library.GetEmulator(game.Platform);
+
+        if (emulator.FindExecutable() is string executablePath)
+        {
+            try
+            {
+                Console.WriteLine($"  Commande  : {string.Join(" ", emulator.BuildStartInfo(game, executablePath).ArgumentList)}");
+            }
+            catch (EmulatorLaunchException ex)
+            {
+                Console.WriteLine($"  Commande  : impossible ({ex.Message.Split('\n')[0]})");
+            }
+        }
+
+        Console.WriteLine(found is null
+            ? "  Association : aucune"
+            : $"  Association : {match}, « {found.Title} » (n° {found.Id}, {found.AchievementCount} succès)");
+
+        if (found is not null && match != RetroAchievementsMatch.Hash)
+        {
+            foreach (RetroAchievementsVersion version in await api.GetGameVersionsAsync(found.Id))
+            {
+                Console.WriteLine($"  Version acceptée : {version.FileName ?? version.Hash}");
+            }
+        }
+    }
+
+    foreach (string word in searchWords)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Titres avec « {word} » :");
+
+        foreach (RetroAchievementsGame entry in searched.Where(entry => entry.Title.Contains(word, StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.WriteLine($"  {entry.Title} (n° {entry.Id}, {entry.AchievementCount} succès, {entry.Hashes?.Count ?? 0} empreinte(s))");
+        }
+    }
+}
+
+// Phase 10 des émulateurs : les deux lectures de la source de succès, à comparer entre elles (rien n'est enregistré).
+static async Task ShowRetroAchievementsProgressAsync(string? user, int? gameId)
+{
+    RetroAchievementsApi api = new RetroAchievementsApi(Secrets.Current);
+    user ??= api.User;
+
+    List<RetroAchievementsCompletion> completion = await api.GetUserCompletionAsync(user);
+    Console.WriteLine($"Jeux avec progression : {completion.Count}");
+
+    RetroAchievementsCompletion? line = gameId is null
+        ? completion.OrderByDescending(entry => entry.UnlockedHardcore).ThenByDescending(entry => entry.Unlocked).FirstOrDefault()
+        : completion.FirstOrDefault(entry => entry.GameId == gameId);
+
+    int id = gameId ?? line?.GameId ?? 0;
+
+    if (id == 0)
+    {
+        Console.WriteLine("Aucun jeu à lire : indique un pseudo public et un n° de jeu.");
+        return;
+    }
+
+    Console.WriteLine($"Jeu n° {id} : {line?.Unlocked ?? 0} normaux, {line?.UnlockedHardcore ?? 0} hardcore, sur {line?.MaxPossible ?? 0}");
+
+    long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    List<RetroAchievementsEarned> earned = await api.GetEarnedBetweenAsync(user, now - 365 * 24 * 3600, now);
+    Console.WriteLine($"Débloqués cette dernière année : {earned.Count}, dont {earned.Count(entry => entry.GameId == id)} dans ce jeu");
+
+    List<AchievementDetail> details = RetroAchievementsProvider.ToDetails(await api.GetGameProgressAsync(id, user));
+
+    Console.WriteLine($"Liste : {details.Count} succès, {details.Count(d => d.IsUnlocked)} débloqués, {details.Count(d => d.IsHardcore)} hardcore");
+
+    foreach (AchievementDetail detail in details.OrderBy(d => d.Order).Take(3))
+    {
+        Console.WriteLine($"  {detail.Order}. {detail.Name} | {detail.UnlockedText} | {detail.RarityText} | {detail.IconUrl}");
+    }
+}
+
+// La vraie save, lue en mémoire puis modifiée en mémoire seulement : le fichier ne change pas.
+static void TestCustomRules()
+{
+    const string TitleId = "0100187003a36000";
+
+    CustomGameDefinition definition = CustomAchievementCatalog.Find(TitleId)!;
+    string savePath = new LibraryService().GetEmulator(Platform.Ryujinx).FindSaveFile(TitleId, definition.SaveFile)!;
+    byte[] save = File.ReadAllBytes(savePath);
+
+    void SetBit(int offset, int bit) => save[offset + (bit >> 3)] |= (byte)(1 << (bit & 7));
+
+    int flags = 0x1200 + 1000 * sizeof(uint);
+    int caught = 0x2A00 + 0x8C;
+
+    // Badge Roche, 3 Maîtres dresseurs, Mew, Melmetal et 11 espèces de Kanto en tout, 120 Pokémon capturés.
+    SetBit(flags, 0x08C);
+    SetBit(flags, 0xC44);
+    SetBit(flags, 0xC50);
+    SetBit(flags, 0xCD5);
+
+    foreach (int species in new[] { 1, 4, 7, 25, 133, 134, 135, 136, 143, 150, 151, 809 })
+    {
+        SetBit(caught, species - 1);
+    }
+
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(save.AsSpan(0x46600 + 0x794), 120);
+
+    Dictionary<string, long> values = new LetsGoSaveReader().Read(save);
+    List<AchievementDetail> details = CustomAchievementProvider.ToDetails(definition, values);
+
+    Console.WriteLine($"dex.caught = {values.GetValueOrDefault("dex.caught")}, masters.defeated = {values.GetValueOrDefault("masters.defeated")}, captured.total = {values.GetValueOrDefault("captured.total")}");
+    Console.WriteLine($"Succès débloqués : {details.Count(d => d.IsUnlocked)}/{details.Count}");
+
+    foreach (AchievementDetail detail in details.Where(d => d.IsUnlocked))
+    {
+        Console.WriteLine($"  {detail.Name}");
+    }
+
+    AchievementDetail progress = details.First(d => d.Id == "dex-50");
+    Console.WriteLine($"Progression de « {progress.Name} » : {progress.ProgressText}, débloqué : {progress.IsUnlocked}");
+    Console.WriteLine($"« Collection complète » : {details.First(d => d.Id == "tous-les-badges").IsUnlocked}");
+
+    try
+    {
+        save[0x2A00] = 0;
+        new LetsGoSaveReader().Read(save);
+        Console.WriteLine("Fichier abîmé : ÉCHEC, il a été accepté");
+    }
+    catch (InvalidDataException ex)
+    {
+        Console.WriteLine($"Fichier abîmé : refusé ({ex.Message})");
+    }
+}
+
+// Phase 11 des émulateurs : ce qui change dans la save à chaque sauvegarde en jeu. Rien n'est modifié dans la save :
+// à chaque changement, une copie est gardée, et les différences vont aussi dans un journal, pour comparer plus tard.
+static async Task WatchCustomSaveAsync(Platform platform, string titleId, bool onlyOnce)
+{
+    LibraryService library = new LibraryService();
+    EmulatorProvider emulator = library.GetEmulator(platform);
+    CustomGameDefinition definition = CustomAchievementCatalog.Find(titleId)
+        ?? throw new InvalidOperationException("Fichier de succès introuvable.");
+
+    string? savePath = emulator.FindSaveFile(titleId, definition.SaveFile);
+
+    if (savePath is null)
+    {
+        Console.WriteLine("Aucune save trouvée.");
+        return;
+    }
+
+    string folder = Path.Combine(AppPaths.DataFolder, "SaveWatch");
+    string logPath = Path.Combine(folder, "journal.txt");
+    Directory.CreateDirectory(folder);
+
+    void Write(string line)
+    {
+        Console.WriteLine(line);
+        File.AppendAllText(logPath, line + Environment.NewLine);
+    }
+
+    // Le titre des succès qui lisent cette valeur : le journal parle ainsi de « Badge Roche », pas de « flag.0x08C ».
+    string Label(string key)
+    {
+        IEnumerable<string> titles = definition.Achievements
+            .Where(a => a.Rule.Key == key || a.Rule.Keys?.Contains(key) == true)
+            .Select(a => a.Title);
+
+        return string.Join(", ", titles);
+    }
+
+    Dictionary<string, long> known = CustomAchievementProvider.ReadValues(definition, savePath);
+    DateTime lastWrite = File.GetLastWriteTimeUtc(savePath);
+    List<AchievementDetail> details = CustomAchievementProvider.ToDetails(definition, known);
+
+    Write($"--- {DateTime.Now:yyyy-MM-dd HH:mm:ss} surveillance de {savePath}");
+    Write($"{known.Count} valeurs lues, {details.Count(d => d.IsUnlocked)}/{details.Count} succès.");
+
+    foreach (string key in definition.Achievements.Where(a => a.Rule.Type == "atLeast").Select(a => a.Rule.Key!).Distinct())
+    {
+        Write($"  {key} = {known.GetValueOrDefault(key)}");
+    }
+
+    foreach (string key in known.Keys.Where(key => key.StartsWith("head.", StringComparison.Ordinal) || key.StartsWith("player.", StringComparison.Ordinal)))
+    {
+        Write($"  {key} = {known[key]}");
+    }
+
+    if (onlyOnce)
+    {
+        return;
+    }
+
+    Console.WriteLine("Joue et sauvegarde dans le jeu : chaque sauvegarde s'affiche ici. Ctrl + C pour arrêter.");
+
+    while (true)
+    {
+        await Task.Delay(TimeSpan.FromSeconds(2));
+
+        savePath = emulator.FindSaveFile(titleId, definition.SaveFile);
+
+        // L'émulateur remplace le fichier en enregistrant : il peut manquer pendant un court instant.
+        if (savePath is null || File.GetLastWriteTimeUtc(savePath) == lastWrite)
+        {
+            continue;
+        }
+
+        try
+        {
+            Dictionary<string, long> fresh = CustomAchievementProvider.ReadValues(definition, savePath);
+
+            lastWrite = File.GetLastWriteTimeUtc(savePath);
+
+            // Tous les fichiers de la save, dans un dossier par sauvegarde.
+            string copyFolder = Path.Combine(folder, $"{titleId}-{DateTime.Now:yyyyMMdd-HHmmss}");
+            Directory.CreateDirectory(copyFolder);
+
+            foreach (string file in Directory.GetFiles(Path.GetDirectoryName(savePath)!))
+            {
+                File.Copy(file, Path.Combine(copyFolder, Path.GetFileName(file)));
+            }
+
+            Write($"--- {DateTime.Now:HH:mm:ss} sauvegarde vue");
+
+            foreach (string key in known.Keys.Union(fresh.Keys).OrderBy(key => key, StringComparer.Ordinal))
+            {
+                long before = known.GetValueOrDefault(key);
+                long after = fresh.GetValueOrDefault(key);
+
+                if (before != after)
+                {
+                    string label = Label(key);
+                    Write($"  {key} : {before} → {after}{(label.Length > 0 ? $"  ({label})" : "")}");
+                }
+            }
+
+            known = fresh;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            Console.WriteLine($"Lecture repoussée : {ex.Message}");
+        }
+    }
+}
+
+// L'algorithme DS sur une fausse ROM : le résultat attendu est calculé à la main, sans passer par le code essayé.
+static void TestDsHash()
+{
+    byte[] rom = new byte[0x1000];
+    new Random(42).NextBytes(rom);
+
+    void WriteUInt32(int offset, uint value) => System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(rom.AsSpan(offset), value);
+
+    WriteUInt32(0x20, 0x200);
+    WriteUInt32(0x2C, 0x100);
+    WriteUInt32(0x30, 0x300);
+    WriteUInt32(0x3C, 0x80);
+    WriteUInt32(0x68, 0x600);
+
+    byte[] expectedData = rom[..0x160].Concat(rom[0x200..0x300]).Concat(rom[0x300..0x380]).Concat(rom[0x600..0x1000]).ToArray();
+    string expected = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(expectedData));
+    Console.WriteLine($"DS normale   : {(RetroAchievementsHasher.HashNintendoDs(new MemoryStream(rom)) == expected ? "OK" : "ÉCHEC")}");
+
+    // Les mêmes données derrière un en-tête SuperCard : même empreinte attendue.
+    byte[] superCard = new byte[512];
+    new byte[] { 0x2E, 0x00, 0x00, 0xEA }.CopyTo(superCard, 0);
+    new byte[] { 0x44, 0x46, 0x96, 0x00 }.CopyTo(superCard, 0xB0);
+    Console.WriteLine($"DS SuperCard : {(RetroAchievementsHasher.HashNintendoDs(new MemoryStream(superCard.Concat(rom).ToArray())) == expected ? "OK" : "ÉCHEC")}");
+
+    // Icône coupée par la fin du fichier : le reste doit valoir zéro.
+    byte[] cut = rom[..0x800];
+    byte[] cutData = rom[..0x160].Concat(rom[0x200..0x300]).Concat(rom[0x300..0x380]).Concat(rom[0x600..0x800]).Concat(new byte[0xA00 - 0x200]).ToArray();
+    string cutExpected = Convert.ToHexStringLower(System.Security.Cryptography.MD5.HashData(cutData));
+    Console.WriteLine($"DS coupée    : {(RetroAchievementsHasher.HashNintendoDs(new MemoryStream(cut)) == cutExpected ? "OK" : "ÉCHEC")}");
+
+    // Du code annoncé au-delà de 16 Mo : ce n'est pas une ROM DS.
+    WriteUInt32(0x2C, 0x2000000);
+    Console.WriteLine($"Trop de code : {(RetroAchievementsHasher.HashNintendoDs(new MemoryStream(rom)) is null ? "OK" : "ÉCHEC")}");
+
+    // Le test officiel de rcheevos (test_hash_nds) : la même fausse ROM doit donner le même résultat.
+    byte[] official = FillRcheevosImage(2 * 1024 * 1024);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(official.AsSpan(0x20), 65536);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(official.AsSpan(0x2C), 1234567);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(official.AsSpan(0x30), 65536 + 1234567);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(official.AsSpan(0x3C), 654321);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(official.AsSpan(0x68), 65536 + 1234567 + 654321);
+    string? officialHash = RetroAchievementsHasher.HashNintendoDs(new MemoryStream(official));
+    Console.WriteLine($"DS rcheevos  : {(officialHash == "56b30c276cba4affa886bd38e8e34d7e" ? "OK" : $"ÉCHEC ({officialHash})")}");
+}
+
+// fill_image de test/rhash/data.c (rcheevos) : un remplissage qui ne dépend que de la taille.
+static byte[] FillRcheevosImage(int size)
+{
+    byte[] image = new byte[size];
+    int position = 0;
+    int remaining = size;
+    int seed = unchecked(size ^ (size >> 8) ^ ((size - 1) * 25387));
+
+    while (remaining > 0)
+    {
+        int count;
+        int value;
+
+        switch (seed & 0xFF)
+        {
+            case 0:
+                count = ((seed >> 8) & 0x3F) & ~(remaining & 0x0F);
+                count = count == 0 ? 1 : count;
+                value = 0;
+                break;
+            case 1:
+                count = ((seed >> 8) & 0x07) + 1;
+                value = (seed >> 16) & 0xFF;
+                break;
+            case 2:
+                count = ((seed >> 8) & 0x03) + 1;
+                value = ((seed >> 16) & 0xFF) ^ 0xFF;
+                break;
+            case 3:
+                count = ((seed >> 8) & 0x03) + 1;
+                value = ((seed >> 16) & 0xFF) ^ 0xA5;
+                break;
+            case 4:
+                count = ((seed >> 8) & 0x03) + 1;
+                value = ((seed >> 16) & 0xFF) ^ 0xC3;
+                break;
+            case 5:
+                count = ((seed >> 8) & 0x03) + 1;
+                value = ((seed >> 16) & 0xFF) ^ 0x96;
+                break;
+            case 6:
+            case 7:
+                count = ((seed >> 8) & 0x03) + 1;
+                value = ((seed >> 16) & 0xFF) ^ 0x78;
+                break;
+            default:
+                count = 1;
+                value = ((seed >> 8) ^ (seed >> 16)) & 0xFF;
+                break;
+        }
+
+        do
+        {
+            image[position++] = (byte)value;
+            remaining--;
+        }
+        while (remaining > 0 && --count > 0);
+
+        seed = unchecked(seed * 0x41C64E6D + 12345) & 0x7FFFFFFF;
+    }
+
+    return image;
 }
 
 // Les succès d'un jeu lus dans les fichiers de Steam, puis la même liste demandée à la Web API :

@@ -76,6 +76,8 @@ public partial class AchievementsPanel : UserControl
 
         _started = true;
 
+        VersionWarningText.Visibility = _game.IsRetroAchievementsVersionUnknown ? Visibility.Visible : Visibility.Collapsed;
+
         if (!_library.Settings.IsAchievementSourceEnabled(_game.Platform))
         {
             StatusText.Text = $"Les succès {_game.PlatformName} sont désactivés dans l'onglet Réglages.";

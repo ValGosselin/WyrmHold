@@ -18,6 +18,9 @@ public class RyujinxProvider : EmulatorProvider
 
     private const string PortableFolderName = "portable";
 
+    // Dans ExtraData0 : le Title ID sur 8 octets, puis le compte sur 16.
+    private const int ExtraDataHeaderSize = 24;
+
     private static readonly HashSet<string> GameExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         ".nsp", ".xci"
@@ -94,6 +97,51 @@ public class RyujinxProvider : EmulatorProvider
     protected override IEnumerable<string> BuildArguments(Game game, string executablePath)
     {
         return new[] { game.InstallPath ?? "" };
+    }
+
+    /// <summary>
+    /// Le fichier de save d'un jeu, ou null s'il n'y en a pas. Chaque dossier de bis\user\save a un fichier ExtraData0
+    /// dont les 8 premiers octets sont le Title ID, suivis du compte (vérifié le 3 novembre 2026 sur Ryujinx 1.3.3) :
+    /// un même jeu peut avoir un second dossier sans compte et sans save. Le sous-dossier 0 est la version enregistrée.
+    /// </summary>
+    public override string? FindSaveFile(string titleId, string fileName)
+    {
+        if (FindExecutable() is not string executablePath
+            || !ulong.TryParse(titleId, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ulong wanted))
+        {
+            return null;
+        }
+
+        string saveRoot = Path.Combine(FindDataFolder(executablePath), "bis", "user", "save");
+
+        if (!Directory.Exists(saveRoot))
+        {
+            return null;
+        }
+
+        return Directory.EnumerateDirectories(saveRoot)
+            .Where(folder => BelongsToAccount(folder, wanted))
+            .Select(folder => Path.Combine(folder, "0", fileName))
+            .Where(File.Exists)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private static bool BelongsToAccount(string saveFolder, ulong titleId)
+    {
+        string extraData = Path.Combine(saveFolder, "ExtraData0");
+
+        if (!File.Exists(extraData))
+        {
+            return false;
+        }
+
+        using FileStream file = RomFile.OpenRead(extraData);
+        byte[] header = RomFile.ReadAt(file, 0, ExtraDataHeaderSize);
+
+        return header.Length == ExtraDataHeaderSize
+            && BitConverter.ToUInt64(header, 0) == titleId
+            && header.Skip(sizeof(ulong)).Any(value => value != 0);
     }
 
     private static string FindDataFolder(string executablePath)

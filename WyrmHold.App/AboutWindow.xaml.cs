@@ -58,6 +58,11 @@ public partial class AboutWindow : Window
         }
     }
 
+    private void WhatsNewButton_Click(object sender, RoutedEventArgs e)
+    {
+        new WhatsNewWindow(ReleaseNotes.UpTo(AppInfo.Version)) { Owner = this }.ShowDialog();
+    }
+
     private void ReportBugButton_Click(object sender, RoutedEventArgs e)
     {
         // « À propos » se ferme d'abord : sinon le rapport s'ouvrirait derrière elle.

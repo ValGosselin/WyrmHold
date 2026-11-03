@@ -46,6 +46,8 @@ public class LibraryService
     private readonly SteamWebApi _steamApi;
     private readonly SteamGridDbApi _steamGridDb;
     private readonly SteamGuidesApi _steamGuides;
+    private readonly RetroAchievementsApi _retroAchievements;
+    private readonly RetroAchievementsCatalog _retroCatalog;
 
     // Succès : une source par plateforme. Pour en ajouter une, il suffira de l'ajouter à cette liste.
     private readonly SteamAchievementProvider _steamAchievements;
@@ -72,9 +74,18 @@ public class LibraryService
         _steamApi = new SteamWebApi(_secrets);
         _steamGridDb = new SteamGridDbApi(_secrets);
         _steamGuides = new SteamGuidesApi(_secrets);
+        _retroAchievements = new RetroAchievementsApi(_secrets);
+        _retroCatalog = new RetroAchievementsCatalog(_retroAchievements);
         _steamAchievements = new SteamAchievementProvider(_steamApi);
         _epicAchievements = new EpicAchievementProvider(_epicCatalog);
-        _achievementProviders = new List<IAchievementProvider> { _steamAchievements, _gogAchievements, _epicAchievements };
+        _achievementProviders = new List<IAchievementProvider>
+        {
+            _steamAchievements,
+            _gogAchievements,
+            _epicAchievements,
+            new RetroAchievementsProvider(Platform.RetroArch, _secrets, _retroAchievements, _retroCatalog),
+            new RetroAchievementsProvider(Platform.Dolphin, _secrets, _retroAchievements, _retroCatalog)
+        };
         _emulators = new List<EmulatorProvider>
         {
             new RetroArchProvider(Settings),
@@ -83,6 +94,8 @@ public class LibraryService
             new AzaharProvider(Settings)
         };
         _providers.AddRange(_emulators);
+        _achievementProviders.Add(new CustomAchievementProvider(GetEmulator(Platform.Ryujinx)));
+        _achievementProviders.Add(new CustomAchievementProvider(GetEmulator(Platform.Azahar)));
         _database.Initialize();
 
         Watcher.GameStarted += OnGameStarted;
@@ -666,6 +679,12 @@ public class LibraryService
                 entry.Namespace = record.Namespace;
             }
 
+            // Pareil pour l'identifiant du catalogue, ajouté le 3 novembre 2026 pour l'installation.
+            if (string.IsNullOrEmpty(entry.CatalogItemId))
+            {
+                entry.CatalogItemId = record.CatalogItemId;
+            }
+
             if (entry.IsGame)
             {
                 games.Add(new Game
@@ -683,6 +702,32 @@ public class LibraryService
         SecureStore.Save(EpicMarkerName, "connected");
 
         return games.Count;
+    }
+
+    /// <summary>Ce qu'il faut ouvrir pour que le launcher installe ce jeu, ou null si rien n'est connu (voir GameInstaller).</summary>
+    public InstallCommand? FindInstallCommand(Game game)
+    {
+        return GameInstaller.FindInstallCommand(game, FindEpicIds(game));
+    }
+
+    /// <summary>Le texte de l'infobulle du bouton « Installer » (voir GameInstaller).</summary>
+    public string ExplainInstall(Game game)
+    {
+        return GameInstaller.Explain(game, FindEpicIds(game));
+    }
+
+    // Les identifiants Epic d'un jeu, lus dans le cache du catalogue ; null pour un autre lanceur,
+    // ou tant que la synchro Epic ne les a pas encore notés.
+    private EpicGameIds? FindEpicIds(Game game)
+    {
+        if (game.Platform != Platform.Epic || _epicCatalog.Find(game.PlatformGameId) is not EpicCatalogEntry entry)
+        {
+            return null;
+        }
+
+        return string.IsNullOrEmpty(entry.Namespace) || string.IsNullOrEmpty(entry.CatalogItemId)
+            ? null
+            : new EpicGameIds(entry.Namespace, entry.CatalogItemId);
     }
 
     /// <summary>
@@ -1314,6 +1359,160 @@ public class LibraryService
         return found;
     }
 
+    // ----- RetroAchievements -----
+
+    /// <summary>
+    /// Calcule l'empreinte des jeux émulés nouveaux ou dont le fichier a changé, seulement si un compte
+    /// RetroAchievements est connecté. Un jeu dont l'empreinte est impossible n'est pas réessayé tant que son
+    /// fichier ne change pas. Sans DolphinTool, les jeux GameCube et Wii attendent (rien n'est enregistré).
+    /// </summary>
+    public async Task RefreshRetroAchievementsHashesAsync(IReadOnlyList<Game> games, CancellationToken cancellationToken = default)
+    {
+        if (!Secrets.Current.HasRetroAchievements)
+        {
+            return;
+        }
+
+        string? dolphinTool = ((DolphinProvider)GetEmulator(Platform.Dolphin)).FindTool();
+
+        List<Game> toHash = games
+            .Where(game => game.IsEmulated && game.IsInstalled && RetroAchievementsHasher.IsSupported(game.Console))
+            .Where(game => dolphinTool is not null || !RetroAchievementsHasher.NeedsDolphinTool(game.Console))
+            .ToList();
+
+        List<Game> computed = new List<Game>();
+
+        foreach (Game game in toHash)
+        {
+            try
+            {
+                string? stamp = RetroAchievementsHasher.GetFileStamp(game);
+
+                if (stamp is null || stamp == game.RetroAchievementsHashStamp)
+                {
+                    continue;
+                }
+
+                game.RetroAchievementsHash = await RetroAchievementsHasher.ComputeAsync(game, dolphinTool, cancellationToken);
+                game.RetroAchievementsHashStamp = stamp;
+                computed.Add(game);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.ComponentModel.Win32Exception)
+            {
+                // Fichier bloqué ou archive abîmée : on réessaiera à la prochaine lecture.
+                Logger.Log($"Empreinte de {game.Name} impossible : {ex.Message}");
+            }
+        }
+
+        if (computed.Count > 0)
+        {
+            _database.SaveRetroAchievementsHashes(computed);
+            Logger.Log($"RetroAchievements : {computed.Count} empreinte(s) calculée(s), dont {computed.Count(game => game.RetroAchievementsHash is null)} impossible(s).");
+        }
+    }
+
+    /// <summary>
+    /// Associe les jeux émulés à RetroAchievements : par empreinte, sinon par nom. Un choix fait à la main reste.
+    /// Si une console n'a aucune liste (site injoignable), ses jeux gardent leur dernière association.
+    /// </summary>
+    public async Task RefreshRetroAchievementsMatchesAsync(IReadOnlyList<Game> games, CancellationToken cancellationToken = default)
+    {
+        if (!Secrets.Current.HasRetroAchievements)
+        {
+            return;
+        }
+
+        List<Game> changed = new List<Game>();
+        List<Game> otherGame = new List<Game>();
+
+        foreach (IGrouping<GameConsole, Game> consoleGames in games.Where(game => game.CanHaveRetroAchievements).GroupBy(game => game.Console))
+        {
+            try
+            {
+                List<RetroAchievementsGame> catalog = await _retroCatalog.GetGamesAsync(consoleGames.Key, cancellationToken);
+
+                foreach (Game game in consoleGames.Where(game => game.RetroAchievementsMatch != RetroAchievementsMatch.Manual))
+                {
+                    (int gameId, RetroAchievementsMatch match) = RetroAchievementsCatalog.FindMatch(game, catalog);
+
+                    if (gameId != game.RetroAchievementsGameId)
+                    {
+                        game.ForgetAchievements();
+                        otherGame.Add(game);
+                    }
+
+                    if (gameId != game.RetroAchievementsGameId || match != game.RetroAchievementsMatch)
+                    {
+                        game.RetroAchievementsGameId = gameId;
+                        game.RetroAchievementsMatch = match;
+                        changed.Add(game);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or IOException or AchievementSourceUnavailableException)
+            {
+                Logger.Log($"RetroAchievements : jeux {GameConsoles.Name(consoleGames.Key)} non associés : {ex.Message}");
+            }
+        }
+
+        if (changed.Count > 0)
+        {
+            _database.SaveRetroAchievementsMatches(changed);
+            _database.SaveAchievements(otherGame);
+            Logger.Log($"RetroAchievements : {changed.Count} association(s) changée(s), dont "
+                + $"{changed.Count(game => game.RetroAchievementsMatch == RetroAchievementsMatch.Hash)} par empreinte, "
+                + $"{changed.Count(game => game.RetroAchievementsMatch == RetroAchievementsMatch.Name)} par nom.");
+        }
+    }
+
+    /// <summary>
+    /// Tous les jeux RetroAchievements possibles pour ce jeu émulé, triés par titre (choix à la main).
+    /// </summary>
+    public async Task<List<RetroAchievementsGame>> GetRetroAchievementsGamesAsync(Game game)
+    {
+        List<RetroAchievementsGame> games = await _retroCatalog.GetGamesAsync(game.Console);
+        return games.OrderBy(entry => entry.Title, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    public Task<List<RetroAchievementsVersion>> GetRetroAchievementsVersionsAsync(int gameId)
+    {
+        return _retroAchievements.GetGameVersionsAsync(gameId);
+    }
+
+    /// <summary>
+    /// Le choix fait à la main : un jeu, ou null pour « aucun jeu ». Si le jeu choisi accepte cette version,
+    /// le résultat est le même qu'une association par empreinte.
+    /// </summary>
+    public void SetRetroAchievementsGame(Game game, RetroAchievementsGame? chosen)
+    {
+        bool isRecognized = game.RetroAchievementsHash is string hash && chosen?.Accepts(hash) == true;
+
+        ApplyRetroAchievementsGame(game, chosen?.Id ?? 0, isRecognized ? RetroAchievementsMatch.Hash : RetroAchievementsMatch.Manual);
+    }
+
+    /// <summary>
+    /// Oublie le choix fait à la main : Wyrmhold cherche de nouveau tout seul.
+    /// </summary>
+    public async Task ResetRetroAchievementsGameAsync(Game game)
+    {
+        (int gameId, RetroAchievementsMatch match) = RetroAchievementsCatalog.FindMatch(game, await _retroCatalog.GetGamesAsync(game.Console));
+
+        ApplyRetroAchievementsGame(game, gameId, match);
+    }
+
+    private void ApplyRetroAchievementsGame(Game game, int gameId, RetroAchievementsMatch match)
+    {
+        if (gameId != game.RetroAchievementsGameId)
+        {
+            game.ForgetAchievements();
+            _database.SaveAchievements(new List<Game> { game });
+        }
+
+        game.RetroAchievementsGameId = gameId;
+        game.RetroAchievementsMatch = match;
+        _database.SaveRetroAchievementsMatches(new List<Game> { game });
+    }
+
     // ----- Guides et discussions -----
 
     // Guides déjà lus pendant cette session, par appid et par tri (évite de rappeler Steam à chaque clic).
@@ -1645,6 +1844,8 @@ public class LibraryService
     {
         await EnsureFreshGogTokensAsync();
         await EnsureFreshEpicSessionAsync();
+        await RefreshRetroAchievementsHashesAsync(games);
+        await RefreshRetroAchievementsMatchesAsync(games);
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 

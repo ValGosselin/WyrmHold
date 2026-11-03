@@ -83,6 +83,7 @@ public partial class UpdateWindow : Window
             StatusText.Text = $"Téléchargement de la version {version}…";
             Progress.IsIndeterminate = false;
             Progress.Value = 0;
+            ShowNotes(version, available.TargetFullRelease.NotesMarkdown);
 
             await updates.DownloadUpdatesAsync(available, percent =>
             {
@@ -114,6 +115,19 @@ public partial class UpdateWindow : Window
             _isInstalling = false;
             Logger.Log($"Mise à jour au démarrage impossible : {ex.Message}");
         }
+    }
+
+    // Les notes voyagent avec la mise à jour (publier.ps1 les donne à Velopack). Une version sans notes ne montre rien.
+    private void ShowNotes(string version, string? markdown)
+    {
+        if (string.IsNullOrWhiteSpace(markdown))
+        {
+            return;
+        }
+
+        NotesTitle.Text = $"Dans la version {version}";
+        ReleaseNotesView.AddTo(NotesList, markdown);
+        NotesPanel.Visibility = Visibility.Visible;
     }
 
     private void SkipButton_Click(object sender, RoutedEventArgs e)

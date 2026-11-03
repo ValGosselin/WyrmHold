@@ -27,9 +27,13 @@ public class AchievementDetail
     // Ordre dans lequel le jeu présente ses succès.
     public int Order { get; init; }
 
-    public string UnlockedText => IsUnlocked && UnlockedUnix > 0
+    // RetroAchievements : débloqué en mode hardcore (sans sauvegardes instantanées).
+    public bool IsHardcore { get; init; }
+
+    public string UnlockedText => (IsUnlocked && UnlockedUnix > 0
         ? "Débloqué le " + DateTimeOffset.FromUnixTimeSeconds(UnlockedUnix).LocalDateTime.ToString("dd/MM/yyyy")
-        : IsUnlocked ? "Débloqué" : "";
+        : IsUnlocked ? "Débloqué" : "")
+        + (IsHardcore ? " · Hardcore" : "");
 
     public string RarityText => RarityPercent is null
         ? ""
