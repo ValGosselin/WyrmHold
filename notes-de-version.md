@@ -4,6 +4,11 @@ Ce fichier est rangé dans l'appli et lu par `publier.ps1`. Une partie par versi
 Le titre de chaque partie est le numéro seul (`## 1.1.0`), celui de `Directory.Build.props`.
 Dessous : des titres `###` et des lignes `- `, rien d'autre, en phrases courtes pour quelqu'un qui ne connaît pas le code.
 
+## 1.1.1
+
+### Nouveautés
+- Inazuma Eleven GO Light : 11 nouveaux succès, un pour chaque chapitre terminé. Ils apparaissent quand tu sauvegardes dans le jeu.
+
 ## 1.1.0
 
 ### Nouveautés
