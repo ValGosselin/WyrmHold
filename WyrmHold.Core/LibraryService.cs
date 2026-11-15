@@ -1859,6 +1859,25 @@ public class LibraryService
 
         HashSet<Game> toRead = games.Where(g => CanRead(g) && NeedsAchievementRefresh(g, now)).ToHashSet();
 
+        // Historique des succès (page Statistiques) : un jeu commencé dont on n'a encore aucune date est lu,
+        // sans limite. Au premier lancement après l'ajout de l'historique, ce sont tous les jeux commencés
+        // (lecture complète unique, choix de Val du 15 novembre 2026) ; ensuite, presque plus aucun.
+        HashSet<string> withHistory = _database.LoadAchievementUnlocks().Select(u => u.GameKey).ToHashSet();
+        List<Game> missingHistory = games
+            .Where(g => !toRead.Contains(g)
+                        && g.AchievementsUnlocked > 0
+                        && HasDatedAchievements(g)
+                        && !withHistory.Contains(GameDatabase.GameKey(g))
+                        && CanRead(g))
+            .ToList();
+
+        toRead.UnionWith(missingHistory);
+
+        if (missingHistory.Count > 0)
+        {
+            Logger.Log($"Succès : {missingHistory.Count} jeu(x) lu(s) pour remplir l'historique des succès (dates de déblocage).");
+        }
+
         const long OneDay = 24 * 60 * 60;
         List<Game> weekly = games
             .Where(g => !toRead.Contains(g)
@@ -1993,7 +2012,94 @@ public class LibraryService
             _database.SaveAchievements(refreshedGames);
         }
 
+        // Les dates de déblocage, quand la source les a données dans la même lecture.
+        List<(Game, IReadOnlyList<UnlockDate>)> histories = results
+            .Where(r => r.Progress.Unlocks is not null && HasDatedAchievements(r.Game))
+            .Select(r => (r.Game, r.Progress.Unlocks!))
+            .ToList();
+
+        if (histories.Count > 0)
+        {
+            _database.ReplaceAchievementUnlocks(histories);
+        }
+
+        // Le nom et la rareté des succès Steam (les autres sources les donnent avec les dates).
+        if (Settings.IsAchievementSourceEnabled(Platform.Steam) && _steamApi.IsConfigured)
+        {
+            await RefreshSteamRaritiesAsync(games);
+        }
+
         return new AchievementRefreshResult(refreshedGames.Count, added.OrderByDescending(a => a.Count).ToList());
+    }
+
+    // La rareté d'un succès change lentement : relue tous les 30 jours.
+    private const int RarityRefreshDays = 30;
+
+    /// <summary>
+    /// Rareté des succès Steam (page Statistiques, étape 3) : un appel par jeu, pour les jeux de l'historique
+    /// jamais lus, lus il y a plus de 30 jours, ou qui ont un succès débloqué depuis la dernière lecture sans rareté.
+    /// La première fois, ce sont tous les jeux Steam commencés (environ 320 chez Val), en arrière-plan.
+    /// </summary>
+    private async Task RefreshSteamRaritiesAsync(List<Game> games)
+    {
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Dictionary<string, long> checks = _database.LoadAchievementRarityChecks();
+
+        // Par jeu Steam de l'historique : la date du succès le plus récent sans rareté (0 = tous en ont une).
+        Dictionary<string, long> newestWithoutRarity = _database.LoadAchievementUnlocks()
+            .Where(u => u.GameKey.StartsWith($"{Platform.Steam}|", StringComparison.Ordinal))
+            .GroupBy(u => u.GameKey)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Where(u => u.RarityPercent is null).Select(u => Math.Max(1, u.UnlockedUnix)).DefaultIfEmpty(0).Max());
+
+        List<Game> toRead = games
+            .Where(g => g.Platform == Platform.Steam && newestWithoutRarity.ContainsKey(GameDatabase.GameKey(g)))
+            .Where(g =>
+            {
+                string key = GameDatabase.GameKey(g);
+                long checkedUnix = checks.GetValueOrDefault(key);
+
+                return checkedUnix == 0
+                    || checkedUnix < now - RarityRefreshDays * 24 * 60 * 60
+                    || newestWithoutRarity[key] > checkedUnix;
+            })
+            .ToList();
+
+        if (toRead.Count == 0)
+        {
+            return;
+        }
+
+        int failures = 0;
+        string? firstError = null;
+        ParallelOptions options = new ParallelOptions { MaxDegreeOfParallelism = ParallelAchievementRequests };
+
+        // Les demandes partent en parallèle ; l'écriture en base se fait ensuite, une seule à la fois.
+        ConcurrentBag<(Game Game, Dictionary<string, (string? Name, double? RarityPercent)> Rarities)> results =
+            new ConcurrentBag<(Game, Dictionary<string, (string?, double?)>)>();
+
+        await Parallel.ForEachAsync(toRead, options, async (game, token) =>
+        {
+            try
+            {
+                results.Add((game, await _steamApi.GetAchievementRaritiesAsync(game.PlatformGameId, token)));
+            }
+            catch (Exception ex)
+            {
+                // Un jeu en échec sera réessayé à la prochaine lecture ; une seule ligne de journal à la fin.
+                Interlocked.Increment(ref failures);
+                Interlocked.CompareExchange(ref firstError, $"{game.Name} : {ex.Message}", null);
+            }
+        });
+
+        foreach ((Game game, Dictionary<string, (string? Name, double? RarityPercent)> rarities) in results)
+        {
+            _database.SaveAchievementRarities(game, rarities, now);
+        }
+
+        Logger.Log($"Rareté des succès Steam : {toRead.Count - failures} jeu(x) lu(s)"
+            + (failures > 0 ? $", {failures} en échec (réessayés plus tard ; premier : {firstError})." : "."));
     }
 
     /// <summary>
@@ -2033,6 +2139,15 @@ public class LibraryService
         // La liste des succès est affichée (fenêtre ou overlay) : les succès ajoutés ont été vus.
         game.AcknowledgeAddedAchievements();
         _database.SaveAchievements(new List<Game> { game });
+
+        // Les dates fraîches (succès lus sur le disque de Steam compris) pour l'historique de la page Statistiques.
+        if (HasDatedAchievements(game))
+        {
+            _database.ReplaceAchievementUnlocks(new List<(Game, IReadOnlyList<UnlockDate>)>
+            {
+                (game, AchievementProgress.FromDetails(details).Unlocks!)
+            });
+        }
 
         return details;
     }
@@ -2115,10 +2230,32 @@ public class LibraryService
     /// <summary>
     /// Enregistre une progression lue en direct : base, badges (« 100 % », « Succès ajoutés ») et tuile.
     /// </summary>
-    internal void SaveAchievementProgress(Game game, AchievementProgress progress)
+    /// <param name="fresh">Les succès qui viennent d'être débloqués : ajoutés à l'historique des succès.</param>
+    internal void SaveAchievementProgress(Game game, AchievementProgress progress, IEnumerable<AchievementDetail>? fresh = null)
     {
-        game.ApplyAchievementProgress(progress, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        game.ApplyAchievementProgress(progress, now);
         _database.SaveAchievements(new List<Game> { game });
+
+        if (fresh is not null && HasDatedAchievements(game))
+        {
+            // Vu en direct : sans date donnée par la source, le succès vient d'être débloqué.
+            List<UnlockDate> unlocks = fresh.Select(a => new UnlockDate(a.Id, a.UnlockedUnix > 0 ? a.UnlockedUnix : now)).ToList();
+
+            if (unlocks.Count > 0)
+            {
+                _database.AddAchievementUnlocks(game, unlocks);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Vrai si la source des succès de ce jeu donne leur date de déblocage (historique de la page Statistiques).
+    /// Les succès maison (Ryujinx, Azahar) n'en ont pas : la save ne garde pas la date des événements.
+    /// </summary>
+    private bool HasDatedAchievements(Game game)
+    {
+        return _achievementProviders.Any(p => p.Platform == game.Platform && p is not CustomAchievementProvider);
     }
 
     /// <summary>
@@ -2196,7 +2333,12 @@ public class LibraryService
     public LibraryStatistics ComputeStatistics(List<Game> games)
     {
         long sinceUnix = DateTimeOffset.Now.AddDays(-7 * (LibraryStatistics.WeekCount + 1)).ToUnixTimeSeconds();
-        return LibraryStatistics.Compute(games, _database.LoadPlaySessions(sinceUnix));
+        return LibraryStatistics.Compute(
+            games,
+            _database.LoadPlaySessions(sinceUnix),
+            Settings.MergeDuplicates,
+            _database.LoadAchievementUnlocks(),
+            HasDatedAchievements);
     }
 
     // ----- Vues enregistrées -----

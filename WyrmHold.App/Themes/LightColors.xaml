@@ -23,4 +23,23 @@
 
     <!-- Titre d'un jeu à 100 % de succès (doré, lisible sur le fond du thème) -->
     <SolidColorBrush x:Key="CompleteTextBrush" Color="#B8860B"/>
+
+    <!-- Couleurs des plateformes et des consoles (anneaux de la page Statistiques). Clé : « Platform » + Game.FilterKey + « Brush ».
+         Inspirées des marques, pour les reconnaître ; Epic en gris foncé (presque son noir), lisible sur le fond clair. -->
+    <SolidColorBrush x:Key="PlatformSteamBrush" Color="#1E88E5"/>
+    <SolidColorBrush x:Key="PlatformEpicBrush" Color="#333333"/>
+    <SolidColorBrush x:Key="PlatformUbisoftBrush" Color="#3F51B5"/>
+    <SolidColorBrush x:Key="PlatformGogBrush" Color="#8E24AA"/>
+    <SolidColorBrush x:Key="PlatformEaBrush" Color="#F4511E"/>
+    <SolidColorBrush x:Key="PlatformBattleNetBrush" Color="#00ACC1"/>
+    <SolidColorBrush x:Key="PlatformGameBoyBrush" Color="#7CB342"/>
+    <SolidColorBrush x:Key="PlatformGameBoyColorBrush" Color="#FFB300"/>
+    <SolidColorBrush x:Key="PlatformGameBoyAdvanceBrush" Color="#00897B"/>
+    <SolidColorBrush x:Key="PlatformNintendoDsBrush" Color="#78909C"/>
+    <SolidColorBrush x:Key="PlatformGameCubeBrush" Color="#5E35B1"/>
+    <SolidColorBrush x:Key="PlatformWiiBrush" Color="#EC407A"/>
+    <SolidColorBrush x:Key="PlatformSwitchBrush" Color="#E53935"/>
+    <SolidColorBrush x:Key="PlatformNintendo3dsBrush" Color="#AD1457"/>
+    <!-- Plateforme sans couleur à elle (nouvel émulateur, jeu émulé sans console connue) -->
+    <SolidColorBrush x:Key="PlatformOtherBrush" Color="#8D6E63"/>
 </ResourceDictionary>

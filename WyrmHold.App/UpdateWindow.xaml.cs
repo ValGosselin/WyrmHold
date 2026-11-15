@@ -28,6 +28,19 @@ public partial class UpdateWindow : Window
     // La fenêtre est déjà fermée (« Passer » pendant la recherche) : ne pas la refermer.
     private bool _isClosed;
 
+    // Les arguments donnés à Wyrmhold quand Velopack le relance après la mise à jour. Vide = lancement normal.
+    private string[] _restartArgs = Array.Empty<string>();
+
+    /// <summary>
+    /// Démarrage de Windows : la même recherche (et la même installation), sans jamais afficher la fenêtre.
+    /// Après une mise à jour, Wyrmhold est relancé avec --autostart : il reste caché près de l'horloge.
+    /// </summary>
+    public Task CheckWithoutWindowAsync()
+    {
+        _restartArgs = new[] { WindowsStartup.Argument };
+        return CheckAndInstallAsync();
+    }
+
     public UpdateWindow()
     {
         InitializeComponent();
@@ -102,7 +115,7 @@ public partial class UpdateWindow : Window
             StatusText.Text = $"Installation de la version {version}… Wyrmhold va redémarrer.";
             Logger.Log($"Mise à jour {version} téléchargée au démarrage : installation et redémarrage.");
 
-            updates.ApplyUpdatesAndRestart(available.TargetFullRelease);
+            updates.ApplyUpdatesAndRestart(available.TargetFullRelease, _restartArgs);
         }
         catch (OperationCanceledException)
         {

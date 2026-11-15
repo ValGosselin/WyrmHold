@@ -315,7 +315,7 @@ public class LiveAchievementTracker
         bool wasComplete = game.IsAchievementsComplete;
 
         known.UnionWith(fresh.Select(a => a.Id));
-        _library.SaveAchievementProgress(game, new AchievementProgress(unlockedCount, total));
+        _library.SaveAchievementProgress(game, new AchievementProgress(unlockedCount, total), fresh);
 
         foreach (AchievementDetail achievement in fresh)
         {

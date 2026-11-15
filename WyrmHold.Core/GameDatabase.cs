@@ -178,7 +178,216 @@ public class GameDatabase
         );
         """;
         createNotes.ExecuteNonQuery();
+
+        // Historique des succès (page Statistiques, ajouté le 15 novembre 2026) : chaque succès débloqué et sa date.
+        // UnlockedUnix = 0 : date inconnue (le jeu compte comme lu, le succès n'est pas dans le calendrier).
+        using SqliteCommand createUnlocks = connection.CreateCommand();
+        createUnlocks.CommandText = """
+        CREATE TABLE IF NOT EXISTS AchievementUnlock (
+            Platform       TEXT    NOT NULL,
+            PlatformGameId TEXT    NOT NULL,
+            AchievementId  TEXT    NOT NULL,
+            UnlockedUnix   INTEGER NOT NULL,
+            PRIMARY KEY (Platform, PlatformGameId, AchievementId)
+        );
+        """;
+        createUnlocks.ExecuteNonQuery();
+
+        // Étape 3 (rareté, 15 novembre 2026) : le nom du succès et le % de joueurs qui l'ont (null = inconnu).
+        AddColumnIfMissing(connection, "AchievementUnlock", "Name", "TEXT");
+        AddColumnIfMissing(connection, "AchievementUnlock", "RarityPercent", "REAL");
+
+        // La dernière lecture de la rareté d'un jeu (Steam : un appel de plus par jeu, refait tous les 30 jours).
+        using SqliteCommand createRarityChecks = connection.CreateCommand();
+        createRarityChecks.CommandText = """
+        CREATE TABLE IF NOT EXISTS AchievementRarityCheck (
+            Platform       TEXT    NOT NULL,
+            PlatformGameId TEXT    NOT NULL,
+            CheckedUnix    INTEGER NOT NULL,
+            PRIMARY KEY (Platform, PlatformGameId)
+        );
+        """;
+        createRarityChecks.ExecuteNonQuery();
     }
+
+    // ----- Historique des succès -----
+
+    /// <summary>
+    /// Remplace l'historique de chaque jeu par sa liste fraîche (un succès retiré par le jeu disparaît aussi).
+    /// Le nom et la rareté déjà connus sont gardés quand la nouvelle lecture ne les donne pas.
+    /// </summary>
+    public void ReplaceAchievementUnlocks(List<(Game Game, IReadOnlyList<UnlockDate> Unlocks)> games)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach ((Game game, IReadOnlyList<UnlockDate> unlocks) in games)
+        {
+            // Les succès qui ne sont plus dans la liste : supprimés un par un (les autres gardent nom et rareté).
+            HashSet<string> keep = unlocks.Select(u => u.Id).ToHashSet();
+            List<string> stored = new List<string>();
+
+            using (SqliteCommand select = connection.CreateCommand())
+            {
+                select.Transaction = transaction;
+                select.CommandText = "SELECT AchievementId FROM AchievementUnlock WHERE Platform = $platform AND PlatformGameId = $gameId;";
+                select.Parameters.AddWithValue("$platform", game.Platform.ToString());
+                select.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+                using SqliteDataReader reader = select.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    stored.Add(reader.GetString(0));
+                }
+            }
+
+            foreach (string id in stored.Where(id => !keep.Contains(id)))
+            {
+                using SqliteCommand delete = connection.CreateCommand();
+                delete.Transaction = transaction;
+                delete.CommandText = "DELETE FROM AchievementUnlock WHERE Platform = $platform AND PlatformGameId = $gameId AND AchievementId = $id;";
+                delete.Parameters.AddWithValue("$platform", game.Platform.ToString());
+                delete.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+                delete.Parameters.AddWithValue("$id", id);
+                delete.ExecuteNonQuery();
+            }
+
+            InsertUnlocks(connection, transaction, game, unlocks);
+        }
+
+        transaction.Commit();
+    }
+
+    /// <summary>
+    /// Enregistre le nom et la rareté des succès d'un jeu (seulement ceux déjà dans l'historique),
+    /// et note la date de cette lecture.
+    /// </summary>
+    public void SaveAchievementRarities(Game game, Dictionary<string, (string? Name, double? RarityPercent)> rarities, long checkedUnix)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        foreach ((string id, (string? name, double? rarity)) in rarities)
+        {
+            using SqliteCommand update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = """
+            UPDATE AchievementUnlock
+            SET Name = COALESCE($name, Name), RarityPercent = COALESCE($rarity, RarityPercent)
+            WHERE Platform = $platform AND PlatformGameId = $gameId AND AchievementId = $id;
+            """;
+            update.Parameters.AddWithValue("$name", (object?)name ?? DBNull.Value);
+            update.Parameters.AddWithValue("$rarity", (object?)rarity ?? DBNull.Value);
+            update.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            update.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            update.Parameters.AddWithValue("$id", id);
+            update.ExecuteNonQuery();
+        }
+
+        using SqliteCommand check = connection.CreateCommand();
+        check.Transaction = transaction;
+        check.CommandText = """
+        INSERT OR REPLACE INTO AchievementRarityCheck (Platform, PlatformGameId, CheckedUnix)
+        VALUES ($platform, $gameId, $checked);
+        """;
+        check.Parameters.AddWithValue("$platform", game.Platform.ToString());
+        check.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+        check.Parameters.AddWithValue("$checked", checkedUnix);
+        check.ExecuteNonQuery();
+
+        transaction.Commit();
+    }
+
+    /// <summary>La date de la dernière lecture de la rareté, par jeu (clé : voir GameKey).</summary>
+    public Dictionary<string, long> LoadAchievementRarityChecks()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Platform, PlatformGameId, CheckedUnix FROM AchievementRarityCheck;";
+
+        Dictionary<string, long> checks = new Dictionary<string, long>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            checks[$"{reader.GetString(0)}|{reader.GetString(1)}"] = reader.GetInt64(2);
+        }
+
+        return checks;
+    }
+
+    /// <summary>
+    /// Ajoute des succès à l'historique d'un jeu sans toucher aux autres (suivi en direct : seulement les nouveaux).
+    /// </summary>
+    public void AddAchievementUnlocks(Game game, IReadOnlyList<UnlockDate> unlocks)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+        InsertUnlocks(connection, transaction, game, unlocks);
+        transaction.Commit();
+    }
+
+    private static void InsertUnlocks(SqliteConnection connection, SqliteTransaction transaction, Game game, IReadOnlyList<UnlockDate> unlocks)
+    {
+        foreach (UnlockDate unlock in unlocks)
+        {
+            using SqliteCommand insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            // « UPSERT » : ajoute la ligne, ou met à jour sa date si le succès est déjà là.
+            // COALESCE garde le nom et la rareté déjà connus quand cette lecture ne les donne pas.
+            insert.CommandText = """
+            INSERT INTO AchievementUnlock (Platform, PlatformGameId, AchievementId, UnlockedUnix, Name, RarityPercent)
+            VALUES ($platform, $gameId, $id, $unix, $name, $rarity)
+            ON CONFLICT (Platform, PlatformGameId, AchievementId) DO UPDATE SET
+                UnlockedUnix  = excluded.UnlockedUnix,
+                Name          = COALESCE(excluded.Name, Name),
+                RarityPercent = COALESCE(excluded.RarityPercent, RarityPercent);
+            """;
+            insert.Parameters.AddWithValue("$platform", game.Platform.ToString());
+            insert.Parameters.AddWithValue("$gameId", game.PlatformGameId);
+            insert.Parameters.AddWithValue("$id", unlock.Id);
+            insert.Parameters.AddWithValue("$unix", unlock.UnlockedUnix);
+            insert.Parameters.AddWithValue("$name", (object?)unlock.Name ?? DBNull.Value);
+            insert.Parameters.AddWithValue("$rarity", (object?)unlock.RarityPercent ?? DBNull.Value);
+            insert.ExecuteNonQuery();
+        }
+    }
+
+    /// <summary>
+    /// Tout l'historique : pour chaque succès débloqué, la clé du jeu (« Steam|1245620 », voir GameKey),
+    /// sa date, son nom et sa rareté.
+    /// </summary>
+    public List<StoredUnlock> LoadAchievementUnlocks()
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT Platform, PlatformGameId, AchievementId, UnlockedUnix, Name, RarityPercent FROM AchievementUnlock;";
+
+        List<StoredUnlock> unlocks = new List<StoredUnlock>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            unlocks.Add(new StoredUnlock(
+                $"{reader.GetString(0)}|{reader.GetString(1)}",
+                reader.GetString(2),
+                reader.GetInt64(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetDouble(5)));
+        }
+
+        return unlocks;
+    }
+
+    /// <summary>La clé d'un jeu dans l'historique des succès : plateforme + identifiant.</summary>
+    public static string GameKey(Game game) => $"{game.Platform}|{game.PlatformGameId}";
 
     // ----- Bloc-notes par jeu -----
 

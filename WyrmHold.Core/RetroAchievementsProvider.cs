@@ -46,7 +46,17 @@ public class RetroAchievementsProvider : IAchievementProvider
 
         if (mine is { MaxPossible: > 0 })
         {
-            return new AchievementProgress(Math.Max(mine.Unlocked, mine.UnlockedHardcore), mine.MaxPossible);
+            int unlocked = Math.Max(mine.Unlocked, mine.UnlockedHardcore);
+
+            // La liste des progressions ne donne pas les dates : pour l'historique de la page Statistiques,
+            // on lit la liste du jeu, seulement s'il a des succès (une demande de plus, pour quelques jeux émulés).
+            if (unlocked > 0)
+            {
+                List<AchievementDetail> details = await GetAchievementsAsync(game, cancellationToken);
+                return new AchievementProgress(unlocked, mine.MaxPossible) { Unlocks = AchievementProgress.FromDetails(details).Unlocks };
+            }
+
+            return new AchievementProgress(0, mine.MaxPossible) { Unlocks = new List<UnlockDate>() };
         }
 
         List<RetroAchievementsGame> games = await ReadAsync(() => _catalog.GetGamesAsync(game.Console, cancellationToken));

@@ -99,7 +99,16 @@ public class SteamWebApi
     {
         List<SteamPlayerAchievement> achievements = await GetPlayerAchievementsAsync(appId, null, cancellationToken);
         int unlocked = achievements.Count(a => a.Achieved == 1);
-        return new AchievementProgress(unlocked, achievements.Count);
+
+        // La réponse « légère » donne déjà la date de chaque succès (unlocktime, vérifié le 15 novembre 2026 en console,
+        // mode 14) : l'historique des succès ne coûte aucun appel de plus.
+        return new AchievementProgress(unlocked, achievements.Count)
+        {
+            Unlocks = achievements
+                .Where(a => a.Achieved == 1 && !string.IsNullOrEmpty(a.ApiName))
+                .Select(a => new UnlockDate(a.ApiName!, a.UnlockTimeUnix))
+                .ToList()
+        };
     }
 
     /// <summary>
@@ -268,6 +277,26 @@ public class SteamWebApi
             // Pas du JSON (page d'erreur HTML, par exemple).
             return null;
         }
+    }
+
+    /// <summary>
+    /// Le nom (en français) et la rareté (% de joueurs) de chaque succès d'un jeu, pour la page Statistiques :
+    /// GetGameAchievements, ou la rareté seule (GetGlobalAchievementPercentagesForApp) s'il ne répond rien.
+    /// </summary>
+    public async Task<Dictionary<string, (string? Name, double? RarityPercent)>> GetAchievementRaritiesAsync(
+        string appId, CancellationToken cancellationToken = default)
+    {
+        Dictionary<string, SteamGameAchievement> achievements = await GetGameAchievementsAsync(appId, cancellationToken);
+
+        if (achievements.Count > 0)
+        {
+            return achievements.ToDictionary(
+                entry => entry.Key,
+                entry => (string.IsNullOrEmpty(entry.Value.Name) ? null : entry.Value.Name, entry.Value.Percent));
+        }
+
+        Dictionary<string, double> percentages = await GetGlobalPercentagesAsync(appId, cancellationToken);
+        return percentages.ToDictionary(entry => entry.Key, entry => ((string?)null, (double?)entry.Value));
     }
 
     private async Task<Dictionary<string, SteamGameAchievement>> GetGameAchievementsAsync(string appId, CancellationToken cancellationToken)

@@ -31,6 +31,11 @@ public class AppSettings
     // Ce que fait la croix de la fenêtre : CloseActions.Ask (demander), Background (garder en arrière-plan) ou Quit.
     public string CloseAction { get; set; } = CloseActions.Ask;
 
+    // Lancer Wyrmhold (caché près de l'horloge) à l'ouverture de session Windows. Désactivé par défaut :
+    // rien ne tourne en arrière-plan sans l'accord de l'utilisateur. Le vrai interrupteur est dans le registre
+    // (voir WindowsStartup) ; ce réglage est relu depuis le registre à l'ouverture des Réglages.
+    public bool StartWithWindows { get; set; }
+
     // Overlay en jeu : activé = Wyrmhold repère le jeu en cours (toutes les 5 s) et écoute le raccourci.
     public bool OverlayEnabled { get; set; } = true;
 

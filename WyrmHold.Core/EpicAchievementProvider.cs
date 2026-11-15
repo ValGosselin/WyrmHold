@@ -39,8 +39,8 @@ internal class EpicAchievementProvider : IAchievementProvider
 
     public async Task<AchievementProgress> GetProgressAsync(Game game, CancellationToken cancellationToken = default)
     {
-        List<AchievementDetail> achievements = await GetAchievementsAsync(game, cancellationToken);
-        return new AchievementProgress(achievements.Count(a => a.IsUnlocked), achievements.Count);
+        // (Avec les dates de déblocage, pour l'historique de la page Statistiques.)
+        return AchievementProgress.FromDetails(await GetAchievementsAsync(game, cancellationToken));
     }
 
     public async Task<List<AchievementDetail>> GetAchievementsAsync(Game game, CancellationToken cancellationToken = default)

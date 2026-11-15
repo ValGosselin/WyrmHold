@@ -90,6 +90,15 @@ if (args.Length > 0 && args[0] == "29")
     return;
 }
 
+// 30 = page Statistiques : les chiffres calculés sur la vraie bibliothèque (lecture seule, rien n'est enregistré).
+// « dotnet run -- 30 essai » : en plus, les dates des succès des 30 jeux Steam commencés joués le plus récemment,
+// lues chez Steam et gardées en mémoire (rien n'est écrit dans la base), pour voir le calendrier sans attendre l'appli.
+if (args.Length > 0 && args[0] == "30")
+{
+    await ShowStatisticsAsync(args.Contains("essai"));
+    return;
+}
+
 // 9 = succès Steam lus sur le disque, comparés à la Steam Web API : « dotnet run -- 9 4294490 ».
 if (args.Length > 1 && args[0] == "9")
 {
@@ -517,6 +526,125 @@ static async Task ShowAnnouncedSizesAsync(string[] appIds)
     }
 
     Console.WriteLine($"Taille trouvée pour {found} jeu(x) sur {appIds.Length}.");
+}
+
+static async Task ShowStatisticsAsync(bool readSteamDates)
+{
+    LibraryService library = new LibraryService();
+    List<Game> games = library.LoadGames();
+    LibraryStatistics stats = library.ComputeStatistics(games);
+
+    if (readSteamDates)
+    {
+        SteamWebApi steam = new SteamWebApi(Secrets.Current);
+        List<StoredUnlock> unlocks = new List<StoredUnlock>();
+
+        foreach (Game game in games
+                     .Where(g => g.Platform == Platform.Steam && g.AchievementsUnlocked > 0)
+                     .OrderByDescending(g => g.LastPlayedUnix)
+                     .Take(30))
+        {
+            AchievementProgress progress = await steam.GetAchievementProgressAsync(game.PlatformGameId);
+            Dictionary<string, (string? Name, double? RarityPercent)> rarities = await steam.GetAchievementRaritiesAsync(game.PlatformGameId);
+
+            int undated = progress.Unlocks!.Count(u => u.UnlockedUnix == 0);
+            int withRarity = progress.Unlocks!.Count(u => rarities.GetValueOrDefault(u.Id).RarityPercent is not null);
+            Console.WriteLine($"  lu : {game.Name,-40} {progress.Unlocked}/{progress.Total}, {progress.Unlocks!.Count} date(s) dont {undated} inconnue(s),"
+                + $" rareté pour {withRarity}");
+
+            unlocks.AddRange(progress.Unlocks!.Select(u =>
+            {
+                (string? name, double? rarity) = rarities.GetValueOrDefault(u.Id);
+                return new StoredUnlock(GameDatabase.GameKey(game), u.Id, u.UnlockedUnix, name, rarity);
+            }));
+        }
+
+        stats = LibraryStatistics.Compute(games, new List<(long, long)>(), true, unlocks, g => !g.IsEmulated);
+
+        Console.WriteLine();
+        Console.WriteLine($"Rareté : {stats.RarityKnownText} · moyenne {stats.AverageRarityText}");
+        foreach (RarityBucket bucket in stats.RarityBuckets)
+        {
+            Console.WriteLine($"  {bucket.Name,-12} {bucket.Range,-8} : {bucket.Count,5} {new string('#', (int)(bucket.Ratio * 40))}");
+        }
+
+        Console.WriteLine("Les plus rares :");
+        foreach (RareUnlock rare in stats.RarestUnlocks)
+        {
+            Console.WriteLine($"  {rare.RarityText,-8} {rare.Name,-40} {rare.GameName,-30} {rare.DateText}");
+        }
+        Console.WriteLine("(Historique ci-dessous = ces 30 jeux seulement, gardés en mémoire.)");
+        Console.WriteLine();
+    }
+
+    Console.WriteLine($"Jeux : {stats.GameCount} · succès débloqués : {stats.AchievementsUnlockedText}");
+    Console.WriteLine($"Jeux avec succès : {stats.GamesWithAchievements} · commencés {stats.StartedCount} · en cours {stats.InProgressCount}"
+        + $" · à 100 % {stats.PerfectCount} · jamais touchés {stats.UntouchedCount}");
+    Console.WriteLine($"Restants : {stats.RemainingInStartedText} dans les jeux commencés, {stats.RemainingInUntouchedText} dans les jeux jamais touchés");
+    Console.WriteLine($"Complétion sur {stats.CompletionGameCount} jeu(x) lancés : moyenne {stats.AverageCompletionText}"
+        + $" (anneau : {stats.AverageCompletionRoundText}), médiane {stats.MedianCompletionText}");
+    Console.WriteLine($"Temps de jeu : total {stats.TotalPlaytimeText}, moyen {stats.AveragePlaytimeText}, médian {stats.MedianPlaytimeText}");
+
+    Console.WriteLine();
+    Console.WriteLine("Histogramme (jeux par tranche de complétion) :");
+    foreach (CompletionBucket bucket in stats.CompletionBuckets)
+    {
+        Console.WriteLine($"  {bucket.Label,6} % : {bucket.Count,4} {new string('#', (int)(bucket.Ratio * 40))}");
+    }
+
+    Console.WriteLine($"  Total : {stats.CompletionBuckets.Sum(b => b.Count)} (doit valoir {stats.CompletionGameCount})");
+
+    Console.WriteLine();
+    Console.WriteLine("Jeux par plateforme :");
+    foreach (StatSlice slice in stats.GamesByPlatform)
+    {
+        Console.WriteLine($"  {slice.Label,-18} {slice.ValueText,-12} {slice.PercentText,8}  {slice.BrushKey}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Temps de jeu par plateforme :");
+    foreach (StatSlice slice in stats.PlaytimeByPlatform)
+    {
+        Console.WriteLine($"  {slice.Label,-18} {slice.ValueText,-12} {slice.PercentText,8}  {slice.BrushKey}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"Historique : {stats.HistoryReadCount} jeu(x) lu(s) sur {stats.HistoryGameCount} · record {stats.BestDayCount} le {stats.BestDayText}"
+        + $" · moyenne {stats.DailyAverageText} par jour avec succès");
+
+    // Le calendrier de chaque année, résumé par mois.
+    AchievementCalendar calendar = stats.Calendar;
+    while (calendar.CanGoPrevious)
+    {
+        calendar.ShowPreviousYear();
+    }
+
+    while (true)
+    {
+        List<CalendarDay> days = calendar.Weeks.SelectMany(w => w.Days).Where(d => d.IsInYear).ToList();
+        string months = string.Join(" ", days.GroupBy(d => d.Date.Month).Select(m => $"{m.Key:00}:{m.Sum(d => d.Count)}"));
+        Console.WriteLine($"  {calendar.YearCountText,-26} {calendar.Weeks.Count} semaines, {days.Count} jours · {months}");
+
+        if (!calendar.CanGoNext)
+        {
+            break;
+        }
+
+        calendar.ShowNextYear();
+    }
+
+    Console.WriteLine("Jeux récents :");
+    foreach (RecentAchievementGame recent in stats.RecentGames)
+    {
+        Console.WriteLine($"  {recent.Name,-40} {recent.SourceName,-12} {recent.ProgressText,-10} {recent.PlaytimeText,-8} {recent.LastUnlockText}");
+    }
+
+    Console.WriteLine();
+    Console.WriteLine("Top 10 (jaquette trouvée ?) :");
+    foreach (StatBar bar in stats.TopGames)
+    {
+        Console.WriteLine($"  {bar.Label,-40} {bar.ValueText,-8} {(File.Exists(bar.CoverPath) ? "oui" : "NON")}");
+    }
 }
 
 static void TestReleaseNotes()

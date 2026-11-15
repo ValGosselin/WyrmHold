@@ -766,6 +766,66 @@
                     </Grid>
                 </DataTemplate>
 
+                <!-- Une ligne du Top 10 : jaquette, nom, barre, temps de jeu -->
+                <DataTemplate x:Key="TopGameTemplate">
+                    <Grid Margin="0,0,0,6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="240"/>
+                            <ColumnDefinition Width="320"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- Fond gris sous la jaquette : un jeu sans image garde sa place -->
+                        <Border Grid.Column="0" Width="28" Height="42" CornerRadius="3" Margin="0,0,10,0"
+                                Background="{DynamicResource SubtleBrush}" ClipToBounds="True">
+                            <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
+                        </Border>
+                        <TextBlock Grid.Column="1" Text="{Binding Label}" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <ProgressBar Grid.Column="2" Value="{Binding Ratio, Mode=OneWay}" Maximum="1" Height="14"
+                                     Style="{StaticResource RoundedProgressBar}" Foreground="#4A90D9" Background="{DynamicResource SubtleBrush}" BorderThickness="0"/>
+                        <TextBlock Grid.Column="3" Text="{Binding ValueText}" Foreground="{DynamicResource SecondaryTextBrush}"
+                                   VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    </Grid>
+                </DataTemplate>
+
+                <local:BrushKeyConverter x:Key="BrushKey"/>
+                <local:ScaleConverter x:Key="Scale"/>
+
+                <!-- Une ligne de légende d'anneau : carré de couleur, nom, valeur, pourcentage -->
+                <DataTemplate x:Key="SliceLegendTemplate">
+                    <Grid Margin="0,0,0,5">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="80"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Rectangle Grid.Column="0" Width="12" Height="12" RadiusX="2" RadiusY="2" Margin="0,0,8,0"
+                                   VerticalAlignment="Center" Fill="{Binding BrushKey, Converter={StaticResource BrushKey}}"/>
+                        <TextBlock Grid.Column="1" Text="{Binding Label}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" Text="{Binding ValueText}" TextAlignment="Right" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" Text="{Binding PercentText}" Margin="10,0,0,0" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    </Grid>
+                </DataTemplate>
+
+                <!-- Une ligne du panneau de chiffres : la valeur à droite d'une colonne fixe, puis son libellé -->
+                <Style x:Key="StatNumber" TargetType="TextBlock">
+                    <Setter Property="Width" Value="80"/>
+                    <Setter Property="TextAlignment" Value="Right"/>
+                    <Setter Property="FontWeight" Value="SemiBold"/>
+                    <Setter Property="Margin" Value="0,0,10,0"/>
+                </Style>
+                <Style x:Key="StatNumberLabel" TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}"/>
+                </Style>
+                <Style x:Key="StatSeparator" TargetType="Border">
+                    <Setter Property="Height" Value="1"/>
+                    <Setter Property="Margin" Value="0,8"/>
+                    <Setter Property="Background" Value="{DynamicResource PanelBorderBrush}"/>
+                </Style>
+
                 <!-- Le style des titres de section -->
                 <Style x:Key="StatTitle" TargetType="TextBlock">
                     <Setter Property="FontSize" Value="16"/>
@@ -774,8 +834,396 @@
                 </Style>
             </TabItem.Resources>
 
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <!-- Padding à droite : la barre de défilement Fluent passe par-dessus le contenu sinon (voir CLAUDE.md) -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
                 <StackPanel Margin="16">
+
+                    <!-- ===== Succès (façon completionist.me) ===== -->
+                    <TextBlock Text="Succès" Style="{StaticResource StatTitle}" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <!-- Les trois grandes cartes -->
+                            <UniformGrid Columns="3">
+                                <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16" Margin="0,0,10,10" Height="160">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding AchievementsUnlockedText}" FontSize="40" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Foreground="{DynamicResource CompleteTextBrush}"/>
+                                        <TextBlock Text="succès débloqués" HorizontalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16" Margin="0,0,10,10" Height="160">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <Grid Width="100" Height="100" HorizontalAlignment="Center">
+                                            <local:DonutChart Slices="{Binding CompletionRing}" Thickness="9"/>
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding AverageCompletionRoundText}" FontSize="30" FontWeight="Bold"/>
+                                                <TextBlock Text="%" FontSize="14" Margin="2,0,0,5" VerticalAlignment="Bottom"/>
+                                            </StackPanel>
+                                        </Grid>
+                                        <TextBlock Text="complétion moyenne" HorizontalAlignment="Center" Margin="0,6,0,0"
+                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16" Margin="0,0,0,10" Height="160">
+                                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                                        <TextBlock Text="{Binding PerfectCount}" FontSize="40" FontWeight="Bold"
+                                                   HorizontalAlignment="Center" Foreground="{DynamicResource CompleteTextBrush}"/>
+                                        <TextBlock Text="jeux à 100 %" HorizontalAlignment="Center" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    </StackPanel>
+                                </Border>
+                            </UniformGrid>
+
+                            <!-- Deux graphiques sur la même carte, par onglets (comme completionist.me) -->
+                            <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,8,16,12">
+                                <TabControl Background="Transparent" BorderThickness="0" Padding="0">
+                                <!-- Onglet 1 : combien de jeux dans chaque tranche de complétion -->
+                                <TabItem Header="Complétion des jeux">
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,0,0,10" TextWrapping="Wrap">
+                                        <Run Text="Jeux à succès lancés au moins une fois :"/>
+                                        <Run Text="{Binding CompletionGameCount, Mode=OneWay}"/>
+                                    </TextBlock>
+                                    <ItemsControl ItemsSource="{Binding CompletionBuckets}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <UniformGrid Rows="1"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <!-- Hauteur fixe : les colonnes partent toutes du même bas -->
+                                                <DockPanel Height="190" Margin="3,0">
+                                                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding Label}" HorizontalAlignment="Center"
+                                                               FontSize="11" Margin="0,4,0,0" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    <StackPanel VerticalAlignment="Bottom">
+                                                        <TextBlock Text="{Binding Count}" HorizontalAlignment="Center" FontSize="12" Margin="0,0,0,2"/>
+                                                        <Border Height="{Binding Ratio, Converter={StaticResource Scale}, ConverterParameter=150}"
+                                                                CornerRadius="3,3,0,0">
+                                                            <Border.Style>
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Background" Value="#4A90D9"/>
+                                                                    <Style.Triggers>
+                                                                        <!-- La colonne 100 % en doré, comme les jeux terminés -->
+                                                                        <DataTrigger Binding="{Binding IsPerfect}" Value="True">
+                                                                            <Setter Property="Background" Value="{DynamicResource CompleteTextBrush}"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                </TabItem>
+
+                                <!-- Onglet 2 : combien de tes succès dans chaque niveau de rareté -->
+                                <TabItem Header="Rareté des succès">
+                                <StackPanel Margin="0,8,0,0">
+                                    <TextBlock Text="{Binding RarityKnownText}" Foreground="{DynamicResource SecondaryTextBrush}"
+                                               Margin="0,0,0,10" TextWrapping="Wrap"/>
+                                    <ItemsControl ItemsSource="{Binding RarityBuckets}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <UniformGrid Rows="1"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <!-- Même hauteur que l'onglet Complétion (190 + libellé) : la carte ne saute pas d'un onglet à l'autre -->
+                                                <DockPanel Height="190" Margin="6,0">
+                                                    <StackPanel DockPanel.Dock="Bottom" Margin="0,4,0,0">
+                                                        <TextBlock Text="{Binding Name}" HorizontalAlignment="Center" FontSize="11"/>
+                                                        <TextBlock Text="{Binding Range}" HorizontalAlignment="Center" FontSize="11"
+                                                                   Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                    </StackPanel>
+                                                    <StackPanel VerticalAlignment="Bottom">
+                                                        <TextBlock Text="{Binding Count}" HorizontalAlignment="Center" FontSize="12" Margin="0,0,0,2"/>
+                                                        <Border Height="{Binding Ratio, Converter={StaticResource Scale}, ConverterParameter=130}"
+                                                                CornerRadius="3,3,0,0">
+                                                            <Border.Style>
+                                                                <!-- Du bleu (très commun) vers le doré (ultra rare) -->
+                                                                <Style TargetType="Border">
+                                                                    <Setter Property="Background" Value="#4A90D9"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Level}" Value="1"><Setter Property="Background" Value="#3FA7C9"/></DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Level}" Value="2"><Setter Property="Background" Value="#43B89F"/></DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Level}" Value="3"><Setter Property="Background" Value="#8BC34A"/></DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Level}" Value="4"><Setter Property="Background" Value="#FFB300"/></DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Level}" Value="5"><Setter Property="Background" Value="{DynamicResource CompleteTextBrush}"/></DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </Border.Style>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </DockPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                                </TabItem>
+                                </TabControl>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Le panneau de chiffres -->
+                        <Border Grid.Column="1" Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" MinWidth="320">
+                            <StackPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding AchievementsUnlockedText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="succès débloqués"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding RemainingInStartedText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="restants dans les jeux commencés"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding RemainingInUntouchedText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="restants dans les jeux jamais touchés"/></DockPanel>
+                                <Border Style="{StaticResource StatSeparator}"/>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding AverageCompletionText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="complétion moyenne"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding MedianCompletionText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="complétion médiane"/></DockPanel>
+                                <Border Style="{StaticResource StatSeparator}"/>
+                                <DockPanel>
+                                    <TextBlock Style="{StaticResource StatNumber}" Text="{Binding BestDayCount}"/>
+                                    <TextBlock Style="{StaticResource StatNumberLabel}">
+                                        <Run Text="record sur un jour ("/><Run Text="{Binding BestDayText, Mode=OneWay}"/><Run Text=")"/>
+                                    </TextBlock>
+                                </DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding DailyAverageText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="par jour, en moyenne (jours avec succès)"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding AverageRarityText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="de joueurs, en moyenne, ont tes succès"/></DockPanel>
+                                <Border Style="{StaticResource StatSeparator}"/>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding GamesWithAchievements}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="jeux avec succès"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding StartedCount}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="… commencés"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding InProgressCount}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="… en cours"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding PerfectCount}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="… à 100 %"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding UntouchedCount}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="… jamais touchés"/></DockPanel>
+                                <Border Style="{StaticResource StatSeparator}"/>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding TotalPlaytimeText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="de jeu au total"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding AveragePlaytimeText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="en moyenne par jeu joué"/></DockPanel>
+                                <DockPanel><TextBlock Style="{StaticResource StatNumber}" Text="{Binding MedianPlaytimeText}"/><TextBlock Style="{StaticResource StatNumberLabel}" Text="médiane par jeu joué"/></DockPanel>
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+
+                    <!-- ===== Historique : une case par jour, avec le nombre de succès ===== -->
+                    <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" Margin="0,10,0,0"
+                            DataContext="{Binding Calendar}">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <!-- Les flèches pour changer d'année -->
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                                    <Button Content="◀" Padding="10,2" Click="CalendarPreviousYear_Click" IsEnabled="{Binding CanGoPrevious}"
+                                            ToolTip="Année précédente"/>
+                                    <TextBlock Text="{Binding YearText}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="12,0"/>
+                                    <Button Content="▶" Padding="10,2" Click="CalendarNextYear_Click" IsEnabled="{Binding CanGoNext}"
+                                            ToolTip="Année suivante"/>
+                                </StackPanel>
+                                <TextBlock Text="Historique" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding YearCountText}" Foreground="{DynamicResource SecondaryTextBrush}"
+                                           VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            </DockPanel>
+
+                            <!-- Le calendrier se réduit si la fenêtre est trop étroite, sans jamais grossir -->
+                            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Les jours de la semaine, à gauche (une ligne sur deux, comme GitHub) -->
+                                    <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,6,0">
+                                        <TextBlock Height="22" FontSize="10" VerticalAlignment="Center" Padding="0,4,0,0" Text="lun." Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <TextBlock Height="22"/>
+                                        <TextBlock Height="22" FontSize="10" Padding="0,4,0,0" Text="mer." Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <TextBlock Height="22"/>
+                                        <TextBlock Height="22" FontSize="10" Padding="0,4,0,0" Text="ven." Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        <TextBlock Height="22"/>
+                                        <TextBlock Height="22" FontSize="10" Padding="0,4,0,0" Text="dim." Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- Les mois, au-dessus de la semaine qui contient leur 1er jour.
+                                         Un Canvas ne coupe pas le texte : « janv. » peut déborder sur la semaine suivante, qui n'a pas de nom. -->
+                                    <ItemsControl Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Weeks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Canvas Width="22" Height="16">
+                                                    <TextBlock Text="{Binding MonthLabel}" FontSize="10" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                                </Canvas>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <!-- Les semaines (colonnes) et leurs jours (cases) -->
+                                    <ItemsControl Grid.Row="1" Grid.Column="1" ItemsSource="{Binding Weeks}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal"/>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <ItemsControl ItemsSource="{Binding Days}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Grid Width="20" Height="20" Margin="1" ToolTip="{Binding ToolTip}">
+                                                                <Grid.Style>
+                                                                    <Style TargetType="Grid">
+                                                                        <Style.Triggers>
+                                                                            <!-- Jour d'une autre année : place gardée, case invisible -->
+                                                                            <DataTrigger Binding="{Binding IsInYear}" Value="False">
+                                                                                <Setter Property="Visibility" Value="Hidden"/>
+                                                                            </DataTrigger>
+                                                                        </Style.Triggers>
+                                                                    </Style>
+                                                                </Grid.Style>
+                                                                <Border Background="{DynamicResource SubtleBrush}" CornerRadius="3"/>
+                                                                <!-- La couleur, plus intense quand il y a plus de succès -->
+                                                                <Border Background="#4A90D9" CornerRadius="3">
+                                                                    <Border.Style>
+                                                                        <Style TargetType="Border">
+                                                                            <Setter Property="Opacity" Value="0"/>
+                                                                            <Style.Triggers>
+                                                                                <DataTrigger Binding="{Binding Level}" Value="1"><Setter Property="Opacity" Value="0.3"/></DataTrigger>
+                                                                                <DataTrigger Binding="{Binding Level}" Value="2"><Setter Property="Opacity" Value="0.5"/></DataTrigger>
+                                                                                <DataTrigger Binding="{Binding Level}" Value="3"><Setter Property="Opacity" Value="0.75"/></DataTrigger>
+                                                                                <DataTrigger Binding="{Binding Level}" Value="4"><Setter Property="Opacity" Value="1"/></DataTrigger>
+                                                                            </Style.Triggers>
+                                                                        </Style>
+                                                                    </Border.Style>
+                                                                </Border>
+                                                                <TextBlock Text="{Binding CountText}" FontSize="9" FontWeight="SemiBold"
+                                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            </Grid>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Grid>
+                            </Viewbox>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Remplissage de l'historique en cours (lecture complète unique en arrière-plan) -->
+                    <TextBlock Text="{Binding HistoryStatusText}" Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,6,0,0"
+                               TextWrapping="Wrap" Visibility="{Binding IsHistoryIncomplete, Converter={StaticResource BoolToVisibility}}"/>
+                    <TextBlock Text="Les succès maison des jeux émulés (Switch, 3DS) n'ont pas de date : ils ne sont pas dans l'historique."
+                               Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                    <!-- ===== Jeux récents : le dernier succès de chaque jeu ===== -->
+                    <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Jeux récents" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <Grid Margin="0,0,0,6" TextElement.Foreground="{DynamicResource SecondaryTextBrush}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="38"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="160"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="130"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="1" Text="Jeu"/>
+                                <TextBlock Grid.Column="2" Text="Progression"/>
+                                <TextBlock Grid.Column="3" Text="Succès" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Temps de jeu" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Dernier succès" TextAlignment="Right"/>
+                            </Grid>
+                            <ItemsControl ItemsSource="{Binding RecentGames}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="38"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="160"/>
+                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="130"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="28" Height="42" CornerRadius="3" HorizontalAlignment="Left"
+                                                    Background="{DynamicResource SubtleBrush}" ClipToBounds="True">
+                                                <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding SourceName}" FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            </StackPanel>
+                                            <ProgressBar Grid.Column="2" Value="{Binding Ratio, Mode=OneWay}" Maximum="1" Height="10"
+                                                         VerticalAlignment="Center" BorderThickness="0"
+                                                         Background="{DynamicResource SubtleBrush}">
+                                                <ProgressBar.Style>
+                                                    <Style TargetType="ProgressBar" BasedOn="{StaticResource RoundedProgressBar}">
+                                                        <Setter Property="Foreground" Value="#4A90D9"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPerfect}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource CompleteTextBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </ProgressBar.Style>
+                                            </ProgressBar>
+                                            <TextBlock Grid.Column="3" Text="{Binding ProgressText}" TextAlignment="Right" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding PlaytimeText}" TextAlignment="Right" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding LastUnlockText}" TextAlignment="Right" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ===== Tes succès les plus rares ===== -->
+                    <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" Margin="0,10,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Tes succès les plus rares" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <ItemsControl ItemsSource="{Binding RarestUnlocks}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,0,0,6">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="38"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="90"/>
+                                                <ColumnDefinition Width="130"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="28" Height="42" CornerRadius="3" HorizontalAlignment="Left"
+                                                    Background="{DynamicResource SubtleBrush}" ClipToBounds="True">
+                                                <Image local:CoverLoader.Path="{Binding CoverPath}" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,10,0">
+                                                <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/>
+                                                <TextBlock FontSize="11" Foreground="{DynamicResource SecondaryTextBrush}" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{Binding GameName, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding SourceName, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding RarityText}" TextAlignment="Right" VerticalAlignment="Center"
+                                                       FontWeight="SemiBold" Foreground="{DynamicResource CompleteTextBrush}"
+                                                       ToolTip="Part des joueurs du jeu qui ont ce succès"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding DateText}" TextAlignment="Right" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ===== Bibliothèque ===== -->
+                    <TextBlock Text="Bibliothèque" Style="{StaticResource StatTitle}"/>
 
                     <!-- Les chiffres clés -->
                     <WrapPanel>
@@ -818,13 +1266,33 @@
                     </WrapPanel>
 
                     <TextBlock Text="Top 10 des jeux les plus joués" Style="{StaticResource StatTitle}"/>
-                    <ItemsControl ItemsSource="{Binding TopGames}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+                    <ItemsControl ItemsSource="{Binding TopGames}" ItemTemplate="{StaticResource TopGameTemplate}"/>
 
-                    <TextBlock Text="Temps de jeu par plateforme" Style="{StaticResource StatTitle}"/>
-                    <ItemsControl ItemsSource="{Binding PlaytimeByPlatform}" ItemTemplate="{StaticResource StatBarTemplate}"/>
-
-                    <TextBlock Text="Jeux par plateforme" Style="{StaticResource StatTitle}"/>
-                    <ItemsControl ItemsSource="{Binding GamesByPlatform}" ItemTemplate="{StaticResource StatBarTemplate}"/>
+                    <!-- Les deux anneaux par plateforme, côte à côte s'il y a la place -->
+                    <WrapPanel Margin="0,10,0,0">
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" Margin="0,10,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Temps de jeu par plateforme" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <local:DonutChart Slices="{Binding PlaytimeByPlatform}" Width="170" Height="170" Thickness="26"
+                                                      VerticalAlignment="Top" Margin="0,0,20,0"/>
+                                    <ItemsControl ItemsSource="{Binding PlaytimeByPlatform}" ItemTemplate="{StaticResource SliceLegendTemplate}"
+                                                  VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Background="{DynamicResource CardBrush}" CornerRadius="6" Padding="16,12" Margin="0,10,10,0">
+                            <StackPanel>
+                                <TextBlock Text="Jeux par plateforme" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <local:DonutChart Slices="{Binding GamesByPlatform}" Width="170" Height="170" Thickness="26"
+                                                      VerticalAlignment="Top" Margin="0,0,20,0"/>
+                                    <ItemsControl ItemsSource="{Binding GamesByPlatform}" ItemTemplate="{StaticResource SliceLegendTemplate}"
+                                                  VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </WrapPanel>
 
                     <TextBlock Text="Temps de jeu par semaine" Style="{StaticResource StatTitle}"/>
                     <TextBlock Text="D'après les sessions lancées depuis Wyrmhold (hors Steam, qui compte le temps lui-même)."
@@ -1029,6 +1497,15 @@
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
                     <CheckBox x:Name="AzaharAchievementsCheck" Content="Azahar (succès maison, lus dans la sauvegarde)" Tag="Azahar"
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+
+                    <!-- L'état de la case vient du registre de Windows (voir WindowsStartup et LoadStartWithWindows). -->
+                    <TextBlock Text="Démarrage" Style="{StaticResource SettingsSection}"/>
+                    <CheckBox x:Name="StartWithWindowsCheck" Content="Lancer Wyrmhold au démarrage de Windows"
+                              Checked="StartWithWindowsCheck_Changed" Unchecked="StartWithWindowsCheck_Changed"/>
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Text="Wyrmhold s'ouvre caché près de l'horloge, sans fenêtre : l'overlay et les notifications de succès sont prêts dès le début. Double-clic sur son icône pour l'ouvrir. Il cherche aussi sa mise à jour, sans rien afficher. Tu peux aussi le retirer dans le Gestionnaire des tâches (Applications de démarrage)."/>
+                    <TextBlock x:Name="StartWithWindowsStatusText" Foreground="{DynamicResource SecondaryTextBrush}"
+                               TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed"/>
 
                     <!-- Tag = la valeur enregistrée dans settings.json (voir CloseActions) -->
                     <TextBlock Text="Fermeture" Style="{StaticResource SettingsSection}"/>

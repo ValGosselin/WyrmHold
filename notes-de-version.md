@@ -4,6 +4,14 @@ Ce fichier est rangé dans l'appli et lu par `publier.ps1`. Une partie par versi
 Le titre de chaque partie est le numéro seul (`## 1.1.0`), celui de `Directory.Build.props`.
 Dessous : des titres `###` et des lignes `- `, rien d'autre, en phrases courtes pour quelqu'un qui ne connaît pas le code.
 
+## 1.1.2
+
+### Nouveautés
+- Réglages → Démarrage : une case pour lancer Wyrmhold au démarrage de Windows. Il s'ouvre alors caché près de l'horloge, sans fenêtre, et se met à jour tout seul. Décochée par défaut.
+
+### Corrections
+- Inazuma Eleven GO Light : Axel Blaze et Byron Love ne sont plus dans les succès, car ils ne se recrutent pas dans cette version aujourd'hui. Xavier Foster, réservé à Light, les remplace.
+
 ## 1.1.1
 
 ### Nouveautés

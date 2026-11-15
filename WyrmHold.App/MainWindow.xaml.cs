@@ -52,7 +52,25 @@ public partial class MainWindow : Window
     private string _patchNotesLinkUrl = "";
 
 
-    public MainWindow()
+    // ----- Démarrage caché (lancé par Windows, voir WindowsStartup) -----
+    // WPF ne prépare vraiment une fenêtre (événement Loaded, donc bibliothèque, overlay, suivi des parties)
+    // qu'une fois affichée. On l'affiche donc HORS de l'écran, sans barre des tâches ni focus, et Window_Loaded la cache
+    // aussitôt puis la remet à sa vraie place pour le jour où l'on double-cliquera sur l'icône près de l'horloge.
+    private readonly bool _startHidden;
+    private double _hiddenLeft;
+    private double _hiddenTop;
+    private WindowState _hiddenState;
+    private bool _isHiddenStateRestorePending;
+
+    // Les questions du démarrage (plantage, nouveautés, assistant) attendent la 1re ouverture de la fenêtre.
+    private bool _startupOffersPending;
+
+    // Pour le concepteur de Visual Studio, qui a besoin d'un constructeur sans paramètre.
+    public MainWindow() : this(false)
+    {
+    }
+
+    public MainWindow(bool startHidden)
     {
         InitializeComponent();
         SetUpTrayIcon();
@@ -65,6 +83,13 @@ public partial class MainWindow : Window
         // (Bibliothèque et onglet ouvert : après le 1er chargement des jeux, voir RestoreLibraryState.)
         RestoreWindowPlacement();
         ShopsPanel.RestoreState(_library.Settings.Ui);
+
+        _startHidden = startHidden;
+
+        if (startHidden)
+        {
+            PrepareHiddenStart();
+        }
 
         _overlay = new OverlayController(_library);
         _playerCountsTimer.Tick += PlayerCountsTimer_Tick;
@@ -115,6 +140,11 @@ public partial class MainWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        if (_startHidden)
+        {
+            FinishHiddenStart();
+        }
+
         UpdateThemeButton();
         UpdatePlayButton(null);
         LoadSettingsTab();
@@ -124,14 +154,17 @@ public partial class MainWindow : Window
         TestCrashButton.Visibility = Visibility.Visible;
 #endif
 
-        // Plantage lors de la dernière utilisation : on propose de le signaler (rien n'est envoyé sans accord).
-        OfferCrashReport();
+        // Démarrage caché : aucune fenêtre ne doit surgir à l'ouverture de session. Ces questions attendent
+        // que l'on ouvre Wyrmhold (voir ShowFromTray).
+        if (_startHidden)
+        {
+            _startupOffersPending = true;
+        }
+        else
+        {
+            ShowStartupOffers();
+        }
 
-        // Avant l'assistant : c'est lui qui permet de distinguer une nouvelle installation d'une mise à jour.
-        OfferWhatsNew();
-
-        // Premier lancement : l'assistant des clés API, AVANT de lire la bibliothèque (pour qu'elle soit complète).
-        OfferSetupWizard();
         UpdateApiKeysSummary();
 
         // Prix des jeux suivis : vérifiés à chaque ouverture, EN PARALLÈLE du chargement de la bibliothèque.
@@ -145,6 +178,57 @@ public partial class MainWindow : Window
         ApplyAutoRefreshSettings();
 
         // (Les mises à jour sont cherchées AVANT l'ouverture de cette fenêtre, voir UpdateWindow.)
+    }
+
+    private void ShowStartupOffers()
+    {
+        // Plantage lors de la dernière utilisation : on propose de le signaler (rien n'est envoyé sans accord).
+        OfferCrashReport();
+
+        // Avant l'assistant : c'est lui qui permet de distinguer une nouvelle installation d'une mise à jour.
+        OfferWhatsNew();
+
+        // Premier lancement : l'assistant des clés API, AVANT de lire la bibliothèque (pour qu'elle soit complète).
+        OfferSetupWizard();
+        UpdateApiKeysSummary();
+    }
+
+    // Avant le 1er Show : la vraie place est notée, puis la fenêtre part hors de l'écran (sans barre des tâches ni focus).
+    private void PrepareHiddenStart()
+    {
+        _hiddenState = WindowState;
+
+        if (WindowStartupLocation == WindowStartupLocation.Manual && !double.IsNaN(Left) && !double.IsNaN(Top))
+        {
+            _hiddenLeft = Left;
+            _hiddenTop = Top;
+        }
+        else
+        {
+            // Aucune place enregistrée : au centre de l'écran principal (zone sans la barre des tâches).
+            Rect area = SystemParameters.WorkArea;
+            _hiddenLeft = area.Left + Math.Max(0, (area.Width - Width) / 2);
+            _hiddenTop = area.Top + Math.Max(0, (area.Height - Height) / 2);
+        }
+
+        ShowInTaskbar = false;
+        ShowActivated = false;
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        WindowState = WindowState.Normal;
+        Left = -32000;
+        Top = -32000;
+    }
+
+    // Au 1er Loaded : on cache, puis on remet la vraie place (elle servira au prochain Show).
+    // L'état (agrandie) et la barre des tâches attendent ShowFromTray : changés sur une fenêtre cachée,
+    // ils pourraient la refaire apparaître.
+    private void FinishHiddenStart()
+    {
+        Hide();
+        Left = _hiddenLeft;
+        Top = _hiddenTop;
+        _isHiddenStateRestorePending = true;
+        Logger.Log("Lancé par Windows : Wyrmhold démarre caché près de l'horloge.");
     }
 
     // ===================== Bibliothèque =====================
@@ -698,6 +782,17 @@ public partial class MainWindow : Window
         }
 
         StatsTab.DataContext = _library.ComputeStatistics(_allGames);
+    }
+
+    // Flèches du calendrier des succès : l'année d'avant ou d'après (le calendrier prévient l'affichage lui-même).
+    private void CalendarPreviousYear_Click(object sender, RoutedEventArgs e)
+    {
+        (StatsTab.DataContext as LibraryStatistics)?.Calendar.ShowPreviousYear();
+    }
+
+    private void CalendarNextYear_Click(object sender, RoutedEventArgs e)
+    {
+        (StatsTab.DataContext as LibraryStatistics)?.Calendar.ShowNextYear();
     }
 
     /// <summary>
@@ -1684,6 +1779,8 @@ public partial class MainWindow : Window
         CloseQuitRadio.IsChecked = closeAction == CloseActions.Quit;
         CloseAskRadio.IsChecked = closeAction != CloseActions.Background && closeAction != CloseActions.Quit;
 
+        LoadStartWithWindows();
+
         OverlayEnabledCheck.IsChecked = _library.Settings.OverlayEnabled;
         OverlayHotkeyBox.Text = _library.Settings.OverlayHotkey;
         OverlayHotkeyBox.IsEnabled = _library.Settings.OverlayEnabled;
@@ -1800,6 +1897,99 @@ public partial class MainWindow : Window
         _library.Settings.OverlayHotkey = text;
         SaveSettings();
         Keyboard.ClearFocus();   // enregistre le nouveau raccourci (voir LostKeyboardFocus)
+    }
+
+    // ----- Démarrage de Windows -----
+
+    /// <summary>
+    /// La case suit le registre, pas settings.json : on a pu retirer Wyrmhold du démarrage ailleurs
+    /// (Gestionnaire des tâches, Paramètres de Windows). Appelée pendant LoadSettingsTab (_isLoadingSettings = true).
+    /// </summary>
+    private void LoadStartWithWindows()
+    {
+        StartupState state;
+
+        try
+        {
+            state = WindowsStartup.GetState();
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Logger.Log($"Démarrage de Windows : registre illisible ({ex.Message}).");
+            state = StartupState.Off;
+        }
+
+        StartWithWindowsCheck.IsChecked = state == StartupState.On;
+
+        // Version lancée depuis Visual Studio : son chemin change à chaque compilation, on n'inscrit rien.
+        StartWithWindowsCheck.IsEnabled = App.IsInstalled;
+
+        string status = !App.IsInstalled
+            ? "Disponible seulement dans la version installée (pas dans une version lancée depuis Visual Studio)."
+            : state == StartupState.DisabledByWindows
+                ? "Désactivé dans le Gestionnaire des tâches de Windows. Coche la case pour le réactiver."
+                : "";
+
+        StartWithWindowsStatusText.Text = status;
+        StartWithWindowsStatusText.Visibility = status.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        // Le réglage suit ce que Windows fera vraiment.
+        if (_library.Settings.StartWithWindows != (state == StartupState.On))
+        {
+            _library.Settings.StartWithWindows = state == StartupState.On;
+            SaveSettings();
+        }
+
+        // Inscrit, mais vers un autre programme (Wyrmhold déplacé, ancienne installation) : on corrige le chemin.
+        if (state == StartupState.On && App.IsInstalled && Environment.ProcessPath is string exePath
+            && WindowsStartup.GetCommand() != WindowsStartup.CommandFor(exePath))
+        {
+            TrySetStartWithWindows(true);
+        }
+    }
+
+    private void StartWithWindowsCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings)
+        {
+            return;
+        }
+
+        bool wanted = StartWithWindowsCheck.IsChecked == true;
+
+        if (TrySetStartWithWindows(wanted))
+        {
+            Logger.Log($"Démarrage avec Windows {(wanted ? "activé" : "désactivé")}.");
+        }
+
+        // On relit le registre : la case montre ce qui a vraiment été fait (et enregistre le réglage).
+        _isLoadingSettings = true;
+        LoadStartWithWindows();
+        _isLoadingSettings = false;
+    }
+
+    // Écrit (ou retire) la valeur du registre. false = refusé par Windows (message affiché).
+    private bool TrySetStartWithWindows(bool enabled)
+    {
+        try
+        {
+            if (!enabled)
+            {
+                WindowsStartup.Disable();
+            }
+            else if (App.IsInstalled && Environment.ProcessPath is string exePath)
+            {
+                WindowsStartup.Enable(exePath);
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
+        {
+            Logger.Log($"Démarrage de Windows : registre refusé ({ex.Message}).");
+            MessageBox.Show("Windows a refusé de modifier la liste des programmes lancés au démarrage.", "Wyrmhold");
+            return false;
+        }
     }
 
     private void CloseActionRadio_Checked(object sender, RoutedEventArgs e)
@@ -3199,7 +3389,21 @@ public partial class MainWindow : Window
 
     public void ShowFromTray()
     {
+        // 1re ouverture après un démarrage caché : la fenêtre retrouve sa barre des tâches, puis son état.
+        bool restoreHiddenState = _isHiddenStateRestorePending;
+        _isHiddenStateRestorePending = false;
+
+        if (restoreHiddenState)
+        {
+            ShowInTaskbar = true;
+        }
+
         Show();
+
+        if (restoreHiddenState)
+        {
+            WindowState = _hiddenState;
+        }
 
         if (WindowState == WindowState.Minimized)
         {
@@ -3207,6 +3411,13 @@ public partial class MainWindow : Window
         }
 
         Activate();
+
+        // Démarrage caché : les questions du démarrage arrivent maintenant que la fenêtre est à l'écran.
+        if (_startupOffersPending)
+        {
+            _startupOffersPending = false;
+            ShowStartupOffers();
+        }
     }
 
     private void Window_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
@@ -3316,7 +3527,8 @@ public partial class MainWindow : Window
                 state.WindowWidth = bounds.Width;
                 state.WindowHeight = bounds.Height;
             }
-            state.WindowMaximized = WindowState == WindowState.Maximized;
+            // Démarrage caché pas encore ouvert : la fenêtre n'a pas encore repris son état (agrandie ou non).
+            state.WindowMaximized = (_isHiddenStateRestorePending ? _hiddenState : WindowState) == WindowState.Maximized;
 
             // Avant le 1er chargement des jeux, les filtres affichés ne sont pas encore les tiens : on garde les anciens.
             if (_isLibraryStateRestored)
