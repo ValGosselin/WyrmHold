@@ -166,6 +166,27 @@ public class CoverCache
         game.CoverPath = null;
     }
 
+    /// <summary>
+    /// Remplace la jaquette d'un jeu par cette image (choisie à la main). Elle reste tant qu'on ne la change pas :
+    /// le téléchargement automatique ne touche jamais une jaquette qui existe déjà.
+    /// </summary>
+    public async Task SaveCoverAsync(Game game, string url)
+    {
+        byte[] imageBytes = await Http.GetByteArrayAsync(url);
+
+        await File.WriteAllBytesAsync(GetCoverPath(game), imageBytes);
+
+        foreach (string marker in new[] { GetMissingMarkerPath(game), GetSgdbMissingMarkerPath(game) })
+        {
+            if (File.Exists(marker))
+            {
+                File.Delete(marker);
+            }
+        }
+
+        game.CoverPath = GetCoverPath(game);
+    }
+
     private static async Task<byte[]?> TryDownloadAsync(string url, CancellationToken cancellationToken)
     {
         using HttpResponseMessage response = await Http.GetAsync(url, cancellationToken);

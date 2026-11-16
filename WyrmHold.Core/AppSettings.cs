@@ -92,9 +92,65 @@ public class AppSettings
         return emulator;
     }
 
+    // Les consoles décochées (ex. « Wii ») : leurs jeux sont masqués (pas supprimés). Un émulateur dont toutes
+    // les consoles sont décochées n'est plus lu du tout. Vide = toutes actives. (16 novembre 2026, demande de Val :
+    // une case par console, comme les filtres de la bibliothèque, au lieu d'une case par émulateur.)
+    public List<string> DisabledConsoles { get; set; } = new List<string>();
+
+    /// <summary>
+    /// Lanceur lu ? Pour un émulateur : oui si au moins une de ses consoles est cochée.
+    /// </summary>
     public bool IsLauncherEnabled(Platform platform)
     {
-        return !DisabledLaunchers.Contains(platform.ToString());
+        if (DisabledLaunchers.Contains(platform.ToString()))
+        {
+            return false;
+        }
+
+        IReadOnlyList<GameConsole> consoles = GameConsoles.ForEmulator(platform);
+        return consoles.Count == 0 || consoles.Any(IsConsoleEnabled);
+    }
+
+    public bool IsConsoleEnabled(GameConsole console)
+    {
+        return !DisabledConsoles.Contains(console.ToString());
+    }
+
+    public void SetConsoleEnabled(GameConsole console, bool isEnabled)
+    {
+        DisabledConsoles.Remove(console.ToString());
+
+        if (!isEnabled)
+        {
+            DisabledConsoles.Add(console.ToString());
+        }
+    }
+
+    /// <summary>Le jeu est-il montré (son lanceur, et sa console pour un jeu émulé, sont cochés) ?</summary>
+    public bool IsGameShown(Game game)
+    {
+        return IsLauncherEnabled(game.Platform)
+            && (game.Console == GameConsole.None || IsConsoleEnabled(game.Console));
+    }
+
+    /// <summary>
+    /// Avant le 16 novembre 2026, un émulateur se décochait en entier (« Dolphin » dans DisabledLaunchers).
+    /// On le traduit une fois en ses consoles, pour que les nouvelles cases montrent le même choix.
+    /// </summary>
+    private void MoveDisabledEmulatorsToConsoles()
+    {
+        foreach (string name in DisabledLaunchers.ToList())
+        {
+            if (Enum.TryParse(name, out Platform platform) && GameConsoles.ForEmulator(platform) is { Count: > 0 } consoles)
+            {
+                DisabledLaunchers.Remove(name);
+
+                foreach (GameConsole console in consoles)
+                {
+                    SetConsoleEnabled(console, false);
+                }
+            }
+        }
     }
 
     public void SetLauncherEnabled(Platform platform, bool isEnabled)
@@ -128,7 +184,9 @@ public class AppSettings
         {
             if (File.Exists(FilePath))
             {
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                AppSettings settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+                settings.MoveDisabledEmulatorsToConsoles();
+                return settings;
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException)

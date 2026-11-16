@@ -83,6 +83,8 @@ public partial class MainWindow : Window
         // (Bibliothèque et onglet ouvert : après le 1er chargement des jeux, voir RestoreLibraryState.)
         RestoreWindowPlacement();
         ShopsPanel.RestoreState(_library.Settings.Ui);
+        InitTileSize();
+        InitDetailWidth();
 
         _startHidden = startHidden;
 
@@ -93,6 +95,7 @@ public partial class MainWindow : Window
 
         _overlay = new OverlayController(_library);
         _playerCountsTimer.Tick += PlayerCountsTimer_Tick;
+        _friendsInGameTimer.Tick += FriendsInGameTimer_Tick;
 
         // Actualisation automatique : minuteur, retour sur la fenêtre, et fin de partie (synchro repoussée).
         _autoRefreshTimer.Tick += AutoRefreshTimer_Tick;
@@ -152,6 +155,7 @@ public partial class MainWindow : Window
         VersionText.Text = $"Wyrmhold {AppInfo.Version}";
 #if DEBUG
         TestCrashButton.Visibility = Visibility.Visible;
+        PreviewUpdateButton.Visibility = Visibility.Visible;
 #endif
 
         // Démarrage caché : aucune fenêtre ne doit surgir à l'ouverture de session. Ces questions attendent
@@ -247,6 +251,7 @@ public partial class MainWindow : Window
         // ni des jaquettes ni des succès, dont la lecture peut prendre plusieurs minutes.
         // « _ = » : en parallèle du reste du chargement, sans l'attendre (environ 20 s pour 1 300 jeux).
         _ = RefreshPlayerCountsAsync();
+        _ = RefreshFriendsInGameAsync();
 
         // Chaque synchronisation est sautée si son lanceur est désactivé dans Réglages.
         if (_library.IsLauncherEnabled(Platform.Steam) && _library.IsSteamFamilyConnected)
@@ -509,6 +514,12 @@ public partial class MainWindow : Window
             return;   // 1er chargement pas encore fini
         }
 
+        // Fenêtre restée cachée ou réduite : les badges des amis ont pu vieillir, on les relit tout de suite.
+        if (DateTime.Now - _lastFriendsInGameRefresh > _friendsInGameTimer.Interval)
+        {
+            _ = RefreshFriendsInGameAsync();
+        }
+
         if (_isFullRefreshDeferred || DateTime.Now - _lastFullRefresh > RefreshOnActivationAfter)
         {
             TryAutoFullRefresh("retour sur la fenêtre");
@@ -564,6 +575,56 @@ public partial class MainWindow : Window
 
         // Une patch note publiée après la mise à jour : le badge « Mis à jour » apparaît sans redémarrer.
         await RefreshUpdateNotesAsync();
+    }
+
+    // ----- Amis Steam en jeu (ticket #38) -----
+
+    // Toutes les 2 minutes, seulement quand la fenêtre est affichée (au retour sur la fenêtre, relu tout de suite).
+    private readonly System.Windows.Threading.DispatcherTimer _friendsInGameTimer =
+        new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(2) };
+
+    private bool _isRefreshingFriendsInGame;
+    private DateTime _lastFriendsInGameRefresh = DateTime.MinValue;
+
+    private async Task RefreshFriendsInGameAsync()
+    {
+        if (_isRefreshingFriendsInGame)
+        {
+            return;
+        }
+
+        _isRefreshingFriendsInGame = true;
+
+        try
+        {
+            await _library.RefreshFriendsInGameAsync(_allGames);
+
+            // La bibliothèque a pu être rechargée pendant ce temps (nouveaux objets) : on leur donne aussi les badges.
+            _library.ApplyKnownFriendsInGame(_allGames);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Amis en jeu impossibles à mettre à jour : {ex.Message}");
+        }
+        finally
+        {
+            _isRefreshingFriendsInGame = false;
+            _lastFriendsInGameRefresh = DateTime.Now;
+        }
+
+        // Le minuteur repart de zéro : la prochaine lecture sera dans 2 minutes.
+        _friendsInGameTimer.Stop();
+        _friendsInGameTimer.Start();
+    }
+
+    private async void FriendsInGameTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!IsVisible || WindowState == WindowState.Minimized)
+        {
+            return;
+        }
+
+        await RefreshFriendsInGameAsync();
     }
 
     // ----- Badge « Mis à jour » : seulement avec une patch note -----
@@ -736,6 +797,7 @@ public partial class MainWindow : Window
 
         // Les derniers joueurs en jeu connus, tout de suite (les jeux rechargés sont de nouveaux objets).
         _library.ApplyKnownPlayerCounts(games);
+        _library.ApplyKnownFriendsInGame(games);
 
         // 1. D'abord les filtres : ils peuvent remettre à zéro un choix devenu impossible
         //    (une collection supprimée, un genre ou une plateforme qui n'a plus de jeux).
@@ -1039,18 +1101,81 @@ public partial class MainWindow : Window
 
         foreach (IGrouping<string, Game> group in platforms)
         {
+            Game first = group.First();
+            string name = first.SourceName;
+            int count = group.Count();
+
+            // Lanceur : logo + nombre. Console : pictogramme + nom court (« GBA 12 »), le pictogramme seul ne suffit
+            // pas à distinguer Game Boy et Game Boy Color.
+            string label = first.IsEmulated ? $"{GameConsoles.ShortName(first.Console)} {count}" : count.ToString();
+
             ToggleButton button = new ToggleButton
             {
-                Content = $"{group.First().SourceName} ({group.Count()})",
+                Content = PlatformFilterContent(group.Key, name, label, count),
                 Tag = group.Key,
                 IsChecked = _selectedPlatforms.Contains(group.Key),
                 Padding = new Thickness(10, 4, 10, 4),
-                Margin = new Thickness(0, 0, 6, 0)
+                Margin = new Thickness(0, 0, 6, 0),
+                Height = 32,
+                ToolTip = $"{name} : {count} jeu{(count > 1 ? "x" : "")}"
             };
 
             button.Checked += PlatformFilter_Changed;
             button.Unchecked += PlatformFilter_Changed;
             PlatformFilters.Children.Add(button);
+        }
+
+        UpdatePlatformFilterOpacity();
+    }
+
+    /// <summary>
+    /// Le contenu d'un bouton de plateforme (ticket #9) : le logo du lanceur (ou le pictogramme de la console)
+    /// suivi de « label » ; sans dessin connu, le nom complet en texte.
+    /// </summary>
+    private static object PlatformFilterContent(string filterKey, string name, string label, int count)
+    {
+        TextBlock countText = new TextBlock
+        {
+            Text = PlatformLogos.Get(filterKey) is null ? $"{name} ({count})" : label,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        if (PlatformLogos.Get(filterKey) is not Geometry logo)
+        {
+            return countText;
+        }
+
+        System.Windows.Shapes.Path logoPath = new System.Windows.Shapes.Path
+        {
+            Data = logo,
+            Width = 18,
+            Height = 18,
+            Stretch = Stretch.Uniform,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 7, 0)
+        };
+
+        // Même couleur que le texte du bouton, qui suit le thème et l'état coché (le texte, lui, en hérite tout seul).
+        logoPath.SetBinding(System.Windows.Shapes.Shape.FillProperty, new Binding(nameof(TextBlock.Foreground)) { Source = countText });
+
+        StackPanel content = new StackPanel { Orientation = Orientation.Horizontal };
+        content.Children.Add(logoPath);
+        content.Children.Add(countText);
+        return content;
+    }
+
+    /// <summary>
+    /// Dès qu'au moins une plateforme est choisie, les autres boutons passent à 50 % (ticket #9) :
+    /// on voit d'un coup d'œil lesquelles sont affichées. Aucune choisie = toutes affichées, toutes à 100 %.
+    /// </summary>
+    private void UpdatePlatformFilterOpacity()
+    {
+        List<ToggleButton> buttons = PlatformFilters.Children.OfType<ToggleButton>().ToList();
+        bool anyChecked = buttons.Any(button => button.IsChecked == true);
+
+        foreach (ToggleButton button in buttons)
+        {
+            button.Opacity = anyChecked && button.IsChecked != true ? 0.5 : 1;
         }
     }
     private void BuildTagFilter(List<Game> games)
@@ -1109,6 +1234,7 @@ public partial class MainWindow : Window
             _selectedPlatforms.Remove(filterKey);
         }
 
+        UpdatePlatformFilterOpacity();
         RefreshFilters();
     }
 
@@ -1774,6 +1900,16 @@ public partial class MainWindow : Window
                 && _library.Settings.IsLauncherEnabled(platform);
         }
 
+        foreach (CheckBox checkBox in ConsoleChecks.Children.OfType<CheckBox>())
+        {
+            checkBox.IsChecked = checkBox.Tag is string name
+                && Enum.TryParse(name, out GameConsole console)
+                && _library.Settings.IsConsoleEnabled(console);
+        }
+
+        UpdateGroupCheck(ConsolesGroupCheck, ConsoleChecks);
+        UpdateGroupCheck(ConsoleAchievementsGroupCheck, ConsoleAchievementChecks);
+
         string closeAction = _library.Settings.CloseAction;
         CloseBackgroundRadio.IsChecked = closeAction == CloseActions.Background;
         CloseQuitRadio.IsChecked = closeAction == CloseActions.Quit;
@@ -2065,6 +2201,96 @@ public partial class MainWindow : Window
 
         _library.Settings.SetAchievementSourceEnabled(platform, checkBox.IsChecked == true);
         SaveSettings();
+        UpdateGroupCheck(ConsoleAchievementsGroupCheck, ConsoleAchievementChecks);
+    }
+
+    // Case « Consoles » de la section Succès : coche ou décoche les 4 sources des émulateurs d'un coup.
+    private void ConsoleAchievementsGroupCheck_Click(object sender, RoutedEventArgs e)
+    {
+        bool isEnabled = ConsoleAchievementsGroupCheck.IsChecked == true;
+
+        _isLoadingSettings = true;   // les cases ci-dessous ne s'enregistrent pas une par une
+
+        foreach (CheckBox checkBox in ConsoleAchievementChecks.Children.OfType<CheckBox>())
+        {
+            checkBox.IsChecked = isEnabled;
+
+            if (checkBox.Tag is string name && Enum.TryParse(name, out Platform platform))
+            {
+                _library.Settings.SetAchievementSourceEnabled(platform, isEnabled);
+            }
+        }
+
+        _isLoadingSettings = false;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// La case d'en-tête d'un groupe : cochée si toutes les cases du groupe le sont, vide si aucune,
+    /// carré plein (IsChecked = null) entre les deux.
+    /// </summary>
+    private static void UpdateGroupCheck(CheckBox group, Panel children)
+    {
+        List<CheckBox> boxes = children.Children.OfType<CheckBox>().ToList();
+        int checkedCount = boxes.Count(box => box.IsChecked == true);
+
+        group.IsChecked = checkedCount == boxes.Count ? true
+            : checkedCount == 0 ? false
+            : null;
+    }
+
+    private async void ConsoleCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoadingSettings || sender is not CheckBox { Tag: string name } checkBox
+            || !Enum.TryParse(name, out GameConsole console))
+        {
+            return;
+        }
+
+        bool isEnabled = checkBox.IsChecked == true;
+        _library.Settings.SetConsoleEnabled(console, isEnabled);
+        UpdateGroupCheck(ConsolesGroupCheck, ConsoleChecks);
+        await ApplyConsoleChangeAsync(isEnabled);
+    }
+
+    // Case « Consoles (jeux émulés) » de la section Lanceurs : toutes les consoles d'un coup, une seule relecture.
+    private async void ConsolesGroupCheck_Click(object sender, RoutedEventArgs e)
+    {
+        bool isEnabled = ConsolesGroupCheck.IsChecked == true;
+
+        _isLoadingSettings = true;
+
+        foreach (CheckBox checkBox in ConsoleChecks.Children.OfType<CheckBox>())
+        {
+            checkBox.IsChecked = isEnabled;
+
+            if (checkBox.Tag is string name && Enum.TryParse(name, out GameConsole console))
+            {
+                _library.Settings.SetConsoleEnabled(console, isEnabled);
+            }
+        }
+
+        _isLoadingSettings = false;
+        await ApplyConsoleChangeAsync(isEnabled);
+    }
+
+    /// <summary>
+    /// Après un changement de console : réactivée = relecture locale des émulateurs (sans internet), car un émulateur
+    /// dont toutes les consoles étaient décochées n'était plus lu ; désactivée = ses jeux disparaissent tout de suite.
+    /// </summary>
+    private async Task ApplyConsoleChangeAsync(bool isEnabled)
+    {
+        SaveSettings();
+        RefreshAccountsTab();
+
+        if (isEnabled)
+        {
+            await RefreshLibraryAsync(RefreshKind.Local);
+        }
+        else
+        {
+            ShowGames(_library.LoadGames());
+        }
     }
 
     private async void LauncherCheck_Changed(object sender, RoutedEventArgs e)
@@ -2571,6 +2797,47 @@ public partial class MainWindow : Window
     /// <summary>
     /// « Re-télécharger la jaquette » : pour une mauvaise image (ex. It's Fine qui affichait « It's A Wipe! »).
     /// </summary>
+    /// <summary>
+    /// Même nom de fichier, autre image : on la retire de la mémoire, puis on redessine la tuile et la fiche.
+    /// </summary>
+    private void RefreshCoverDisplay(string? oldPath, Game game)
+    {
+        CoverLoader.Forget(oldPath);
+        CoverLoader.Forget(game.CoverPath);
+
+        // Même chemin qu'avant : sans ce petit aller-retour, la tuile ne verrait pas que l'image a changé.
+        game.ReloadCover();
+        GamesList.Items.Refresh();
+
+        // La fiche : on lui retire puis on lui redonne son jeu, pour que sa jaquette soit relue.
+        object shown = DetailPanel.DataContext;
+        DetailPanel.DataContext = null;
+        DetailPanel.DataContext = shown;
+    }
+
+    // Clic droit → « Choisir une jaquette… » (ticket #41) : les jaquettes de SteamGridDB, au choix.
+    private void TileMenuChooseCover_Click(object sender, RoutedEventArgs e)
+    {
+        if (SelectTileFromMenu(sender) is not Game game)
+        {
+            return;
+        }
+
+        if (!_library.CanChooseCover)
+        {
+            MessageBox.Show("Les jaquettes au choix viennent de SteamGridDB : ajoute d'abord ta clé SteamGridDB (Réglages → Clés API).", "Wyrmhold");
+            return;
+        }
+
+        string? oldPath = game.CoverPath;
+        CoverPickerWindow picker = new CoverPickerWindow(_library, game) { Owner = this };
+
+        if (picker.ShowDialog() == true)
+        {
+            RefreshCoverDisplay(oldPath, game);
+        }
+    }
+
     private async void TileMenuRedownloadCover_Click(object sender, RoutedEventArgs e)
     {
         if (SelectTileFromMenu(sender) is not Game game)
@@ -2592,15 +2859,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Même nom de fichier, autre image : on la retire de la mémoire, puis on redessine la tuile et la fiche.
-        CoverLoader.Forget(oldPath);
-        CoverLoader.Forget(game.CoverPath);
-        GamesList.Items.Refresh();
-
-        // La fiche : on lui retire puis on lui redonne son jeu, pour que sa jaquette soit relue.
-        object shown = DetailPanel.DataContext;
-        DetailPanel.DataContext = null;
-        DetailPanel.DataContext = shown;
+        RefreshCoverDisplay(oldPath, game);
 
         Logger.Log(found
             ? $"Jaquette de {game.Name} re-téléchargée."
@@ -2886,6 +3145,7 @@ public partial class MainWindow : Window
         SteamStatusText.Text = _library.IsSteamApiConfigured
             ? "Bibliothèque synchronisée avec ta clé API"
             : "Clé API manquante : Réglages → Clés API";
+        SetLight(SteamStatusText, _library.IsSteamApiConfigured ? AccountState.Ok : AccountState.ToFix);
 
         SetAccountRow(SteamFamilyStatusText, SteamFamilyButton, _library.IsSteamFamilyConnected);
         SetAccountRow(GogStatusText, GogAccountButton, _library.IsGogConnected);
@@ -2929,8 +3189,62 @@ public partial class MainWindow : Window
             ItadStatusText.Text = "Client ID manquant : Réglages → Clés API (facultatif)";
             ItadAccountButton.Content = "Se connecter";
             ItadAccountButton.IsEnabled = false;
+            SetLight(ItadStatusText, AccountState.Off);
+        }
+    }
+
+    // ----- Voyants de l'onglet Comptes (ticket #31) -----
+
+    private enum AccountState
+    {
+        Ok,      // vert ✓ : connecté, ou trouvé
+        ToFix,   // orange ! : à refaire (session expirée, clé manquante)
+        Off      // gris – : désactivé, pas connecté, ou pas installé
+    }
+
+    private static readonly Brush OkLightBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x2E, 0x7D, 0x32)));
+    private static readonly Brush ToFixLightBrush = Freeze(new SolidColorBrush(Color.FromRgb(0xE6, 0x51, 0x00)));
+    private static readonly Brush OffLightBrush = Freeze(new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75)));
+
+    private static Brush Freeze(Brush brush)
+    {
+        brush.Freeze();
+        return brush;
+    }
+
+    /// <summary>
+    /// Allume le voyant d'une ligne de Comptes : c'est le rond posé juste avant le texte d'état, dans le même DockPanel.
+    /// </summary>
+    private static void SetLight(TextBlock statusText, AccountState state)
+    {
+        if (statusText.Parent is not Panel { Children.Count: > 0 } row || row.Children[0] is not Border light)
+        {
+            return;
         }
 
+        light.Background = state switch
+        {
+            AccountState.Ok => OkLightBrush,
+            AccountState.ToFix => ToFixLightBrush,
+            _ => OffLightBrush
+        };
+
+        light.Child = new TextBlock
+        {
+            Text = state switch { AccountState.Ok => "✓", AccountState.ToFix => "!", _ => "–" },
+            Foreground = Brushes.White,
+            FontSize = 11,
+            FontWeight = FontWeights.Bold,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        light.ToolTip = state switch
+        {
+            AccountState.Ok => "OK",
+            AccountState.ToFix => "À refaire",
+            _ => "Désactivé, pas connecté ou pas installé"
+        };
     }
     private async void BattleNetAccountButton_Click(object sender, RoutedEventArgs e)
     {
@@ -3009,16 +3323,19 @@ public partial class MainWindow : Window
         {
             statusText.Text = "Connecté";
             button.Content = "Se déconnecter";
+            SetLight(statusText, AccountState.Ok);
         }
         else if (hasImportedGames)
         {
             statusText.Text = "Session expirée, tes jeux restent affichés";
             button.Content = "Se reconnecter";
+            SetLight(statusText, AccountState.ToFix);
         }
         else
         {
             statusText.Text = "Non connecté";
             button.Content = "Se connecter";
+            SetLight(statusText, AccountState.Off);
         }
     }
 
@@ -3031,6 +3348,7 @@ public partial class MainWindow : Window
             ? "Non trouvé : clique sur Configurer"
             : $"{gameCount} jeu{(gameCount > 1 ? "x" : "")} · {executable}";
         statusText.ToolTip = executable;
+        SetLight(statusText, executable is null ? AccountState.Off : AccountState.Ok);
 
         // Désactivé dans Réglages : même présentation que les comptes.
         ApplyLauncherState(platform, statusText, button);
@@ -3100,6 +3418,7 @@ public partial class MainWindow : Window
         if (!isEnabled)
         {
             statusText.Text = "Lanceur désactivé (Réglages → Lanceurs)";
+            SetLight(statusText, AccountState.Off);
         }
 
         if (button != null)
@@ -3509,6 +3828,193 @@ public partial class MainWindow : Window
     // La bibliothèque n'est remise qu'une fois (au 1er chargement), pas à chaque actualisation.
     private bool _isLibraryStateRestored;
 
+    // ----- Taille des tuiles (tickets #32 et #7) -----
+
+    // ListBoxItem.Padding (5 de chaque côté) : 10 pixels entre deux tuiles. Doit suivre ItemContainerStyle dans le XAML.
+    private const double TilePadding = 5;
+
+    // Sous la jaquette : nom, plateforme et pastilles des copies. Fixe pour que toutes les tuiles aient la même case.
+    private const double TileInfoHeight = 62;
+
+    // La barre de défilement du thème Fluent passe par-dessus le contenu : on lui laisse sa place à droite.
+    private const double ScrollBarReserve = 17;
+
+    // ----- Largeur de la fiche (ticket #5) -----
+
+    private const double DefaultDetailWidth = 320;
+    private const double MinDetailWidth = 280;
+
+    // La grille garde toujours au moins cette largeur (environ deux tuiles).
+    private const double MinGridWidthBesideDetail = 380;
+
+    private void InitDetailWidth()
+    {
+        SetDetailWidth(_library.Settings.Ui.DetailWidth ?? DefaultDetailWidth);
+
+        // Fenêtre rétrécie : la fiche rétrécit avec elle ; agrandie : elle reprend la largeur choisie.
+        if (DetailPanel.Parent is FrameworkElement area)
+        {
+            area.SizeChanged += (sender, e) => SetDetailWidth(_library.Settings.Ui.DetailWidth ?? DefaultDetailWidth);
+        }
+    }
+
+    /// <summary>Change la largeur de la fiche, bornée pour laisser de la place à la grille.</summary>
+    private void SetDetailWidth(double width)
+    {
+        double areaWidth = (DetailPanel.Parent as FrameworkElement)?.ActualWidth ?? 0;
+        double max = areaWidth > 0
+            ? Math.Max(MinDetailWidth, areaWidth - DetailResizeThumb.Width - MinGridWidthBesideDetail)
+            : 1200;   // pas encore affichée : bornée au premier SizeChanged
+
+        width = Math.Round(Math.Clamp(width, MinDetailWidth, max));
+
+        if (DetailPanel.Width != width)
+        {
+            DetailPanel.Width = width;
+
+            // Titre des patch notes : la place de la fiche moins ses marges, la barre de défilement et la flèche.
+            DetailPanel.Resources["PatchNoteTitleWidth"] = width - 85;
+        }
+    }
+
+    private void DetailResizeThumb_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        // La poignée est à gauche de la fiche : tirer vers la gauche (valeur négative) l'élargit.
+        SetDetailWidth(DetailPanel.Width - e.HorizontalChange);
+    }
+
+    private void DetailResizeThumb_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        _library.Settings.Ui.DetailWidth = DetailPanel.Width;   // enregistré avec le reste de l'état (SaveUiState)
+    }
+
+    private void DetailResizeThumb_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        _library.Settings.Ui.DetailWidth = null;
+        SetDetailWidth(DefaultDetailWidth);
+    }
+
+    private bool _isTileSizeReady;
+    private System.Windows.Threading.DispatcherTimer? _coverDecodeTimer;
+    private int _pendingCoverDecodeWidth;
+
+    private void InitTileSize()
+    {
+        int size = Math.Clamp(_library.Settings.Ui.TileSize, UiState.MinTileSize, UiState.MaxTileSize);
+
+        TileSizeSlider.Maximum = UiState.MaxTileSize;
+        TileSizeSlider.Minimum = UiState.MinTileSize;
+        TileSizeSlider.Value = size;
+        _isTileSizeReady = true;
+    }
+
+    private void TileSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_isTileSizeReady)
+        {
+            return;
+        }
+
+        _library.Settings.Ui.TileSize = (int)TileSizeSlider.Value;   // enregistré avec le reste de l'état (SaveUiState)
+        UpdateTileLayout();
+    }
+
+    // Ctrl + molette sur la grille : zoom, comme dans un navigateur. Sans Ctrl, la grille défile normalement.
+    private void GamesList_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
+        {
+            return;
+        }
+
+        // Le curseur borne la valeur lui-même (110 à 240).
+        TileSizeSlider.Value += e.Delta > 0 ? TileSizeSlider.TickFrequency : -TileSizeSlider.TickFrequency;
+        e.Handled = true;
+    }
+
+    private void GamesList_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.WidthChanged)
+        {
+            UpdateTileLayout();
+        }
+    }
+
+    /// <summary>
+    /// Calcule la taille des tuiles : autant de colonnes que possible autour de la taille visée (curseur),
+    /// puis on partage TOUTE la largeur entre elles. Plus de grand vide gris entre les tuiles (ticket #32).
+    /// La jaquette garde ses proportions (2 × 3).
+    /// </summary>
+    private void UpdateTileLayout()
+    {
+        double available = GamesList.ActualWidth
+            - GamesList.BorderThickness.Left - GamesList.BorderThickness.Right
+            - GamesList.Padding.Left - GamesList.Padding.Right
+            - ScrollBarReserve;
+
+        if (available <= 2 * TilePadding)
+        {
+            return;   // fenêtre pas encore affichée
+        }
+
+        double wantedSlot = TileSizeSlider.Value + 2 * TilePadding;
+
+        // Arrondi au plus proche : les tuiles s'écartent au plus d'un demi-pas de la taille visée.
+        int columns = Math.Max(1, (int)Math.Round(available / wantedSlot));
+        double slot = Math.Floor(available / columns);
+        double tileWidth = slot - 2 * TilePadding;
+        double coverHeight = Math.Round(tileWidth * 1.5);
+        double tileHeight = coverHeight + TileInfoHeight;
+
+        if (GamesList.Resources["TileWidth"] is double current && current == tileWidth
+            && GamesList.Resources["TileItemSize"] is Size currentSlot && currentSlot.Width == slot)
+        {
+            return;   // rien ne change : pas de remise en page inutile
+        }
+
+        GamesList.Resources["TileWidth"] = tileWidth;
+        GamesList.Resources["TileCoverHeight"] = coverHeight;
+        GamesList.Resources["TileHeight"] = tileHeight;
+        GamesList.Resources["TileItemSize"] = new Size(slot, tileHeight + 2 * TilePadding);
+
+        ScheduleCoverDecodeWidth(tileWidth);
+    }
+
+    /// <summary>
+    /// Tuiles plus grandes : les jaquettes doivent être décodées plus grandes, sinon elles sont floues.
+    /// On attend la fin du zoom (400 ms sans changement) avant de tout redécoder, une seule fois.
+    /// La taille n'est jamais réduite : des images un peu trop grandes restent nettes.
+    /// </summary>
+    private void ScheduleCoverDecodeWidth(double tileWidth)
+    {
+        double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        int wanted = (int)(Math.Ceiling(tileWidth * scale / 50) * 50);
+
+        if (wanted <= CoverLoader.DecodeWidth)
+        {
+            return;
+        }
+
+        _pendingCoverDecodeWidth = wanted;
+
+        if (_coverDecodeTimer is null)
+        {
+            _coverDecodeTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+            _coverDecodeTimer.Tick += (sender, e) =>
+            {
+                _coverDecodeTimer.Stop();
+
+                if (CoverLoader.SetDecodeWidth(_pendingCoverDecodeWidth))
+                {
+                    GamesList.Items.Refresh();   // les tuiles affichées relisent leur jaquette à la nouvelle taille
+                }
+            };
+        }
+
+        _coverDecodeTimer.Stop();
+        _coverDecodeTimer.Start();
+    }
+
     /// <summary>
     /// Note l'état de la fenêtre (taille, onglet, filtres, tri, jeu choisi, Boutiques) dans settings.json.
     /// </summary>
@@ -3749,6 +4255,12 @@ public partial class MainWindow : Window
     private void AboutButton_Click(object sender, RoutedEventArgs e)
     {
         new AboutWindow(_library.Settings) { Owner = this }.ShowDialog();
+    }
+
+    // Version Debug seulement : la fenêtre de mise à jour avec un faux téléchargement (rien n'est cherché ni installé).
+    private void PreviewUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        new UpdateWindow(preview: true) { Owner = this }.ShowDialog();
     }
 
     // Version Debug seulement : une erreur volontaire, pour vérifier tout le parcours du plantage.

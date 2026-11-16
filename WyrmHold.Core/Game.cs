@@ -8,7 +8,6 @@ public class Game : INotifyPropertyChanged
     public bool? IsFamilyShared { get; set; }
     public string? OwnerSteamId { get; set; }
     public string InstalledText => IsInstalled ? "✓" : "";
-    public string OriginText => IsFamilyShared == true ? "Famille" : "";
     public Platform Platform { get; set; }
     public string PlatformGameId { get; set; } = "";
     public string Name { get; set; } = "";
@@ -134,6 +133,40 @@ public class Game : INotifyPropertyChanged
 
     public bool HasPlayersInGame => PlayersInGame is not null;
 
+    // ----- Amis Steam en jeu (ticket #38) -----
+
+    private IReadOnlyList<string> _friendsInGame = Array.Empty<string>();
+
+    /// <summary>
+    /// Les pseudos des amis Steam qui jouent à ce jeu en ce moment (vide = personne). Pas gardé en base :
+    /// relu toutes les 2 minutes tant que Wyrmhold est affiché.
+    /// </summary>
+    public IReadOnlyList<string> FriendsInGame
+    {
+        get => _friendsInGame;
+        set
+        {
+            if (_friendsInGame.SequenceEqual(value))
+            {
+                return;   // rien n'a changé : on ne redessine pas la tuile
+            }
+
+            _friendsInGame = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+        }
+    }
+
+    public bool HasFriendsInGame => _friendsInGame.Count > 0;
+
+    // Le texte du badge : le nombre d'amis (« 2 »), à côté du dessin de deux personnes.
+    public string FriendsInGameText => _friendsInGame.Count.ToString(French);
+
+    public string FriendsInGameToolTip => _friendsInGame.Count == 0
+        ? ""
+        : (_friendsInGame.Count == 1 ? "Ami Steam en jeu en ce moment : " : "Amis Steam en jeu en ce moment : ")
+          + string.Join(", ", _friendsInGame)
+          + (Platform == Platform.Steam ? "" : " (sur Steam)");
+
     // Le texte du badge : « 22,1 k en jeu ». Pour un jeu acheté ailleurs, c'est le chiffre de Steam :
     // seule l'infobulle le précise (« · Steam » sur la tuile retiré le 10 octobre 2026, à la demande de Val).
     public string PlayersInGameText => PlayersInGame is int count
@@ -173,8 +206,25 @@ public class Game : INotifyPropertyChanged
 
     public string? CoverPath { get; set; }
 
+    /// <summary>
+    /// Fait relire la jaquette par tout ce qui l'affiche (tuile, fiche…) : après « Choisir une jaquette »,
+    /// le fichier garde le même nom, donc rien ne verrait le changement. Le chemin passe un instant à vide
+    /// puis revient : chaque image se vide, puis recharge le fichier.
+    /// </summary>
+    public void ReloadCover()
+    {
+        string? path = CoverPath;
+
+        CoverPath = null;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CoverPath)));
+
+        CoverPath = path;
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CoverPath)));
+    }
+
+    // « Famille » n'y est plus : c'est un badge sur la jaquette et dans la fiche (ticket #44, 16 novembre 2026).
     public string Subtitle => string.Join(" · ",
-        new[] { SourceName, PlaytimeText, OriginText }.Where(text => text.Length > 0));
+        new[] { SourceName, PlaytimeText }.Where(text => text.Length > 0));
     public string PlatformName => Platform switch
     {
         Platform.Steam => "Steam",
@@ -332,9 +382,10 @@ public class Game : INotifyPropertyChanged
             _ => PlatformName
         };
 
-    // Le texte d'une copie dans la liste « Plateforme » de la fiche.
+    // Le texte d'une copie dans la liste « Plateforme » de la fiche : où est le jeu et s'il est installé, rien de plus
+    // (ticket #36 : temps de jeu et succès de la copie choisie sont déjà juste en dessous, dans la fiche).
     public string CopyLabel => string.Join(" · ",
-        new[] { ConsoleName, PlatformName, InstallStatusText, PlaytimeText, AchievementsText }.Where(text => text.Length > 0));
+        new[] { ConsoleName, PlatformName, InstallStatusText }.Where(text => text.Length > 0));
 
     public string LastUpdateText => LastUpdateDetectedUnix == 0
         ? ""

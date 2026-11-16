@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:WyrmHold.App"
         xmlns:vwp="clr-namespace:WpfToolkit.Controls;assembly=VirtualizingWrapPanel"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         PreviewKeyDown="Window_PreviewKeyDown"
         MinWidth="1150" MinHeight="650"
         mc:Ignorable="d"
@@ -29,6 +30,7 @@
         </Style>
     </Window.Resources>
 
+    <Grid>
     <TabControl x:Name="MainTabs" Margin="10" SelectionChanged="MainTabs_SelectionChanged">
 
         <!-- ===================== Onglet Bibliothèque ===================== -->
@@ -38,8 +40,6 @@
                 <DockPanel DockPanel.Dock="Bottom" Margin="0,10,0,0" Height="32">
                     <!-- À droite : les boutons d'action, comme avant -->
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
-                        <Button x:Name="ThemeButton" Width="46" Margin="0,0,10,0"
-                                Click="ThemeButton_Click"/>
                         <Button Content="🎲 Jeu au hasard" Width="130" Margin="0,0,10,0"
                                 Click="RandomGameButton_Click"/>
                         <Button x:Name="RefreshButton" Content="Actualiser" Width="100" Margin="0,0,10,0"
@@ -133,6 +133,17 @@
                             <ComboBoxItem Content="Taille sur le disque" Tag="size"/>
                             <ComboBoxItem Content="Succès (%)" Tag="achievements"/>
                         </ComboBox>
+                        <!-- Zoom des tuiles (ticket #7) : largeur visée en pixels ; Ctrl + molette sur la grille fait pareil. -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Height="32" VerticalAlignment="Top"
+                                    Margin="10,0,0,0" ToolTip="Taille des tuiles (aussi : Ctrl + molette sur la grille)">
+                            <TextBlock Text="A" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                            <Slider x:Name="TileSizeSlider" Width="110" VerticalAlignment="Center"
+                                    IsSnapToTickEnabled="True" TickFrequency="10"
+                                    ValueChanged="TileSizeSlider_ValueChanged"/>
+                            <TextBlock Text="A" FontSize="17" VerticalAlignment="Center" Margin="6,0,0,0"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </StackPanel>
                         <Button x:Name="ManageCollectionsButton" DockPanel.Dock="Right" Content="Gérer…"
              Width="70" Height="32" VerticalAlignment="Top" Margin="6,0,0,0"
              Click="ManageCollectionsButton_Click"/>
@@ -169,9 +180,15 @@
                 <!-- Fiche détaillée du jeu sélectionné -->
                 <!-- Son DataContext est choisi par le code (ShowDetails) : la tuile sélectionnée,
                      ou une autre copie du jeu choisie dans la liste « Plateforme ». -->
-                <Border x:Name="DetailPanel" DockPanel.Dock="Right" Width="320" Margin="10,0,0,0" Padding="12"
+                <!-- Largeur réglable (ticket #5) : poignée juste à gauche, largeur gardée dans UiState.DetailWidth
+                     (MainWindow.SetDetailWidth). -->
+                <Border x:Name="DetailPanel" DockPanel.Dock="Right" Width="320" Padding="12"
                         BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1"
                         DataContext="{x:Null}">
+                    <Border.Resources>
+                        <!-- Largeur du titre d'une patch note (en-tête d'Expander, qui ne s'étire pas tout seul) -->
+                        <sys:Double x:Key="PatchNoteTitleWidth">235</sys:Double>
+                    </Border.Resources>
                     <Grid>
                         <TextBlock Text="Sélectionne un jeu pour voir sa fiche."
                                    Foreground="{DynamicResource SecondaryTextBrush}" TextWrapping="Wrap">
@@ -266,6 +283,21 @@
                                             </Style>
                                         </Border.Style>
                                         <TextBlock Text="Mis à jour" Foreground="White" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <!-- Jeu de la famille Steam : même badge que sur la tuile (ticket #44) -->
+                                    <Border Background="#1565C0" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFamilyShared}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="Famille Steam" Foreground="White" FontWeight="SemiBold"/>
                                     </Border>
 
                                     <Border Background="#FFC107" CornerRadius="4" Padding="6,2" Margin="0,0,6,4">
@@ -430,7 +462,7 @@
                                             <Expander IsExpanded="{Binding IsExpanded, Mode=OneTime}" Margin="0,0,0,8">
                                                 <Expander.Header>
                                                     <StackPanel>
-                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="235"
+                                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Width="{DynamicResource PatchNoteTitleWidth}"
                                                                    HorizontalAlignment="Left"/>
                                                         <TextBlock Text="{Binding DateText}" Foreground="{DynamicResource SecondaryTextBrush}" FontSize="11"/>
                                                     </StackPanel>
@@ -477,6 +509,30 @@
                     </Grid>
                 </Border>
 
+                <!-- Poignée de la fiche (ticket #5) : 10 pixels entre la grille et la fiche (l'ancienne marge), un trait
+                     d'accent au survol. Glisser = changer la largeur ; double-clic = largeur de départ. -->
+                <Thumb x:Name="DetailResizeThumb" DockPanel.Dock="Right" Width="10" Cursor="SizeWE"
+                       ToolTip="Glisse pour changer la largeur de la fiche (double-clic : largeur de départ)"
+                       DragDelta="DetailResizeThumb_DragDelta" DragCompleted="DetailResizeThumb_DragCompleted"
+                       MouseDoubleClick="DetailResizeThumb_MouseDoubleClick">
+                    <Thumb.Template>
+                        <ControlTemplate TargetType="Thumb">
+                            <Border Background="Transparent">
+                                <Rectangle x:Name="Line" Width="2" RadiusX="1" RadiusY="1" Margin="0,40"
+                                           Fill="{DynamicResource AccentFillColorDefaultBrush}" Opacity="0"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Line" Property="Opacity" Value="0.8"/>
+                                </Trigger>
+                                <Trigger Property="IsDragging" Value="True">
+                                    <Setter TargetName="Line" Property="Opacity" Value="1"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Thumb.Template>
+                </Thumb>
+
                 <!-- Grille de jaquettes, et par-dessus le message affiché quand elle est vide (UpdateEmptyLibraryMessage) -->
                 <Grid>
                 <ListBox x:Name="GamesList"
@@ -486,16 +542,46 @@
                          VirtualizingPanel.ScrollUnit="Pixel"
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          VirtualizingPanel.CacheLengthUnit="Page"
-                         VirtualizingPanel.CacheLength="0.25,0.25">
+                         VirtualizingPanel.CacheLength="0.25,0.25"
+                         SizeChanged="GamesList_SizeChanged"
+                         PreviewMouseWheel="GamesList_PreviewMouseWheel">
+                    <!-- Taille des tuiles : calculée par MainWindow.UpdateTileLayout selon la largeur de la grille
+                         et le zoom (tickets #32 et #7), pour que chaque ligne soit remplie sans grand vide gris.
+                         Valeurs de départ ici, remplacées dès le premier affichage. -->
+                    <ListBox.Resources>
+                        <sys:Double x:Key="TileWidth">160</sys:Double>
+                        <sys:Double x:Key="TileCoverHeight">240</sys:Double>
+                        <sys:Double x:Key="TileHeight">302</sys:Double>
+                        <Size x:Key="TileItemSize">170,312</Size>
+                    </ListBox.Resources>
+
+                    <!-- Un écart fixe de 10 pixels entre les tuiles (5 de chaque côté), même quand rien n'est sélectionné.
+                         Le gabarit Fluent met 12 de marge interne et une bordure de 1 (lu avec XamlWriter le 16 novembre 2026) :
+                         les deux sont remplacés, sinon la tuile ne tient plus dans sa case (MainWindow.TilePadding). -->
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                            <Setter Property="Padding" Value="5"/>
+                            <Setter Property="BorderThickness" Value="0"/>
+                            <Setter Property="Margin" Value="0"/>
+                            <Setter Property="MinWidth" Value="0"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                            <Setter Property="VerticalContentAlignment" Value="Top"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+
+                    <!-- SpacingMode « None » : le panneau ne répartit plus la place restante entre les tuiles
+                         (c'était l'espace gris) ; ItemSize fixé par le code = toutes les tuiles ont la même case. -->
                     <ListBox.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <vwp:VirtualizingWrapPanel/>
+                            <vwp:VirtualizingWrapPanel SpacingMode="None" ItemSize="{DynamicResource TileItemSize}"/>
                         </ItemsPanelTemplate>
                     </ListBox.ItemsPanel>
 
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Width="150" Margin="6">
+                            <!-- Hauteur fixe (jaquette + 3 lignes de texte) : toutes les tuiles font pile la case du panneau. -->
+                            <StackPanel Width="{DynamicResource TileWidth}" Height="{DynamicResource TileHeight}" ClipToBounds="True">
                                 <!-- Clic droit sur la tuile. Le menu reçoit le jeu de la tuile (DataContext) tout seul. -->
                                 <StackPanel.ContextMenu>
                                     <ContextMenu>
@@ -529,6 +615,7 @@
                                             </MenuItem.Style>
                                         </MenuItem>
                                         <!-- Ces deux-là : seulement pour un jeu installé -->
+                                        <MenuItem Header="🎨  Choisir une jaquette…" Click="TileMenuChooseCover_Click"/>
                                         <MenuItem Header="🖼  Re-télécharger la jaquette" Click="TileMenuRedownloadCover_Click"/>
                                         <MenuItem Header="📁  Ouvrir le dossier du jeu" Click="TileMenuOpenFolder_Click"
                                                   Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"/>
@@ -550,7 +637,7 @@
                                     </Style>
                                 </StackPanel.Style>
 
-                                <Grid Height="225" Background="#2A2A2A">
+                                <Grid Height="{DynamicResource TileCoverHeight}" Background="#2A2A2A">
                                     <!-- Le nom à la place de la jaquette, seulement pour un jeu qui n'en a pas : calculer
                                          ce texte derrière chaque image coûtait plus de la moitié du temps de chaque tuile
                                          (mesuré le 2 novembre 2026). -->
@@ -613,20 +700,45 @@
                                             </Border>
                                         </DockPanel>
                                     
-                                        <!-- Badge « Mis à jour » -->
-                                        <Border Background="#2E7D32" CornerRadius="10" Padding="6,1" HorizontalAlignment="Left" Margin="0,4,0,0">
-                                            <Border.Style>
-                                                <Style TargetType="Border">
-                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
-                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </Border.Style>
-                                            <TextBlock Text="Mis à jour" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
-                                        </Border>
+                                        <!-- 2e ligne : « Mis à jour » à gauche, amis Steam en jeu à droite (ticket #38). -->
+                                        <DockPanel Margin="0,4,0,0">
+                                            <!-- Badge « Mis à jour » -->
+                                            <Border DockPanel.Dock="Left" Background="#2E7D32" CornerRadius="10" Padding="6,1" VerticalAlignment="Center">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsRecentlyUpdated}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <TextBlock Text="Mis à jour" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                            </Border>
+
+                                            <!-- Amis en jeu : deux silhouettes + nombre, pseudos en infobulle. Silhouettes dessinées :
+                                                 l'emoji 👥 forcerait une police de secours à chaque tuile (lent au défilement). -->
+                                            <Border Background="#CC1565C0" CornerRadius="10" Padding="6,1" HorizontalAlignment="Right"
+                                                    VerticalAlignment="Center" ToolTip="{Binding FriendsInGameToolTip}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasFriendsInGame}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Path Width="13" Height="10" Margin="0,0,4,0" Stretch="Uniform" VerticalAlignment="Center" Fill="White"
+                                                          Data="M5,0 A2.5,2.5 0 1 1 5,5 A2.5,2.5 0 1 1 5,0 Z M0,10 C0,7 2.2,5.8 5,5.8 C7.8,5.8 10,7 10,10 Z
+                                                                M11,1 A2.2,2.2 0 1 1 11,5.4 A2.2,2.2 0 1 1 11,1 Z M10.6,6.1 C13,6 15,7 15,10 H11 C11,8.4 10.9,7.1 10.6,6.1 Z"/>
+                                                    <TextBlock Text="{Binding FriendsInGameText}" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DockPanel>
                                     </StackPanel>
 
                                     <!-- Progression des succès (en bas à gauche) : coupe + « 37/50 », dorée à 100 %, orange si des succès
@@ -673,6 +785,24 @@
                                                 </TextBlock.Style>
                                             </TextBlock>
                                         </StackPanel>
+                                    </Border>
+
+                                    <!-- Jeu prêté par la famille Steam (en bas à droite) : badge au lieu du mot « Famille »
+                                         sous le nom (ticket #44). -->
+                                    <Border Background="#CC1565C0" CornerRadius="10" Padding="6,1"
+                                            HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,6,6"
+                                            ToolTip="Jeu de la bibliothèque familiale Steam">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsFamilyShared}" Value="True">
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <TextBlock Text="Famille" Foreground="White" FontSize="11" FontWeight="SemiBold"/>
                                     </Border>
                                 </Grid>
 
@@ -1295,7 +1425,7 @@
                     </WrapPanel>
 
                     <TextBlock Text="Temps de jeu par semaine" Style="{StaticResource StatTitle}"/>
-                    <TextBlock Text="D'après les sessions lancées depuis Wyrmhold (hors Steam, qui compte le temps lui-même)."
+                    <TextBlock Text="D'après les sessions lancées depuis Wyrmhold, et pour Steam, le temps ajouté entre deux synchronisations (compté depuis que Wyrmhold le relève : les semaines plus anciennes n'ont pas le temps Steam)."
                                Foreground="{DynamicResource SecondaryTextBrush}" Margin="0,-4,0,8" TextWrapping="Wrap"/>
                     <ItemsControl ItemsSource="{Binding PlaytimeByWeek}" ItemTemplate="{StaticResource StatBarTemplate}"/>
                 </StackPanel>
@@ -1324,6 +1454,26 @@
                                 <Setter Property="Width" Value="140"/>
                                 <Setter Property="Height" Value="32"/>
                             </Style>
+
+                            <!-- Ticket #11 : le logo devant chaque nom (mêmes logos que les filtres de la bibliothèque). -->
+                            <local:PlatformLogoConverter x:Key="PlatformLogo"/>
+                            <Style x:Key="AccountLogo" TargetType="Path">
+                                <Setter Property="Width" Value="16"/>
+                                <Setter Property="Height" Value="16"/>
+                                <Setter Property="Stretch" Value="Uniform"/>
+                                <Setter Property="Margin" Value="0,0,10,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Fill" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+                            </Style>
+
+                            <!-- Ticket #31 : le voyant devant l'état. Couleur et signe posés par le code (MainWindow.SetLight). -->
+                            <Style x:Key="AccountLight" TargetType="Border">
+                                <Setter Property="Width" Value="18"/>
+                                <Setter Property="Height" Value="18"/>
+                                <Setter Property="CornerRadius" Value="9"/>
+                                <Setter Property="Margin" Value="0,0,8,0"/>
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                            </Style>
                         </Grid.Resources>
 
                         <Grid.ColumnDefinitions>
@@ -1348,36 +1498,85 @@
                             <RowDefinition Height="44"/>
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Steam" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="0" Grid.Column="1" x:Name="SteamStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <!-- Chaque ligne : logo + nom (colonne 0), voyant + état (colonne 1), bouton (colonne 2). -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Steam, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Steam" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="0" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="SteamStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Famille Steam" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="1" Grid.Column="1" x:Name="SteamFamilyStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Steam, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Famille Steam" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="1" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="SteamFamilyStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="1" Grid.Column="2" x:Name="SteamFamilyButton" Click="SteamFamilyButton_Click"/>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="GOG" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="2" Grid.Column="1" x:Name="GogStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Gog, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="GOG" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="2" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="GogStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="2" Grid.Column="2" x:Name="GogAccountButton" Click="GogAccountButton_Click"/>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Epic Games" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="3" Grid.Column="1" x:Name="EpicStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="3" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Epic, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Epic Games" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="3" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="EpicStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="3" Grid.Column="2" x:Name="EpicAccountButton" Click="EpicAccountButton_Click"/>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Ubisoft Connect" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="4" Grid.Column="1" x:Name="UbisoftStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="4" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Ubisoft, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Ubisoft Connect" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="4" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="UbisoftStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="4" Grid.Column="2" x:Name="UbisoftAccountButton" Click="UbisoftAccountButton_Click"/>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="EA app" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="5" Grid.Column="1" x:Name="EaStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="5" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Ea, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="EA app" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="5" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="EaStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="5" Grid.Column="2" x:Name="EaAccountButton" Click="EaAccountButton_Click"/>
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Battle.net" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="6" Grid.Column="1" x:Name="BattleNetStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="6" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=BattleNet, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Battle.net" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="6" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="BattleNetStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="6" Grid.Column="2" x:Name="BattleNetAccountButton" Click="BattleNetAccountButton_Click"/>
 
                         <!-- Facultatif : synchronise la liste de suivi de l'onglet Boutiques avec ta Waitlist -->
-                        <TextBlock Grid.Row="7" Grid.Column="0" Text="IsThereAnyDeal" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="7" Grid.Column="1" x:Name="ItadStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="7" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Itad, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="IsThereAnyDeal" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="7" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="ItadStatusText" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="7" Grid.Column="2" x:Name="ItadAccountButton" Click="ItadAccountButton_Click"/>
 
                         <!-- Émulateurs : Tag = le nom de la plateforme (énumération Platform). -->
@@ -1387,25 +1586,56 @@
                                        Text="Wyrmhold lit les dossiers de jeux de tes émulateurs et ceux que tu ajoutes ici. Tes jeux et tes sauvegardes ne sont jamais modifiés."/>
                         </StackPanel>
 
-                        <TextBlock Grid.Row="9" Grid.Column="0" Text="RetroArch" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="9" Grid.Column="1" x:Name="RetroArchStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <!-- Émulateurs : pictogramme d'une de leurs consoles (pas de logo d'émulateur). -->
+                        <StackPanel Grid.Row="9" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=GameBoyAdvance, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="RetroArch" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="9" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="RetroArchStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="9" Grid.Column="2" x:Name="RetroArchButton" Content="Configurer…" Tag="RetroArch" Click="EmulatorButton_Click"/>
 
-                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Dolphin" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="10" Grid.Column="1" x:Name="DolphinStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="10" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=GameCube, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Dolphin" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="10" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="DolphinStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="10" Grid.Column="2" x:Name="DolphinButton" Content="Configurer…" Tag="Dolphin" Click="EmulatorButton_Click"/>
 
-                        <TextBlock Grid.Row="11" Grid.Column="0" Text="Ryujinx" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="11" Grid.Column="1" x:Name="RyujinxStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="11" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Switch, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Ryujinx" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="11" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="RyujinxStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="11" Grid.Column="2" x:Name="RyujinxButton" Content="Configurer…" Tag="Ryujinx" Click="EmulatorButton_Click"/>
 
-                        <TextBlock Grid.Row="12" Grid.Column="0" Text="Azahar" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="12" Grid.Column="1" x:Name="AzaharStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="12" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=Nintendo3ds, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="Azahar" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="12" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="AzaharStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="12" Grid.Column="2" x:Name="AzaharButton" Content="Configurer…" Tag="Azahar" Click="EmulatorButton_Click"/>
 
                         <!-- Facultatif : les succès des jeux émulés (GB, GBC, GBA, DS, GameCube, Wii) -->
-                        <TextBlock Grid.Row="13" Grid.Column="0" Text="RetroAchievements" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Row="13" Grid.Column="1" x:Name="RetroAchievementsStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        <StackPanel Grid.Row="13" Orientation="Horizontal">
+                            <Path Style="{StaticResource AccountLogo}" Data="{Binding Source=RetroAchievements, Converter={StaticResource PlatformLogo}}"/>
+                            <TextBlock Text="RetroAchievements" FontWeight="SemiBold"/>
+                        </StackPanel>
+                        <DockPanel Grid.Row="13" Grid.Column="1">
+                            <Border Style="{StaticResource AccountLight}"/>
+                            <TextBlock x:Name="RetroAchievementsStatusText" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource SecondaryTextBrush}"/>
+                        </DockPanel>
                         <Button Grid.Row="13" Grid.Column="2" x:Name="RetroAchievementsButton" Click="RetroAchievementsButton_Click"/>
                     </Grid>
                 </StackPanel>
@@ -1452,11 +1682,27 @@
                         <CheckBox Content="GOG" Tag="Gog" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                         <CheckBox Content="EA app" Tag="Ea" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                         <CheckBox Content="Battle.net" Tag="BattleNet" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
-                        <CheckBox Content="RetroArch" Tag="RetroArch" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
-                        <CheckBox Content="Dolphin" Tag="Dolphin" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
-                        <CheckBox Content="Ryujinx" Tag="Ryujinx" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
-                        <CheckBox Content="Azahar" Tag="Azahar" Margin="0,0,20,6" Checked="LauncherCheck_Changed" Unchecked="LauncherCheck_Changed"/>
                     </WrapPanel>
+
+                    <!-- Jeux émulés : une case par console, mêmes noms que les filtres de la bibliothèque (demande de Val
+                         du 16 novembre 2026). Tag = le nom de la console (énumération GameConsole), enregistré dans
+                         settings.json (DisabledConsoles). La case de l'en-tête coche ou décoche tout (carré plein = en partie). -->
+                    <Expander Margin="0,4,0,0" HorizontalAlignment="Stretch">
+                        <Expander.Header>
+                            <CheckBox x:Name="ConsolesGroupCheck" Content="Consoles (jeux émulés)"
+                                      Click="ConsolesGroupCheck_Click"/>
+                        </Expander.Header>
+                        <WrapPanel x:Name="ConsoleChecks" Margin="28,6,0,0">
+                            <CheckBox Content="Game Boy" Tag="GameBoy" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Game Boy Color" Tag="GameBoyColor" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Game Boy Advance" Tag="GameBoyAdvance" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Nintendo DS" Tag="NintendoDs" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Nintendo 3DS" Tag="Nintendo3ds" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="GameCube" Tag="GameCube" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Wii" Tag="Wii" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                            <CheckBox Content="Switch" Tag="Switch" Margin="0,0,20,6" Checked="ConsoleCheck_Changed" Unchecked="ConsoleCheck_Changed"/>
+                        </WrapPanel>
+                    </Expander>
 
                     <TextBlock Text="Bibliothèque" Style="{StaticResource SettingsSection}"/>
                     <CheckBox x:Name="MergeDuplicatesCheck"
@@ -1489,14 +1735,23 @@
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
                     <CheckBox x:Name="EpicAchievementsCheck" Content="Epic Games" Tag="Epic" Margin="0,0,0,6"
                               Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
-                    <CheckBox x:Name="RetroArchAchievementsCheck" Content="RetroArch (RetroAchievements)" Tag="RetroArch" Margin="0,0,0,6"
-                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
-                    <CheckBox x:Name="DolphinAchievementsCheck" Content="Dolphin (RetroAchievements)" Tag="Dolphin" Margin="0,0,0,6"
-                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
-                    <CheckBox x:Name="RyujinxAchievementsCheck" Content="Ryujinx (succès maison, lus dans la sauvegarde)" Tag="Ryujinx" Margin="0,0,0,6"
-                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
-                    <CheckBox x:Name="AzaharAchievementsCheck" Content="Azahar (succès maison, lus dans la sauvegarde)" Tag="Azahar"
-                              Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                    <!-- Une source de succès par émulateur (Tag = Platform), affichée avec les noms de ses consoles. -->
+                    <Expander HorizontalAlignment="Stretch">
+                        <Expander.Header>
+                            <CheckBox x:Name="ConsoleAchievementsGroupCheck" Content="Consoles (jeux émulés)"
+                                      Click="ConsoleAchievementsGroupCheck_Click"/>
+                        </Expander.Header>
+                        <StackPanel x:Name="ConsoleAchievementChecks" Margin="28,6,0,0">
+                            <CheckBox x:Name="RetroArchAchievementsCheck" Content="Game Boy, Game Boy Color, Game Boy Advance, Nintendo DS (RetroAchievements)" Tag="RetroArch" Margin="0,0,0,6"
+                                      Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                            <CheckBox x:Name="DolphinAchievementsCheck" Content="GameCube, Wii (RetroAchievements)" Tag="Dolphin" Margin="0,0,0,6"
+                                      Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                            <CheckBox x:Name="RyujinxAchievementsCheck" Content="Switch (succès maison, lus dans la sauvegarde)" Tag="Ryujinx" Margin="0,0,0,6"
+                                      Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                            <CheckBox x:Name="AzaharAchievementsCheck" Content="Nintendo 3DS (succès maison, lus dans la sauvegarde)" Tag="Azahar"
+                                      Checked="AchievementSourceCheck_Changed" Unchecked="AchievementSourceCheck_Changed"/>
+                        </StackPanel>
+                    </Expander>
 
                     <!-- L'état de la case vient du registre de Windows (voir WindowsStartup et LoadStartWithWindows). -->
                     <TextBlock Text="Démarrage" Style="{StaticResource SettingsSection}"/>
@@ -1565,6 +1820,9 @@
                         <!-- Visible seulement en version Debug (voir Window_Loaded) : sert à tester le rapport de plantage. -->
                         <Button x:Name="TestCrashButton" Content="Tester un plantage" Height="32" Padding="12,0" Margin="0,0,12,0"
                                 Visibility="Collapsed" Click="TestCrashButton_Click"/>
+                        <!-- Debug aussi : la fenêtre de mise à jour, avec un faux téléchargement (ticket #10). -->
+                        <Button x:Name="PreviewUpdateButton" Content="Aperçu de la mise à jour" Height="32" Padding="12,0" Margin="0,0,12,0"
+                                Visibility="Collapsed" Click="PreviewUpdateButton_Click"/>
                         <Image Source="/Assets/logo-256.png" Width="24" Height="24" Margin="0,0,6,0" VerticalAlignment="Center"/>
                         <TextBlock x:Name="VersionText" VerticalAlignment="Center"
                                    Foreground="{DynamicResource SecondaryTextBrush}"/>
@@ -1574,4 +1832,11 @@
             </ScrollViewer>
         </TabItem>
     </TabControl>
+
+        <!-- Ticket #16 : clair / sombre en haut à droite, sur la ligne des onglets, visible depuis tous les onglets.
+             Posé par-dessus le TabControl (même case de la grille), aligné à droite. -->
+        <Button x:Name="ThemeButton" Width="40" Height="32" Margin="0,10,20,0"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Click="ThemeButton_Click"/>
+    </Grid>
 </Window>

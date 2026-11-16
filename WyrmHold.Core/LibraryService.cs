@@ -244,10 +244,10 @@ public class LibraryService
 
     public List<Game> LoadGames()
     {
-        // Les jeux d'un lanceur désactivé restent en base (temps de jeu, succès, collections),
+        // Les jeux d'un lanceur ou d'une console désactivés restent en base (temps de jeu, succès, collections),
         // mais ne sont montrés nulle part : bibliothèque, statistiques, « Pour toi », détecteur de jeu.
         List<Game> games = _database.LoadGames()
-            .Where(game => IsLauncherEnabled(game.Platform))
+            .Where(Settings.IsGameShown)
             .ToList();
         AttachCollections(games);
         _covers.AttachCovers(games);
@@ -304,6 +304,14 @@ public class LibraryService
         await DownloadCoversAsync(new List<Game> { game });
         return game.CoverPath is not null;
     }
+
+    // ----- Choix de la jaquette à la main (ticket #41) -----
+
+    public bool CanChooseCover => _steamGridDb.IsConfigured;
+
+    public Task<List<CoverChoice>> GetCoverChoicesAsync(Game game) => _steamGridDb.GetVerticalCoversAsync(game);
+
+    public Task SetCoverAsync(Game game, CoverChoice choice) => _covers.SaveCoverAsync(game, choice.Url);
 
     public async Task UpdateMetadataAsync(List<Game> games)
     {
@@ -370,6 +378,8 @@ public class LibraryService
                 game.IsFamilyShared = true;
             }
 
+            RecordSteamPlaytime(ownedGames.Concat(recentGames.Where(g => familyIds.Contains(g.AppId.ToString()))));
+
             HashSet<string> kept = new HashSet<string>(ownedIds);
             kept.UnionWith(familyIds);
             kept.UnionWith(await FindFreeInstalledGamesAsync(steamGames, kept));
@@ -379,6 +389,29 @@ public class LibraryService
         {
             Logger.Log($"API Steam indisponible : {ex.Message}");
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Relevé du temps de jeu Steam (ticket #6) : la hausse de chaque jeu depuis la synchro précédente est gardée,
+    /// pour le graphique « Temps de jeu par semaine ». Un échec ne bloque pas la synchro (noté dans le journal).
+    /// </summary>
+    private void RecordSteamPlaytime(IEnumerable<SteamOwnedGame> games)
+    {
+        try
+        {
+            long added = _database.RecordSteamPlaytime(
+                games.Select(g => (g.AppId.ToString(), g.PlaytimeMinutes, g.LastPlayedUnix)),
+                DateTimeOffset.Now.ToUnixTimeSeconds());
+
+            if (added > 0)
+            {
+                Logger.Log($"Temps de jeu Steam : {LibraryStatistics.FormatDuration(added)} de plus depuis la synchro précédente.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Relevé du temps de jeu Steam impossible : {ex.Message}");
         }
     }
 
@@ -453,10 +486,26 @@ public class LibraryService
     {
         List<SharedLibraryApp> apps = await _steamApi.GetFamilyLibraryAsync(accessToken);
 
+        // Un jeu que tu possèdes AUSSI n'est pas un jeu de la famille. La liste de Steam est demandée sans tes jeux
+        // (include_own=false), et ton identifiant ne figure alors pas toujours parmi ses propriétaires : Dead by Daylight
+        // et Rocket League, achetés par Val et par un membre, étaient marqués « Famille » (16 novembre 2026).
+        // On écarte donc aussi tout jeu de ta liste GetOwnedGames.
+        HashSet<string> ownedIds = new HashSet<string>();
+
+        try
+        {
+            ownedIds = (await _steamApi.GetOwnedGamesAsync()).Select(g => g.AppId.ToString()).ToHashSet();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Famille Steam : tes jeux Steam n'ont pas pu être lus pour les écarter ({ex.Message}).");
+        }
+
         List<Game> familyGames = apps
             .Where(a => a.ExcludeReason == 0
                         && a.AppType == 1
-                        && !a.OwnerSteamIds.Contains(_secrets.SteamId))
+                        && !a.OwnerSteamIds.Contains(_secrets.SteamId)
+                        && !ownedIds.Contains(a.AppId.ToString()))
             .Select(a => new Game
             {
                 Platform = Platform.Steam,
@@ -1783,6 +1832,69 @@ public class LibraryService
         ApplyKnownPlayerCounts(games);
     }
 
+    // ----- Amis Steam en jeu (ticket #38) -----
+
+    // Les derniers amis vus en jeu, par appid. Pas gardé en base : relu toutes les 2 minutes.
+    private Dictionary<string, List<string>> _friendsInGame = new Dictionary<string, List<string>>();
+
+    // true après un échec : le suivant n'est pas noté de nouveau (une ligne de journal toutes les 2 min sinon).
+    private bool _friendsInGameFailing;
+
+    /// <summary>
+    /// Remet tout de suite les derniers amis connus sur ces jeux (après un rechargement, les jeux sont de nouveaux objets).
+    /// Une copie Epic ou GOG d'un jeu Steam reprend l'appid de ce jeu, comme pour les joueurs en jeu.
+    /// </summary>
+    public void ApplyKnownFriendsInGame(IReadOnlyList<Game> games)
+    {
+        Dictionary<string, string> appIdByName = AppIdsByName(games);
+
+        foreach (Game game in games)
+        {
+            game.FriendsInGame = AppIdFor(game, appIdByName) is string appId && _friendsInGame.TryGetValue(appId, out List<string>? names)
+                ? names
+                : Array.Empty<string>();
+        }
+    }
+
+    /// <summary>
+    /// Relit chez Steam les amis en train de jouer, puis met à jour les badges « 👥 ».
+    /// Steam désactivé ou sans clé : plus aucun badge. Steam qui ne répond pas : les anciens badges restent.
+    /// À appeler depuis le fil de l'interface.
+    /// </summary>
+    public async Task RefreshFriendsInGameAsync(IReadOnlyList<Game> games)
+    {
+        if (!IsLauncherEnabled(Platform.Steam) || !_steamApi.IsConfigured)
+        {
+            _friendsInGame = new Dictionary<string, List<string>>();
+            ApplyKnownFriendsInGame(games);
+            return;
+        }
+
+        try
+        {
+            _friendsInGame = await _steamApi.GetFriendsInGameAsync();
+
+            if (_friendsInGameFailing)
+            {
+                Logger.Log("Amis en jeu : Steam répond de nouveau.");
+                _friendsInGameFailing = false;
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or TaskCanceledException)
+        {
+            // Jamais l'adresse dans le journal : elle contient la clé.
+            if (!_friendsInGameFailing)
+            {
+                Logger.Log($"Amis en jeu illisibles chez Steam (les anciens badges restent) : {ex.Message}");
+                _friendsInGameFailing = true;
+            }
+
+            return;
+        }
+
+        ApplyKnownFriendsInGame(games);
+    }
+
     /// <summary>
     /// Nom « normalisé » → appid Steam, pour que les copies d'un même jeu sans appid profitent de celui
     /// d'une autre copie : d'abord la copie Steam, sinon un appid trouvé par recherche.
@@ -1991,10 +2103,17 @@ public class LibraryService
             }
         }
 
-        // 3. On applique les résultats aux jeux, puis on enregistre tout d'un coup.
+        // 3. Steam : la Web API voit un succès plusieurs minutes après son déblocage, le fichier local de Steam
+        //    tout de suite. Sans ça, la synchro de fin de partie (lancée 2 s après la fermeture du jeu) remettait
+        //    un jeu fini à 100 % à 20/22 et retirait les 2 derniers succès du calendrier (Keep on Mining!, 16 novembre 2026).
+        List<(Game Game, AchievementProgress Progress)> merged = results
+            .Select(r => r.Game.Platform == Platform.Steam ? (r.Game, AddLocalSteamUnlocks(r.Game, r.Progress)) : r)
+            .ToList();
+
+        // 4. On applique les résultats aux jeux, puis on enregistre tout d'un coup.
         List<AddedAchievements> added = new List<AddedAchievements>();
 
-        foreach ((Game game, AchievementProgress result) in results)
+        foreach ((Game game, AchievementProgress result) in merged)
         {
             int addedCount = game.ApplyAchievementProgress(result, now);
 
@@ -2005,7 +2124,7 @@ public class LibraryService
             }
         }
 
-        List<Game> refreshedGames = results.Select(r => r.Game).ToList();
+        List<Game> refreshedGames = merged.Select(r => r.Game).ToList();
 
         if (refreshedGames.Count > 0)
         {
@@ -2013,7 +2132,7 @@ public class LibraryService
         }
 
         // Les dates de déblocage, quand la source les a données dans la même lecture.
-        List<(Game, IReadOnlyList<UnlockDate>)> histories = results
+        List<(Game, IReadOnlyList<UnlockDate>)> histories = merged
             .Where(r => r.Progress.Unlocks is not null && HasDatedAchievements(r.Game))
             .Select(r => (r.Game, r.Progress.Unlocks!))
             .ToList();
@@ -2203,6 +2322,54 @@ public class LibraryService
         }
     }
 
+    /// <summary>
+    /// Même idée pour la lecture légère (synchro) : ajoute à la progression les succès que le fichier local
+    /// de Steam connaît déjà et que la Web API ne voit pas encore, avec leur date. Le total reste celui de Steam.
+    /// En cas de souci avec le fichier : progression inchangée.
+    /// </summary>
+    private AchievementProgress AddLocalSteamUnlocks(Game game, AchievementProgress progress)
+    {
+        if (progress.Unlocks is null || progress.Total == 0)
+        {
+            return progress;
+        }
+
+        try
+        {
+            List<LocalAchievement>? local = SteamLocalStats?.Read(SteamId, game.PlatformGameId);
+
+            if (local is null)
+            {
+                return progress;
+            }
+
+            HashSet<string> known = progress.Unlocks.Select(u => u.Id).ToHashSet();
+
+            // Nom laissé à null : celui déjà en base (en français) est gardé.
+            List<UnlockDate> missing = local
+                .Where(a => a.IsUnlocked && !known.Contains(a.Id))
+                .Select(a => new UnlockDate(a.Id, a.UnlockedUnix))
+                .ToList();
+
+            if (missing.Count == 0)
+            {
+                return progress;
+            }
+
+            Logger.Log($"Succès : {game.Name} : {missing.Count} succès vu(s) sur le disque de Steam, pas encore par la Web API.");
+
+            return new AchievementProgress(Math.Min(progress.Unlocked + missing.Count, progress.Total), progress.Total)
+            {
+                Unlocks = progress.Unlocks.Concat(missing).ToList()
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Succès locaux de Steam illisibles pour {game.Name} : {ex.Message}");
+            return progress;
+        }
+    }
+
     // Les succès Steam lus sur le disque (null si Steam n'est pas installé) : voir LiveAchievementTracker.
     internal SteamLocalAchievements? SteamLocalStats { get; } = SteamLocalAchievements.FromRegistry();
 
@@ -2333,9 +2500,13 @@ public class LibraryService
     public LibraryStatistics ComputeStatistics(List<Game> games)
     {
         long sinceUnix = DateTimeOffset.Now.AddDays(-7 * (LibraryStatistics.WeekCount + 1)).ToUnixTimeSeconds();
+        // Sessions lancées depuis Wyrmhold (hors Steam) + hausses du temps Steam relevées à chaque synchro.
+        List<(long StartedUnix, long EndedUnix)> sessions = _database.LoadPlaySessions(sinceUnix);
+        sessions.AddRange(_database.LoadSteamPlaytimeIncreases(sinceUnix));
+
         return LibraryStatistics.Compute(
             games,
-            _database.LoadPlaySessions(sinceUnix),
+            sessions,
             Settings.MergeDuplicates,
             _database.LoadAchievementUnlocks(),
             HasDatedAchievements);

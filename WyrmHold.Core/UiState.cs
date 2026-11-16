@@ -25,6 +25,17 @@ public class UiState
     // Le jeu sélectionné, sous la forme « Steam_1245620 » (voir GameWatcher.KeyOf).
     public string? SelectedGameKey { get; set; }
 
+    // Zoom de la grille (tickets #7 et #32) : la largeur visée d'une tuile, en pixels. Les tuiles réelles
+    // sont un peu plus larges ou plus étroites, pour que chaque ligne soit remplie.
+    public const int MinTileSize = 110;
+    public const int MaxTileSize = 240;
+    public const int DefaultTileSize = 170;
+
+    public int TileSize { get; set; } = DefaultTileSize;
+
+    // Largeur de la fiche du jeu, à droite (ticket #5). null = largeur de départ (320).
+    public double? DetailWidth { get; set; }
+
     // ----- Boutiques -----
 
     // La liste de gauche : « results », « watchlist », « promos », « foryou » ou « free ».

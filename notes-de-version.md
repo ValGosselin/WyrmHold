@@ -4,6 +4,28 @@ Ce fichier est rangé dans l'appli et lu par `publier.ps1`. Une partie par versi
 Le titre de chaque partie est le numéro seul (`## 1.1.0`), celui de `Directory.Build.props`.
 Dessous : des titres `###` et des lignes `- `, rien d'autre, en phrases courtes pour quelqu'un qui ne connaît pas le code.
 
+## 1.2.0
+
+### Nouveautés
+- Bibliothèque : zoom des tuiles avec Ctrl + molette ou le curseur à côté du tri. Les tuiles remplissent maintenant toute la ligne.
+- Logos des plateformes et des consoles dans les filtres de la bibliothèque. Une fois une plateforme choisie, les autres s'estompent.
+- La fiche d'un jeu s'élargit en tirant son bord gauche. Un double-clic sur ce bord la remet à sa taille d'origine.
+- Clic droit sur un jeu → « Choisir une jaquette… » : choisis parmi les jaquettes de SteamGridDB (clé SteamGridDB nécessaire).
+- Badge bleu sur un jeu quand des amis Steam y jouent, avec leurs pseudos au survol.
+- Badge « Famille » sur la jaquette des jeux de la famille Steam.
+- Statistiques : nouvelle zone Succès, avec ta progression, le calendrier de tes succès, leur rareté et tes jeux récents. Elle était déjà arrivée avec la 1.1.2.
+- Statistiques : le temps de jeu Steam compte maintenant dans « Temps de jeu par semaine », à partir de cette version.
+- Réglages : les jeux émulés sont rangés dans une partie « Consoles » qui se déplie, avec une case par console, dans Lanceurs comme dans Succès.
+- Comptes : un logo et un voyant sur chaque ligne (vert = OK, orange = à refaire, gris = désactivé ou pas connecté).
+- Le bouton clair / sombre est en haut à droite, visible depuis tous les onglets.
+- Nouvelle animation pendant la recherche de mise à jour.
+
+### Corrections
+- Succès Steam : la progression ne recule plus après une partie (par exemple 20/22 affiché alors que le jeu était à 22/22).
+- Les jeux Steam que tu possèdes ne sont plus marqués « Famille » quand un membre de la famille les possède aussi. La correction se fait à la prochaine actualisation.
+- Plus d'espaces gris entre les tuiles de la bibliothèque.
+- La liste « Plateforme » de la fiche est plus courte : console, plateforme, installé ou non.
+
 ## 1.1.2
 
 ### Nouveautés

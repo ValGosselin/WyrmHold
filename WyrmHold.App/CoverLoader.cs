@@ -8,8 +8,29 @@ namespace WyrmHold.App;
 
 public static class CoverLoader
 {
-    // Une image décodée pèse environ 0,2 Mo : 600 images, environ 130 Mo.
-    private const int MaxCachedImages = 600;
+    // Largeur de décodage des jaquettes, en pixels réels. Grandit avec le zoom de la grille (MainWindow.UpdateTileLayout).
+    public static int DecodeWidth { get; private set; } = 200;
+
+    // Une image décodée à 200 pixels pèse environ 0,2 Mo : 600 images, environ 130 Mo. Plus grandes, on en garde
+    // moins, pour rester autour de la même mémoire (300 pixels : environ 265 images, toujours bien plus qu'un écran).
+    private static int MaxCachedImages => (int)(600 * Math.Pow(200.0 / DecodeWidth, 2));
+
+    /// <summary>
+    /// Décode les prochaines jaquettes à cette largeur. Renvoie true si elle a grandi : le cache est alors vidé
+    /// (ses images seraient floues), et l'appelant doit faire relire les tuiles affichées.
+    /// </summary>
+    public static bool SetDecodeWidth(int width)
+    {
+        if (width <= DecodeWidth)
+        {
+            return false;
+        }
+
+        DecodeWidth = width;
+        Cache.Clear();
+        CacheOrder.Clear();
+        return true;
+    }
 
     private static readonly Dictionary<string, BitmapImage> Cache = new Dictionary<string, BitmapImage>();
 
@@ -91,10 +112,13 @@ public static class CoverLoader
                 return;
             }
 
+            // Lue ici, sur le fil de l'interface (elle peut changer pendant un zoom).
+            int decodeWidth = DecodeWidth;
+
             // Une autre tuile a pu décoder la même image pendant l'attente.
             loadedImage = Cache.TryGetValue(path, out cachedImage)
                 ? cachedImage
-                : await Task.Run(() => LoadImage(path));
+                : await Task.Run(() => LoadImage(path, decodeWidth));
         }
         finally
         {
@@ -130,7 +154,7 @@ public static class CoverLoader
         Cache[path] = bitmap;
     }
 
-    private static BitmapImage? LoadImage(string path)
+    private static BitmapImage? LoadImage(string path, int decodeWidth)
     {
         try
         {
@@ -142,8 +166,13 @@ public static class CoverLoader
             BitmapImage bitmap = new BitmapImage();
             bitmap.BeginInit();
             bitmap.UriSource = new Uri(path);
-            bitmap.DecodePixelWidth = 200;
+            bitmap.DecodePixelWidth = decodeWidth;
             bitmap.CacheOption = BitmapCacheOption.OnLoad;
+
+            // WPF garde aussi ses propres copies, rangées par chemin : après « Choisir une jaquette » ou
+            // « Re-télécharger », le fichier a le même nom mais une autre image, et WPF rendrait l'ancienne.
+            // Notre cache (Cache, plus haut) suffit.
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
             bitmap.EndInit();
             bitmap.Freeze();
             return bitmap;

@@ -272,6 +272,153 @@ if (args.Length > 1 && args[0] == "16")
     return;
 }
 
+// 31 = réponse BRUTE de SteamGridDB grids/steam/<appid> pour des appid Steam : nombre de jaquettes, champs de la première,
+// avec et sans le filtre de dimensions verticales (la clé n'est pas affichée). « dotnet run -- 31 1203220 ».
+if (args.Length > 1 && args[0] == "31")
+{
+    using HttpClient http = new HttpClient();
+    http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Secrets.Current.SteamGridDbApiKey);
+
+    foreach (string appId in args.Skip(1))
+    {
+        foreach (string query in new[] { "types=static", "types=static&dimensions=600x900,342x482,660x930&nsfw=false" })
+        {
+            using HttpResponseMessage response = await http.GetAsync($"https://www.steamgriddb.com/api/v2/grids/steam/{Uri.EscapeDataString(appId)}?{query}");
+            string body = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"{appId} ({query}) → {(int)response.StatusCode}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"   {body.Substring(0, Math.Min(300, body.Length))}");
+                continue;
+            }
+
+            using JsonDocument document = JsonDocument.Parse(body);
+            JsonElement data = document.RootElement.GetProperty("data");
+            Console.WriteLine($"   {data.GetArrayLength()} jaquette(s) ; dimensions : "
+                + string.Join(", ", data.EnumerateArray().Select(g => $"{g.GetProperty("width")}x{g.GetProperty("height")}").Distinct().Take(8)));
+
+            if (data.GetArrayLength() > 0)
+            {
+                string first = data[0].GetRawText();
+                Console.WriteLine($"   1re : {first.Substring(0, Math.Min(900, first.Length))}");
+            }
+        }
+
+        // Ce que montrera la fenêtre « Choisir une jaquette… ».
+        List<CoverChoice> choices = await new SteamGridDbApi(Secrets.Current)
+            .GetVerticalCoversAsync(new Game { Platform = Platform.Steam, PlatformGameId = appId, Name = "?" });
+        Console.WriteLine($"   GetVerticalCoversAsync : {choices.Count} jaquette(s), 1re miniature : {choices.FirstOrDefault()?.ThumbUrl}, par {choices.FirstOrDefault()?.Author}");
+    }
+
+    return;
+}
+
+// 32 = amis Steam en jeu (ticket #38) : réponses BRUTES de ISteamUser/GetFriendList puis GetPlayerSummaries
+// (code HTTP, champs reçus, amis en jeu avec gameid ; la clé n'est pas affichée). « dotnet run -- 32 ».
+if (args.Length > 0 && args[0] == "32")
+{
+    using HttpClient http = new HttpClient();
+    string key = Secrets.Current.SteamApiKey ?? "";
+    string steamId = Secrets.Current.SteamId ?? "";
+
+    using HttpResponseMessage friendsResponse = await http.GetAsync(
+        $"https://api.steampowered.com/ISteamUser/GetFriendList/v1/?key={key}&steamid={steamId}&relationship=friend");
+    string friendsBody = await friendsResponse.Content.ReadAsStringAsync();
+    Console.WriteLine($"GetFriendList → {(int)friendsResponse.StatusCode}");
+
+    if (!friendsResponse.IsSuccessStatusCode)
+    {
+        Console.WriteLine($"   {friendsBody.Substring(0, Math.Min(300, friendsBody.Length))}");
+        return;
+    }
+
+    using JsonDocument friendsDocument = JsonDocument.Parse(friendsBody);
+    List<string> friendIds = friendsDocument.RootElement.GetProperty("friendslist").GetProperty("friends")
+        .EnumerateArray().Select(f => f.GetProperty("steamid").GetString()!).ToList();
+    Console.WriteLine($"   {friendIds.Count} ami(s) ; champs du 1er : "
+        + string.Join(", ", friendsDocument.RootElement.GetProperty("friendslist").GetProperty("friends")[0].EnumerateObject().Select(p => p.Name)));
+
+    // GetPlayerSummaries accepte au plus 100 SteamID par appel (à vérifier ici : on envoie par paquets de 100).
+    int inGame = 0;
+    HashSet<string> fields = new HashSet<string>();
+
+    foreach (string[] chunk in friendIds.Chunk(100))
+    {
+        using HttpResponseMessage summariesResponse = await http.GetAsync(
+            $"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={key}&steamids={string.Join(",", chunk)}");
+        string summariesBody = await summariesResponse.Content.ReadAsStringAsync();
+        Console.WriteLine($"GetPlayerSummaries ({chunk.Length} SteamID) → {(int)summariesResponse.StatusCode}");
+
+        if (!summariesResponse.IsSuccessStatusCode)
+        {
+            Console.WriteLine($"   {summariesBody.Substring(0, Math.Min(300, summariesBody.Length))}");
+            continue;
+        }
+
+        using JsonDocument summariesDocument = JsonDocument.Parse(summariesBody);
+        JsonElement players = summariesDocument.RootElement.GetProperty("response").GetProperty("players");
+        Console.WriteLine($"   {players.GetArrayLength()} profil(s) reçu(s)");
+
+        foreach (JsonElement player in players.EnumerateArray())
+        {
+            foreach (JsonProperty property in player.EnumerateObject())
+            {
+                fields.Add(property.Name);
+            }
+
+            if (player.TryGetProperty("gameid", out JsonElement gameId))
+            {
+                inGame++;
+                string game = player.TryGetProperty("gameextrainfo", out JsonElement extra) ? extra.GetString() ?? "" : "";
+                Console.WriteLine($"   en jeu : {player.GetProperty("personaname").GetString()} → gameid {gameId} ({gameId.ValueKind}) « {game} », "
+                    + $"visibilité {player.GetProperty("communityvisibilitystate")}, état {player.GetProperty("personastate")}");
+            }
+        }
+    }
+
+    Console.WriteLine($"{inGame} ami(s) en jeu. Champs vus : {string.Join(", ", fields.Order())}");
+
+    // Ce que reçoivent les badges des tuiles (appid → nombre d'amis).
+    Dictionary<string, List<string>> byAppId = await new SteamWebApi(Secrets.Current).GetFriendsInGameAsync();
+    Console.WriteLine("GetFriendsInGameAsync : " + string.Join(" ; ", byAppId.Select(pair => $"{pair.Key} → {pair.Value.Count} ami(s)")));
+    return;
+}
+
+// 33 = relevés du temps de jeu Steam (ticket #6) sur une base TEMPORAIRE (la vraie base n'est pas touchée) :
+// trois fausses synchros, puis ce que compterait le graphique par semaine.
+if (args.Length > 0 && args[0] == "33")
+{
+    string path = Path.Combine(Path.GetTempPath(), $"wyrmhold-essai-{Guid.NewGuid():N}.db");
+    GameDatabase database = new GameDatabase(path);
+    database.Initialize();
+
+    long day = 86400;
+    long t0 = DateTimeOffset.Now.AddDays(-3).ToUnixTimeSeconds();
+
+    // Synchro 1 : premier relevé, rien ne doit être compté.
+    Console.WriteLine($"Synchro 1 (premier relevé) : {database.RecordSteamPlaytime(new[] { ("10", 600, t0 - day), ("20", 30, t0 - day) }, t0)} min ajoutée(s), attendu 0");
+
+    // Synchro 2, un jour plus tard : jeu 10 joué 90 min (dernière partie à t0 + 0,5 j), jeu 20 pas joué,
+    // jeu 30 acheté et joué 45 min depuis la synchro 1, jeu 40 acheté mais jamais joué.
+    long t1 = t0 + day;
+    Console.WriteLine($"Synchro 2 : {database.RecordSteamPlaytime(new[] { ("10", 690, t0 + day / 2), ("20", 30, t0 - day), ("30", 45, t0 + day / 3), ("40", 0, 0L) }, t1)} min ajoutée(s), attendu 135");
+
+    // Synchro 3 : Steam répond un chiffre plus petit pour le jeu 10 (ne doit rien compter), puis remonte à 700.
+    long t2 = t1 + day;
+    Console.WriteLine($"Synchro 3 : {database.RecordSteamPlaytime(new[] { ("10", 680, t0 + day / 2) }, t2)} min ajoutée(s), attendu 0");
+    Console.WriteLine($"Synchro 4 : {database.RecordSteamPlaytime(new[] { ("10", 700, 0L), ("10", 700, 0L) }, t2 + 60)} min ajoutée(s), attendu 10 (doublon ignoré)");
+
+    foreach ((long started, long ended) in database.LoadSteamPlaytimeIncreases(0))
+    {
+        Console.WriteLine($"   hausse : {DateTimeOffset.FromUnixTimeSeconds(started).LocalDateTime:dd/MM HH:mm}, {(ended - started) / 60} min");
+    }
+
+    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+    File.Delete(path);
+    return;
+}
+
 // 15 = réponse BRUTE d'IsThereAnyDeal games/lookup/v1 pour des appid Steam (la clé n'est pas affichée).
 if (args.Length > 1 && args[0] == "15")
 {

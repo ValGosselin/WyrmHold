@@ -91,6 +91,87 @@ public class SteamWebApi
             ?? new List<SharedLibraryApp>();
     }
 
+    // ----- Amis en jeu (ticket #38) -----
+
+    // GetPlayerSummaries accepte au plus 100 SteamID par appel (documentation de Valve).
+    private const int MaxSteamIdsPerSummary = 100;
+
+    /// <summary>
+    /// Les amis Steam en train de jouer, rangés par appid du jeu : appid → leurs pseudos.
+    /// Vérifié le 16 novembre 2026 (console mode 32) : GetFriendList donne steamid, relationship et friend_since ;
+    /// GetPlayerSummaries donne personaname et, pour un ami en jeu, gameid (l'appid, en texte) et gameextrainfo
+    /// (le nom du jeu). Un ami au profil privé n'a pas de gameid : il n'apparaît pas.
+    /// </summary>
+    public async Task<Dictionary<string, List<string>>> GetFriendsInGameAsync(CancellationToken cancellationToken = default)
+    {
+        Dictionary<string, List<string>> friendsByAppId = new Dictionary<string, List<string>>();
+
+        if (!IsConfigured)
+        {
+            return friendsByAppId;
+        }
+
+        // 1. La liste des amis : seulement leurs SteamID.
+        string friendsJson = await Http.GetStringAsync(
+            "https://api.steampowered.com/ISteamUser/GetFriendList/v1/"
+            + $"?key={_secrets.SteamApiKey}&steamid={_secrets.SteamId}&relationship=friend", cancellationToken);
+
+        List<string> friendIds = new List<string>();
+        using (JsonDocument friends = JsonDocument.Parse(friendsJson))
+        {
+            // Sans ami, Steam peut renvoyer une liste vide ou rien du tout : TryGetProperty évite de planter.
+            if (friends.RootElement.TryGetProperty("friendslist", out JsonElement list)
+                && list.TryGetProperty("friends", out JsonElement array))
+            {
+                foreach (JsonElement friend in array.EnumerateArray())
+                {
+                    if (friend.TryGetProperty("steamid", out JsonElement id) && id.GetString() is string steamId)
+                    {
+                        friendIds.Add(steamId);
+                    }
+                }
+            }
+        }
+
+        // 2. Le profil de chaque ami, 100 par appel : on garde ceux qui ont un gameid.
+        foreach (string[] chunk in friendIds.Chunk(MaxSteamIdsPerSummary))
+        {
+            string summariesJson = await Http.GetStringAsync(
+                "https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/"
+                + $"?key={_secrets.SteamApiKey}&steamids={string.Join(",", chunk)}", cancellationToken);
+
+            using JsonDocument summaries = JsonDocument.Parse(summariesJson);
+
+            if (!summaries.RootElement.TryGetProperty("response", out JsonElement response)
+                || !response.TryGetProperty("players", out JsonElement players))
+            {
+                continue;
+            }
+
+            foreach (JsonElement player in players.EnumerateArray())
+            {
+                if (player.TryGetProperty("gameid", out JsonElement gameId) && gameId.GetString() is string appId
+                    && player.TryGetProperty("personaname", out JsonElement name) && name.GetString() is string friendName)
+                {
+                    if (!friendsByAppId.TryGetValue(appId, out List<string>? names))
+                    {
+                        names = new List<string>();
+                        friendsByAppId[appId] = names;
+                    }
+
+                    names.Add(friendName);
+                }
+            }
+        }
+
+        foreach (List<string> names in friendsByAppId.Values)
+        {
+            names.Sort(StringComparer.CurrentCultureIgnoreCase);
+        }
+
+        return friendsByAppId;
+    }
+
     // ----- Succès -----
 
     private const string Language = "french";

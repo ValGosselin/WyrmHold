@@ -41,15 +41,25 @@ public partial class UpdateWindow : Window
         return CheckAndInstallAsync();
     }
 
-    public UpdateWindow()
+    // Aperçu (bouton Debug de Réglages) : 3 s de « recherche », puis un faux téléchargement, sans rien installer.
+    private readonly bool _preview;
+
+    public UpdateWindow(bool preview = false)
     {
         InitializeComponent();
+        _preview = preview;
         VersionText.Text = $"Version {AppInfo.Version}";
         Closed += (sender, e) => _isClosed = true;
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
+        if (_preview)
+        {
+            await PreviewAsync();
+            return;
+        }
+
         await CheckAndInstallAsync();
 
         if (!_isInstalling && !_isClosed)
@@ -94,8 +104,8 @@ public partial class UpdateWindow : Window
             // 2. Le téléchargement, avec son pourcentage.
             string version = available.TargetFullRelease.Version.ToString();
             StatusText.Text = $"Téléchargement de la version {version}…";
-            Progress.IsIndeterminate = false;
             Progress.Value = 0;
+            Progress.Visibility = Visibility.Visible;
             ShowNotes(version, available.TargetFullRelease.NotesMarkdown);
 
             await updates.DownloadUpdatesAsync(available, percent =>
@@ -111,7 +121,7 @@ public partial class UpdateWindow : Window
             // 3. L'installation : Velopack ferme Wyrmhold, remplace les fichiers et le relance.
             _isInstalling = true;
             SkipButton.IsEnabled = false;
-            Progress.IsIndeterminate = true;
+            Progress.Value = 100;   // téléchargement fini ; l'œil continue de « respirer » pendant l'installation
             StatusText.Text = $"Installation de la version {version}… Wyrmhold va redémarrer.";
             Logger.Log($"Mise à jour {version} téléchargée au démarrage : installation et redémarrage.");
 
@@ -127,6 +137,37 @@ public partial class UpdateWindow : Window
             // Pas de réseau, GitHub indisponible, installation refusée… : Wyrmhold s'ouvre quand même.
             _isInstalling = false;
             Logger.Log($"Mise à jour au démarrage impossible : {ex.Message}");
+        }
+    }
+
+    private async Task PreviewAsync()
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), _skip.Token);
+
+            StatusText.Text = "Téléchargement de la version 9.9.9 (aperçu)…";
+            Progress.Value = 0;
+            Progress.Visibility = Visibility.Visible;
+
+            for (int percent = 0; percent <= 100; percent += 2)
+            {
+                Progress.Value = percent;
+                StatusText.Text = $"Téléchargement de la version 9.9.9 (aperçu)… {percent} %";
+                await Task.Delay(60, _skip.Token);
+            }
+
+            StatusText.Text = "Installation de la version 9.9.9 (aperçu) : rien n'est installé.";
+            await Task.Delay(TimeSpan.FromSeconds(3), _skip.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;   // « Passer » ou la croix : la fenêtre est déjà fermée
+        }
+
+        if (!_isClosed)
+        {
+            Close();
         }
     }
 

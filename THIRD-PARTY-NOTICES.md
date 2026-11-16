@@ -63,3 +63,7 @@ Les textes des succès maison sont écrits pour Wyrmhold.
 
 Wyrmhold n'est pas affilié à Valve, Epic Games, GOG, Electronic Arts, Ubisoft ni Blizzard Entertainment.
 Les noms des plateformes et des jeux appartiennent à leurs propriétaires.
+
+Les logos de Steam, Epic Games, GOG.com, Ubisoft, EA et Battle.net (filtres de la bibliothèque) sont les tracés de
+Simple Icons 16.38.0 (https://simpleicons.org), publiés sous licence CC0 1.0 ; vérifié le 16 novembre 2026. Ces logos
+sont des marques de leurs propriétaires : Wyrmhold ne s'en sert que pour désigner la plateforme d'un jeu.

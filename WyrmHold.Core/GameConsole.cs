@@ -42,4 +42,17 @@ public static class GameConsoles
         GameConsole.Nintendo3ds => "3DS",
         _ => Name(console)
     };
+
+    /// <summary>
+    /// Les consoles que lit chaque émulateur (Réglages → Lanceurs → Consoles). Liste vide = pas un émulateur.
+    /// À compléter quand un émulateur apprend une nouvelle console.
+    /// </summary>
+    public static IReadOnlyList<GameConsole> ForEmulator(Platform platform) => platform switch
+    {
+        Platform.RetroArch => new[] { GameConsole.GameBoy, GameConsole.GameBoyColor, GameConsole.GameBoyAdvance, GameConsole.NintendoDs },
+        Platform.Dolphin => new[] { GameConsole.GameCube, GameConsole.Wii },
+        Platform.Ryujinx => new[] { GameConsole.Switch },
+        Platform.Azahar => new[] { GameConsole.Nintendo3ds },
+        _ => Array.Empty<GameConsole>()
+    };
 }

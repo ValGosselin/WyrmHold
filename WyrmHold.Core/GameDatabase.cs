@@ -9,8 +9,16 @@ public class GameDatabase
     public string DatabasePath { get; }
 
     public GameDatabase()
+        : this(Path.Combine(AppPaths.DataFolder, "wyrmhold.db"))
     {
-        DatabasePath = Path.Combine(AppPaths.DataFolder, "wyrmhold.db");
+    }
+
+    /// <summary>
+    /// Une base à un autre endroit : sert aux essais de la console (ex. mode 33, sur un fichier temporaire).
+    /// </summary>
+    public GameDatabase(string databasePath)
+    {
+        DatabasePath = databasePath;
 
         _connectionString = $"Data Source={DatabasePath}";
     }
@@ -208,6 +216,144 @@ public class GameDatabase
         );
         """;
         createRarityChecks.ExecuteNonQuery();
+
+        // Relevés du temps de jeu Steam (ticket #6, 16 novembre 2026). Steam ne donne que le total de chaque jeu :
+        // on garde le dernier total vu (Snapshot), et chaque hausse entre deux synchros devient une ligne (Increase),
+        // datée, que le graphique « Temps de jeu par semaine » compte comme une session.
+        using SqliteCommand createSteamPlaytime = connection.CreateCommand();
+        createSteamPlaytime.CommandText = """
+        CREATE TABLE IF NOT EXISTS SteamPlaytimeSnapshot (
+            AppId    TEXT    PRIMARY KEY,
+            Minutes  INTEGER NOT NULL,
+            SeenUnix INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS SteamPlaytimeIncrease (
+            Id         INTEGER PRIMARY KEY,
+            AppId      TEXT    NOT NULL,
+            PlayedUnix INTEGER NOT NULL,
+            Minutes    INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS IX_SteamPlaytimeIncrease_PlayedUnix ON SteamPlaytimeIncrease(PlayedUnix);
+        """;
+        createSteamPlaytime.ExecuteNonQuery();
+    }
+
+    // ----- Relevés du temps de jeu Steam (ticket #6) -----
+
+    /// <summary>
+    /// Compare le temps total de chaque jeu Steam au dernier relevé, et range chaque hausse dans SteamPlaytimeIncrease.
+    /// Date de la hausse : la dernière partie du jeu selon Steam si elle a eu lieu depuis le relevé précédent, sinon maintenant.
+    /// Au tout premier relevé, rien n'est compté (on part de maintenant, choix de Val du 16 novembre 2026).
+    /// Un jeu jamais relevé (acheté depuis) compte en entier s'il a été joué après la synchro précédente.
+    /// Renvoie le nombre de minutes ajoutées.
+    /// </summary>
+    public long RecordSteamPlaytime(IEnumerable<(string AppId, int Minutes, long LastPlayedUnix)> games, long nowUnix)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using SqliteTransaction transaction = connection.BeginTransaction();
+
+        // 1. Les relevés précédents, et la date du tout premier (null = jamais relevé).
+        Dictionary<string, (int Minutes, long SeenUnix)> snapshots = new Dictionary<string, (int, long)>();
+
+        using (SqliteCommand select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT AppId, Minutes, SeenUnix FROM SteamPlaytimeSnapshot;";
+            using SqliteDataReader reader = select.ExecuteReader();
+
+            while (reader.Read())
+            {
+                snapshots[reader.GetString(0)] = (reader.GetInt32(1), reader.GetInt64(2));
+            }
+        }
+
+        // La synchro précédente (le relevé le plus récent).
+        long? trackingSinceUnix = snapshots.Count == 0 ? null : snapshots.Values.Max(s => s.SeenUnix);
+        long added = 0;
+
+        using SqliteCommand insert = connection.CreateCommand();
+        insert.Transaction = transaction;
+        insert.CommandText = "INSERT INTO SteamPlaytimeIncrease (AppId, PlayedUnix, Minutes) VALUES ($appId, $played, $minutes);";
+        SqliteParameter insertAppId = insert.Parameters.Add("$appId", SqliteType.Text);
+        SqliteParameter insertPlayed = insert.Parameters.Add("$played", SqliteType.Integer);
+        SqliteParameter insertMinutes = insert.Parameters.Add("$minutes", SqliteType.Integer);
+
+        // Le total gardé ne descend jamais : si Steam répondait un jour un chiffre plus petit, la hausse suivante
+        // serait comptée deux fois.
+        using SqliteCommand upsert = connection.CreateCommand();
+        upsert.Transaction = transaction;
+        upsert.CommandText = """
+            INSERT INTO SteamPlaytimeSnapshot (AppId, Minutes, SeenUnix) VALUES ($appId, $minutes, $seen)
+            ON CONFLICT(AppId) DO UPDATE SET
+                Minutes  = max(SteamPlaytimeSnapshot.Minutes, excluded.Minutes),
+                SeenUnix = excluded.SeenUnix;
+            """;
+        SqliteParameter upsertAppId = upsert.Parameters.Add("$appId", SqliteType.Text);
+        SqliteParameter upsertMinutes = upsert.Parameters.Add("$minutes", SqliteType.Integer);
+        upsert.Parameters.AddWithValue("$seen", nowUnix);
+
+        // 2. Chaque jeu (un jeu en double dans la liste n'est compté qu'une fois).
+        foreach ((string appId, int minutes, long lastPlayedUnix) in games.DistinctBy(g => g.AppId))
+        {
+            int increase;
+            long since;
+
+            if (snapshots.TryGetValue(appId, out (int Minutes, long SeenUnix) previous))
+            {
+                increase = minutes - previous.Minutes;
+                since = previous.SeenUnix;
+            }
+            else
+            {
+                // Jeu jamais relevé : compté seulement si on relève déjà et qu'il a été joué depuis la synchro précédente.
+                increase = trackingSinceUnix is long start && lastPlayedUnix > start ? minutes : 0;
+                since = trackingSinceUnix ?? nowUnix;
+            }
+
+            if (increase > 0)
+            {
+                insertAppId.Value = appId;
+                insertPlayed.Value = lastPlayedUnix > since && lastPlayedUnix <= nowUnix ? lastPlayedUnix : nowUnix;
+                insertMinutes.Value = increase;
+                insert.ExecuteNonQuery();
+                added += increase;
+            }
+
+            upsertAppId.Value = appId;
+            upsertMinutes.Value = minutes;
+            upsert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return added;
+    }
+
+    /// <summary>
+    /// Les hausses du temps Steam depuis cette date, sous la même forme que les sessions (début, fin) :
+    /// le graphique par semaine les additionne avec les sessions lancées depuis Wyrmhold.
+    /// </summary>
+    public List<(long StartedUnix, long EndedUnix)> LoadSteamPlaytimeIncreases(long sinceUnix)
+    {
+        using SqliteConnection connection = new SqliteConnection(_connectionString);
+        connection.Open();
+
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "SELECT PlayedUnix, Minutes FROM SteamPlaytimeIncrease WHERE PlayedUnix >= $since;";
+        command.Parameters.AddWithValue("$since", sinceUnix);
+
+        List<(long, long)> increases = new List<(long, long)>();
+        using SqliteDataReader reader = command.ExecuteReader();
+
+        while (reader.Read())
+        {
+            long played = reader.GetInt64(0);
+            increases.Add((played, played + reader.GetInt64(1) * 60));
+        }
+
+        return increases;
     }
 
     // ----- Historique des succès -----

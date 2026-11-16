@@ -72,6 +72,48 @@ public class SteamGridDbApi
         return null;
     }
 
+    // Jaquettes verticales de SteamGridDB (vérifié en console le 16 novembre 2026, mode 31 : le filtre « dimensions »
+    // est respecté, 50 jaquettes au plus par réponse, chacune avec une miniature « thumb » et son auteur).
+    private const string VerticalCoverFilter = "types=static&dimensions=600x900,342x482,660x930&nsfw=false";
+
+    /// <summary>
+    /// Toutes les jaquettes verticales proposées pour ce jeu (clic droit → « Choisir une jaquette… », ticket #41).
+    /// Jeu Steam : par son appid ; sinon (ou si l'appid est inconnu de SteamGridDB) : par son nom exact, comme le
+    /// téléchargement automatique. Liste vide si rien n'est trouvé.
+    /// </summary>
+    public async Task<List<CoverChoice>> GetVerticalCoversAsync(Game game)
+    {
+        List<SgdbGrid>? grids = null;
+
+        if (game.Platform == Platform.Steam)
+        {
+            grids = await GetAsync<List<SgdbGrid>>($"grids/steam/{game.PlatformGameId}?{VerticalCoverFilter}");
+        }
+
+        if (grids is not { Count: > 0 })
+        {
+            foreach (string name in SearchNames(game))
+            {
+                string cleanedName = CleanForSearch(name);
+                List<SgdbGame>? results = await GetAsync<List<SgdbGame>>(
+                    $"search/autocomplete/{Uri.EscapeDataString(cleanedName)}");
+
+                SgdbGame? match = results?.FirstOrDefault(r => NormalizeName(r.Name) == NormalizeName(cleanedName));
+
+                if (match is not null)
+                {
+                    grids = await GetAsync<List<SgdbGrid>>($"grids/game/{match.Id}?{VerticalCoverFilter}");
+                    break;
+                }
+            }
+        }
+
+        return (grids ?? new List<SgdbGrid>())
+            .Where(g => g.Height > g.Width && !string.IsNullOrEmpty(g.Url))
+            .Select(g => new CoverChoice(g.Url, string.IsNullOrEmpty(g.Thumb) ? g.Url : g.Thumb, g.Width, g.Height, g.Author?.Name ?? ""))
+            .ToList();
+    }
+
     /// <summary>
     /// Les noms à essayer : celui du jeu, puis pour un jeu émulé celui de son fichier, et son nom sans la version.
     /// Le nom écrit sur un disque peut être plus court que le vrai titre (« PokePark Wii » pour
@@ -167,4 +209,20 @@ internal class SgdbGrid
 
     [JsonPropertyName("height")]
     public int Height { get; set; }
+
+    // Petite version de l'image (pour la fenêtre de choix).
+    [JsonPropertyName("thumb")]
+    public string Thumb { get; set; } = "";
+
+    [JsonPropertyName("author")]
+    public SgdbAuthor? Author { get; set; }
 }
+
+internal class SgdbAuthor
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+}
+
+/// <summary>Une jaquette proposée par SteamGridDB : l'image, sa miniature, sa taille et qui l'a faite.</summary>
+public record CoverChoice(string Url, string ThumbUrl, int Width, int Height, string Author);
